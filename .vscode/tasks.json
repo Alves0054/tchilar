@@ -1,0 +1,41 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Configurar PostgreSQL existente (avançado)",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"scripts\\setup-database.ps1"
+			],
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "Preparar NOVA+ (base de dados + perfil demo)",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"scripts\\setup-nova-demo.ps1"
+			],
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "Iniciar NOVA+ (frontend + API)",
+			"type": "shell",
+			"command": "npm.cmd",
+			"args": ["run", "dev"],
+			"isBackground": true,
+			"problemMatcher": []
+		}
+	]
+}

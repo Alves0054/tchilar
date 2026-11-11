@@ -1,0 +1,2 @@
+# As migrações são protegidas por checksum: não podem mudar de LF para CRLF.
+server/migrations/*.sql text eol=lf
