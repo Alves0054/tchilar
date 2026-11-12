@@ -79,6 +79,18 @@ A aplicação fica em <http://localhost:4000> e a base de dados fica acessível 
 
 Para publicar atrás de um domínio, define `PUBLIC_APP_URL` e `PUBLIC_CLIENT_URL` no `.env`, configura `NODE_ENV=production`, SMTP e os domínios permitidos antes de iniciar. Usa HTTPS e um proxy reverso; não exponhas diretamente a porta PostgreSQL. Em produção, o arranque exige configuração SMTP válida para envio de confirmação e recuperação.
 
+**Guia completo para um VPS (AngoWeb ou outro), com HTTPS, cópias de segurança, alertas, TURN e a opção Supabase: [deploy/README.md](deploy/README.md).**
+
+## Segurança
+
+- **Cabeçalhos:** `helmet` envia CSP (só scripts do próprio site, a página não pode ser aberta dentro de outra), HSTS fora de desenvolvimento, `nosniff` e `Permissions-Policy` (câmara e microfone só para o próprio site).
+- **Palavras-passe:** bcrypt, mínimo de 8 caracteres, recusa as mais óbvias. Com sessão iniciada, muda-se em Definições → A tua conta.
+- **Sessões:** "Terminar outras sessões" e mudar a palavra-passe invalidam todos os tokens antigos (`auth_version`).
+- **Verificação em dois passos (TOTP):** opcional para toda a gente, **obrigatória para administradores** (sem ela, o painel de administração responde 403). O segredo fica cifrado com `PAYOUT_ENCRYPTION_KEY` e cada código só serve uma vez.
+- **Pagamentos de demonstração:** só com `NODE_ENV=development` **e** `PAYMENTS_DEMO=true`.
+- **Diretos:** com `LIVE_TURN_URL` + `LIVE_TURN_SECRET`, o vídeo passa sempre pelo TURN (ninguém vê o IP de ninguém) e as credenciais expiram em 12 h.
+- **Atrás de nginx:** define `TRUST_PROXY=1`, senão os limites de tentativas contam toda a gente como uma pessoa.
+
 ## Email e autenticação
 
 Configura estas variáveis no `.env` para enviar emails:
@@ -103,7 +115,7 @@ As migrações ficam em `server/migrations`. Uma migração já aplicada é prot
 Os criadores definem o preço mensal em kwanzas (500 Kz a 500 000 Kz) em **Definições → Editar perfil** e podem marcar publicações como **Só para subscritores**. O acesso ao conteúdo exclusivo depende de uma subscrição com `status='active'` e um período pago ainda válido (`current_period_end`).
 
 - **Sem `STRIPE_SECRET_KEY`, em desenvolvimento:** subscrever cria uma subscrição de demonstração de 30 dias, sem pagamento.
-- **Sem `STRIPE_SECRET_KEY`, em produção:** subscrever devolve 503. Ninguém obtém acesso sem pagar.
+- **Sem `STRIPE_SECRET_KEY`, fora de `NODE_ENV=development`** (produção, staging ou variável esquecida): subscrever, promover, comprar estrelas e pagar campanhas devolve 503. Ninguém obtém nada sem pagar. O modo de demonstração (sem cobrança) só existe com `NODE_ENV=development`, e nesse modo os levantamentos estão bloqueados.
 - **Com Stripe:** `POST /api/subscriptions/:creatorId` devolve `checkoutUrl` (Stripe Checkout). A subscrição só fica ativa quando o webhook confirma o pagamento.
 
 Para testar localmente com chaves de teste da Stripe:
@@ -126,9 +138,20 @@ Copia o `whsec_...` mostrado para `STRIPE_WEBHOOK_SECRET`.
 4. **Reembolsos:** quando um administrador recusa uma promoção paga, o Biva pede o reembolso à Stripe automaticamente. Se falhar (ou se o pagamento não tiver identificador), aparece em **Administração → Finanças → Reembolsos a fazer à mão**.
 5. **Faturação:** a Stripe não emite faturas certificadas pela AGT. Para cumprir a lei angolana é preciso um programa de faturação certificado (integração por API) — isto ainda não está feito.
 
-### Outros meios de pagamento
+### Multicaixa Express e Pagamento por Referência
 
-Todos os pagamentos únicos passam por `server/payments.js` (`start`, `refund` e `handleCheckoutSession`). Para ligar Multicaixa Express ou Unitel Money através de um agregador, basta implementar aí o início do pagamento e chamar `fulfill(purpose, refId, { paymentIntent })` quando o agregador confirmar.
+Promoções, estrelas e campanhas podem ser pagas por **Multicaixa Express** ou **Referência** (e por cartão, se a Stripe estiver configurada). O cliente escolhe o método num só ecrã de pagamento.
+
+| Método | Prestador | Variáveis | Webhook |
+|---|---|---|---|
+| Pagamento por Referência (Entidade + Referência + Valor) | [ProxyPay API v2](https://developer.proxypay.co.ao/v2/) | `PROXYPAY_API_KEY`, `PROXYPAY_ENTITY_ID`, `PROXYPAY_ENV` | `https://<domínio>/api/webhooks/proxypay` |
+| Multicaixa Express (pedido na app do telemóvel ou QR code) | [Paybyrd](https://docs.paybyrd.com) | `PAYBYRD_API_KEY` | `https://<domínio>/api/webhooks/paybyrd` |
+
+- **Referências:** válidas 3 dias. A notificação só é aceite com a assinatura `X-Signature` (HMAC-SHA-256 com a chave da API) e o valor pago tem de cobrir o valor pedido. Sem webhook, o servidor lê a fila `GET /payments` da ProxyPay a cada minuto. No sandbox, o ecrã de pagamento mostra **Simular pagamento**.
+- **Multicaixa Express:** o pedido chega à app pelo número de telemóvel (ou QR code). O ecrã vai perguntando o estado; a notificação da Paybyrd nunca é usada como prova — o servidor confirma sempre com `GET /transactions/{id}`.
+- **A confirmar com a Paybyrd antes de ir para produção:** o formato do número (`244#9XXXXXXXX`, como nos exemplos da documentação), se o kwanza (AOA) está ativo na conta e os nomes exatos dos estados finais.
+- **Reembolsos:** Express e Referência não têm devolução automática; aparecem em **Administração → Finanças → Reembolsos a fazer à mão**.
+- Para outro prestador, implementa o cliente em `server/angola-payments.js` e liga-o em `server/payments.js`.
 
 ## Ganhos e levantamentos dos criadores
 

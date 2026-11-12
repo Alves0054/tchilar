@@ -1,2 +1,6 @@
 # As migrações são protegidas por checksum: não podem mudar de LF para CRLF.
 server/migrations/*.sql text eol=lf
+
+# Scripts do servidor Linux: com CRLF o bash falha (": command not found").
+*.sh text eol=lf
+deploy/*.conf text eol=lf

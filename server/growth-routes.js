@@ -87,6 +87,7 @@ function registerGrowthRoutes(app, deps) {
     const id = purchase.rows[0].id;
     const result = await payments.start({
       purpose: "stars", refId: id, amountKz: packPrice(pack), userId: req.user.id, email: user.rows[0]?.email,
+      method: req.body?.method, phone: req.body?.phone,
       name: `${pack.stars}${pack.bonus ? ` + ${pack.bonus}` : ""} Estrelas Biva`,
       successPath: "/estrelas?pagamento=sucesso", cancelPath: "/estrelas?pagamento=cancelado",
       onSession: sessionId => pool.query("UPDATE star_purchases SET stripe_session_id=$2 WHERE id=$1", [id, sessionId])
@@ -264,6 +265,7 @@ function registerGrowthRoutes(app, deps) {
       const user = await pool.query("SELECT email FROM users WHERE id=$1", [req.user.id]);
       const result = await payments.start({
         purpose: "campaign", refId: id, amountKz: row.budget, userId: req.user.id, email: user.rows[0]?.email,
+        method: req.body?.method, phone: req.body?.phone,
         name: `Campanha no Biva: ${row.title}`,
         successPath: "/creator/parcerias?pagamento=sucesso", cancelPath: "/creator/parcerias?pagamento=cancelado",
         onSession: sessionId => pool.query("UPDATE brand_campaigns SET stripe_session_id=$2 WHERE id=$1", [id, sessionId])

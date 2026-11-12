@@ -34,6 +34,20 @@ services:
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       SMTP_FROM: ${SMTP_FROM:-}
+      # Obrigatória em produção: cifra os IBAN dos criadores e os segredos da verificação em dois passos.
+      PAYOUT_ENCRYPTION_KEY: ${PAYOUT_ENCRYPTION_KEY:?Set PAYOUT_ENCRYPTION_KEY in .env}
+      # 1 = há um nginx à frente (o IP real de cada pessoa vem do nginx).
+      TRUST_PROXY: ${TRUST_PROXY:-1}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      SUBSCRIPTION_CURRENCY: ${SUBSCRIPTION_CURRENCY:-aoa}
+      PROXYPAY_API_KEY: ${PROXYPAY_API_KEY:-}
+      PROXYPAY_ENTITY_ID: ${PROXYPAY_ENTITY_ID:-}
+      PROXYPAY_ENV: ${PROXYPAY_ENV:-sandbox}
+      PAYBYRD_API_KEY: ${PAYBYRD_API_KEY:-}
+      LIVE_TURN_URL: ${LIVE_TURN_URL:-}
+      LIVE_TURN_SECRET: ${LIVE_TURN_SECRET:-}
+      LIVE_TURN_RELAY_ONLY: ${LIVE_TURN_RELAY_ONLY:-true}
     ports:
       - "127.0.0.1:4000:4000"
     volumes:

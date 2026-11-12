@@ -1,8 +1,11 @@
-import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
+﻿import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal, flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Link, Navigate, NavLink, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
+  Lock,
+  Mail,
+  MonitorSmartphone,
   Ban,
   ChevronDown,
   Globe,
@@ -17,6 +20,17 @@ import {
   Info,
   MapPin,
   MoreHorizontal,
+  Mic,
+  MicOff,
+  Radio,
+  Send,
+  Square,
+  VideoOff,
+  Volume2,
+  VolumeX,
+  CreditCard,
+  Hash,
+  Smartphone,
   BadgeCheck,
   BriefcaseBusiness,
   Copy,
@@ -61,6 +75,7 @@ import {
   Zap
 } from "lucide-react";
 import "@fontsource-variable/nunito";
+import "@fontsource-variable/bricolage-grotesque";
 import { AvatarEditor, CoverEditor, downscaleImage } from "./PhotoEditors.jsx";
 import "./styles.css";
 
@@ -86,6 +101,7 @@ async function api(path, options = {}) {
   if (!response.ok) {
     const failure = new Error(data.error || "Não foi possível concluir o pedido.");
     failure.status = response.status;
+    failure.data = data;
     throw failure;
   }
   return data;
@@ -111,6 +127,17 @@ const ICONS = {
   info: Info,
   location: MapPin,
   more: MoreHorizontal,
+  live: Radio,
+  mic: Mic,
+  micOff: MicOff,
+  send: Send,
+  stop: Square,
+  videoOff: VideoOff,
+  volumeOff: VolumeX,
+  volumeOn: Volume2,
+  card: CreditCard,
+  phone: Smartphone,
+  reference: Hash,
   academy: GraduationCap,
   brand: BriefcaseBusiness,
   copy: Copy,
@@ -131,6 +158,9 @@ const ICONS = {
   camera: Camera,
   check: Check,
   close: X,
+  lock: Lock,
+  devices: MonitorSmartphone,
+  mail: Mail,
   create: PenLine,
   events: CalendarDays,
   externalLink: ExternalLink,
@@ -286,6 +316,7 @@ function SearchBox({ user }) {
 const NAV_ITEMS = [
   ["/", "home", "Início"],
   ["/reels", "reels", "Reels"],
+  ["/live", "live", "Diretos"],
   ["/friends", "friends", "Amigos"],
   ["/groups", "groups", "Grupos"],
   ["/events", "events", "Eventos"]
@@ -316,7 +347,7 @@ function TopBar({ user, unreadCount, unreadMessages, onLogout }) {
           {openMenu === "apps" && <div className="topbar-dropdown apps-menu" role="menu">
             <h2>Menu</h2>
             {[["/pages", "pages", "Páginas", "Segue projetos e marcas"], ["/events", "events", "Eventos", "Encontros perto de ti"], ["/groups", "groups", "Grupos", "Pessoas com os mesmos interesses"],
-              ["/reels", "reels", "Reels", "Vídeos da comunidade"], ["/creator", "stats", "Painel do criador", "Insights, conteúdo e anúncios"],
+              ["/reels", "reels", "Reels", "Vídeos da comunidade"], ["/live", "live", "Diretos", "Quem está ao vivo agora"], ["/creator", "stats", "Painel do criador", "Insights, conteúdo e anúncios"],
               ["/estrelas", "star", "Estrelas", "Apoia os teus criadores"], ["/marcas", "brand", "Marcas", "Campanhas com criadores"],
               ["/desafios", "trophy", "Desafios", "Participa e ganha prémios"], ["/convidar", "gift", "Convidar amigos", "Ganha estrelas"],
               ["/academia", "academy", "Academia Biva", "Cresce como criador"], ["/help", "help", "Ajuda", "Perguntas frequentes"]]
@@ -369,7 +400,7 @@ function Home() {
   return user ? <Feed /> : <Auth key="login" mode="login" />;
 }
 
-const PASSWORD_MIN = 6;
+const PASSWORD_MIN = 8;
 const USERNAME_PATTERN = /^[a-z0-9._]{3,40}$/;
 
 // Força estimada da palavra-passe (0–4). É uma ajuda visual; o servidor só exige o mínimo.
@@ -485,7 +516,10 @@ function Auth({ mode }) {
   const [actionUrl, setActionUrl] = useState("");
   const [sentTo, setSentTo] = useState("");
   const [busy, setBusy] = useState(false);
+  const [needsCode, setNeedsCode] = useState(false);
+  const [twoFactorCode, setTwoFactorCode] = useState("");
   const update = (key, value) => {
+    if (key === "email" || key === "password") setNeedsCode(false);
     setForm(current => ({ ...current, [key]: value }));
     setFieldErrors(current => ({ ...current, [key]: undefined }));
   };
@@ -545,7 +579,7 @@ function Auth({ mode }) {
         const result = await api("/auth/login", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: form.email.trim(), password: form.password })
+          body: JSON.stringify({ email: form.email.trim(), password: form.password, ...(needsCode && { code: twoFactorCode }) })
         });
         localStorage.setItem("token", result.token);
         await refreshUser();
@@ -568,7 +602,15 @@ function Auth({ mode }) {
       setActionUrl(result.verificationUrl || "");
       setForm(current => ({ ...current, password: "" }));
     } catch (submitError) {
-      setError(submitError.message);
+      // Palavra-passe certa, mas a conta tem verificação em dois passos: pede o código.
+      if (isLogin && submitError.data?.twoFactorRequired) {
+        setTwoFactorCode("");
+        if (needsCode) setError(submitError.message);
+        setNeedsCode(true);
+        window.requestAnimationFrame(() => document.getElementById("two-factor-code")?.focus());
+      } else {
+        setError(submitError.message);
+      }
     } finally {
       setBusy(false);
     }
@@ -672,6 +714,12 @@ function Auth({ mode }) {
                     : `Pelo menos ${PASSWORD_MIN} caracteres.`}</p>}
               </>}
             </PasswordField>
+
+            {isLogin && needsCode && <div className="entry-field entry-two-factor">
+              <EntryInput id="two-factor-code" label="Código de 6 dígitos" required inputMode="numeric" autoComplete="one-time-code" maxLength={6} pattern="[0-9]{6}"
+                value={twoFactorCode} onChange={event => setTwoFactorCode(event.target.value.replace(/\D/g, "").slice(0, 6))} describedBy="two-factor-help" />
+              <p className="entry-hint" id="two-factor-help">Abre a tua app de autenticação (Google Authenticator, Authy...) e escreve o código do Biva.</p>
+            </div>}
 
             {!isLogin && <label className="entry-creator">
               <input type="checkbox" checked={form.isCreator} onChange={event => update("isCreator", event.target.checked)} />
@@ -786,7 +834,7 @@ function ResetPassword() {
     }
   };
 
-  return <section className="auth page"><form className="auth-card" onSubmit={submit}><div className="eyebrow">BIVA</div><h1>Nova palavra-passe.</h1><input required minLength="6" type="password" placeholder="Nova palavra-passe" value={password} onChange={event => setPassword(event.target.value)} />{error && <p className="error">{error}</p>}{notice && <p className="success">{notice}</p>}<button className="btn full" disabled={busy}>{busy ? "A guardar..." : "Atualizar palavra-passe"}</button></form></section>;
+  return <section className="auth page"><form className="auth-card" onSubmit={submit}><div className="eyebrow">BIVA</div><h1>Nova palavra-passe.</h1><input required minLength={PASSWORD_MIN} type="password" autoComplete="new-password" placeholder="Nova palavra-passe" value={password} onChange={event => setPassword(event.target.value)} />{error && <p className="error">{error}</p>}{notice && <p className="success">{notice}</p>}<button className="btn full" disabled={busy}>{busy ? "A guardar..." : "Atualizar palavra-passe"}</button></form></section>;
 }
 
 function ExclusiveToggle({ user, checked, onChange }) {
@@ -1436,6 +1484,8 @@ function StoryZone() {
     group.stories.push(story);
     return groups;
   }, []);
+  const [liveNow, setLiveNow] = useState([]);
+  useEffect(() => { api("/lives").then(result => setLiveNow(result.lives.slice(0, 6))).catch(() => {}); }, []);
   const [sponsoredStory, setSponsoredStory] = useState(null);
   useEffect(() => { api("/ads/feed?placement=stories").then(result => setSponsoredStory(result.posts[0] || null)).catch(() => {}); }, []);
   if (sponsoredStory) storyGroups.splice(0, 0, {
@@ -1548,6 +1598,12 @@ function StoryZone() {
         <span className="stories-create-label">Criar story</span>
       </button>
       {/* O cartão abre o story; o nome é um link à parte (um link não pode ficar dentro de um botão). */}
+      {liveNow.map(live => <Link key={`live-${live.id}`} className="stories-card stories-live" to={`/live/${live.id}`} aria-label={`Ver o direto de ${live.display_name}`}>
+        <span className={`stories-live-cover tone-page-${pageTone(live.username)}`} />
+        <span className="stories-ring is-live"><Avatar user={live} size="tiny" /></span>
+        <LiveBadge small />
+        <span className="stories-name">{live.display_name}</span>
+      </Link>)}
       {storyGroups.map(group => <div className="stories-card" key={group.user_id}>
         <button className="stories-open" type="button" aria-label={`Ver story de ${group.display_name}`}
           onClick={() => { setActiveStoryIndex(0); setActiveGroupId(group.user_id); }}>
@@ -1569,7 +1625,7 @@ function StoryZone() {
     {showComposer && <div className="story-modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setShowComposer(false); }}>
       <form className="story-composer-modal" onSubmit={createStory} aria-label="Criar story">
         <button className="story-modal-close" type="button" aria-label="Fechar" onClick={() => setShowComposer(false)}><Icon name="close" size={17} /></button>
-        <p className="feed-section-kicker">UM MOMENTO, À TUA MANEIRA</p>
+        <p className="feed-section-kicker">Um momento, à tua maneira</p>
         <h2>Criar story</h2>
         <p className="story-modal-description">Escreve uma ideia ou junta uma fotografia. O teu story fica disponível durante 24 horas.</p>
         <textarea aria-label="Texto do story" maxLength="500" placeholder="O que gostarias de partilhar?" value={body} onChange={event => setBody(event.target.value)} />
@@ -1630,6 +1686,7 @@ function useHomeSidebars(user) {
 
 const HOME_LINKS = [
   ["/creator", "stats", "Painel do criador"],
+  ["/live", "live", "Diretos"],
   ["/friends", "friends", "Amigos"],
   ["/messages", "messages", "Mensagens"],
   ["/groups", "groups", "Grupos"],
@@ -1837,7 +1894,7 @@ function Reels() {
   return <section className="page narrow reels-page">
     <header className="reels-heading">
       <span className="reels-heading-icon"><Icon name="reels" size={22} /></span>
-      <div><p className="feed-section-kicker">VÍDEOS DA COMUNIDADE</p><h1>Reels</h1><p>Momentos em vídeo partilhados por quem está no Biva.</p></div>
+      <div><p className="feed-section-kicker">Vídeos da comunidade</p><h1>Reels</h1><p>Momentos em vídeo partilhados por quem está no Biva.</p></div>
       <Link className="reels-create-link" to="/create"><Icon name="camera" size={16} />Partilhar vídeo</Link>
     </header>
     {loading && <div className="empty card">A carregar vídeos...</div>}
@@ -2467,19 +2524,35 @@ function CreatorAds() {
   const toggleProvince = province => update("provinces", form.provinces.includes(province) ? form.provinces.filter(item => item !== province) : [...form.provinces, province]);
   const selectedPost = posts.find(post => String(post.id) === String(form.postId));
 
-  // Depois de criar: vai para o pagamento ou (sem Stripe, em desenvolvimento) fica logo ativo.
-  const handlePayment = async result => {
-    if (result.checkoutUrl) return window.location.assign(result.checkoutUrl);
-    if (result.demo) setNotice("Promoção paga em modo de demonstração (sem cobrança). Fica em revisão até a equipa a aprovar.");
-    await load();
-  };
+  const [paying, setPaying] = useState(null);
+  const paidNotice = "Pagamento recebido. A promoção fica em revisão e entra no ar assim que a equipa a aprovar (normalmente em menos de 24 horas).";
 
+  // Criar: abre o ecrã de pagamento; a promoção só é criada quando se escolhe como pagar.
   const submit = async event => {
     event.preventDefault();
     if (form.kind === "boost" && !form.postId) return setFormError("Escolhe a publicação que queres impulsionar.");
-    setBusy(true);
     setFormError("");
-    try {
+    let createdId = null;
+    setPaying({
+      title: form.kind === "boost" ? "Pagar publicação impulsionada" : "Pagar anúncio",
+      amount: Number(form.budget) || 0,
+      onPay: async choice => {
+        // Segunda tentativa (por exemplo, outro método): paga a promoção já criada.
+        if (createdId) return api(`/ads/${createdId}/checkout`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(choice) });
+        const data = await buildAdForm();
+        Object.entries(choice).forEach(([key, value]) => data.append(key, value));
+        const result = await api("/ads", { method: "POST", body: data });
+        createdId = result.id;
+        setCreating(false);
+        setForm(EMPTY_AD);
+        setImage(null);
+        return result;
+      }
+    });
+  };
+
+  const buildAdForm = async () => {
+    {
       const data = new FormData();
       const fields = form.kind === "boost"
         ? { postId: form.postId, title: form.title, budget: form.budget, days: form.days }
@@ -2489,26 +2562,15 @@ function CreatorAds() {
       if (form.minAge !== "") data.append("targetMinAge", form.minAge);
       if (form.maxAge !== "") data.append("targetMaxAge", form.maxAge);
       if (image && form.kind === "ad") data.append("image", await downscaleImage(image, 1200, 1200));
-      const result = await api("/ads", { method: "POST", body: data });
-      setCreating(false);
-      setForm(EMPTY_AD);
-      setImage(null);
-      await handlePayment(result);
-    } catch (submitError) {
-      setFormError(submitError.message);
-    } finally {
-      setBusy(false);
+      return data;
     }
   };
 
-  const pay = async ad => {
-    setError("");
-    try {
-      await handlePayment(await api(`/ads/${ad.id}/checkout`, { method: "POST" }));
-    } catch (payError) {
-      setError(payError.message);
-    }
-  };
+  const pay = ad => setPaying({
+    title: `Pagar «${ad.title}»`,
+    amount: ad.budget,
+    onPay: choice => api(`/ads/${ad.id}/checkout`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(choice) })
+  });
 
   const setStatus = async (ad, status) => {
     setError("");
@@ -2531,6 +2593,8 @@ function CreatorAds() {
   };
 
   return <>
+    {paying && <PaymentDialog title={paying.title} amountKz={paying.amount} onPay={paying.onPay}
+      onDone={() => { setNotice(paidNotice); load(); }} onClose={() => { setPaying(null); load(); }} />}
     <section className="creator-card" aria-labelledby="ads-full-title">
       <div className="creator-card-head">
         <div><h2 id="ads-full-title">Anúncios e publicações impulsionadas</h2>
@@ -2780,19 +2844,13 @@ function StarsPage() {
       if (payment === "sucesso") window.setTimeout(load, 4000);
     }
   }, [user?.id]);
-  const buy = async pack => {
-    setBusy(pack.index);
+  const [paying, setPaying] = useState(null);
+  const buy = pack => {
     setError("");
-    try {
-      const result = await api("/stars/purchase", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pack: pack.index }) });
-      if (result.checkoutUrl) return window.location.assign(result.checkoutUrl);
-      if (result.demo) setNotice(`${pack.stars + pack.bonus} estrelas adicionadas em modo de demonstração (sem pagamento).`);
-      await load();
-    } catch (buyError) {
-      setError(buyError.message);
-    } finally {
-      setBusy(null);
-    }
+    setPaying({
+      pack,
+      onPay: choice => api("/stars/purchase", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pack: pack.index, ...choice }) })
+    });
   };
   if (!authReady) return <div className="page narrow"><div className="empty card">A carregar...</div></div>;
   if (!user) return <div className="page narrow"><div className="empty card">Entra na tua conta para veres as tuas estrelas. <Link to="/login">Entrar</Link></div></div>;
@@ -2806,10 +2864,13 @@ function StarsPage() {
   return <div className="page narrow growth-page">
     <header className="growth-hero card">
       <span className="growth-hero-icon tone-star"><Icon name="star" size={28} /></span>
-      <div><p className="feed-section-kicker">ESTRELAS BIVA</p><h1>Apoia quem gostas</h1>
+      <div><p className="feed-section-kicker">Estrelas Biva</p><h1>Apoia quem gostas</h1>
         <p>Oferece estrelas nas publicações dos teus criadores favoritos. Cada estrela vale {data ? formatPrice(data.price_kz) : "10 Kz"}; o criador recebe 70% e o Biva fica com 30%.</p></div>
       <div className="growth-balance"><small>O teu saldo</small><strong><Icon name="star" size={20} /> {data ? formatCount(data.balance) : "…"}</strong></div>
     </header>
+    {paying && <PaymentDialog title={`Comprar ${formatCount(paying.pack.stars + paying.pack.bonus)} estrelas`} amountKz={paying.pack.price} onPay={paying.onPay}
+      onDone={() => { setNotice(`${paying.pack.stars + paying.pack.bonus} estrelas adicionadas ao teu saldo.`); load(); }}
+      onClose={() => { setPaying(null); load(); }} />}
     {notice && <p className="success" role="status">{notice}</p>}
     {error && <p className="error" role="alert">{error}</p>}
     {data?.payments === "demo" && <p className="info-draft" role="note"><Icon name="info" size={15} /> Pagamentos em modo de demonstração: as compras não são cobradas.</p>}
@@ -2876,7 +2937,7 @@ function AudienceSettings() {
   return <section className="settings-section card" id="audience" aria-labelledby="audience-heading">
     <div className="settings-section-heading">
       <span className="settings-option-icon"><Icon name="location" /></span>
-      <div><p className="settings-section-kicker">PRIVADO</p><h2 id="audience-heading">Província e idade</h2><p>Só servem para te mostrar promoções da tua zona e idade. Não aparecem no teu perfil, e a província só é vista pelas marcas se o autorizares.</p></div>
+      <div><p className="settings-section-kicker">Privado</p><h2 id="audience-heading">Província e idade</h2><p>Só servem para te mostrar promoções da tua zona e idade. Não aparecem no teu perfil, e a província só é vista pelas marcas se o autorizares.</p></div>
     </div>
     {data && <form className="audience-form" onSubmit={save}>
       <label>Província<select value={form.province} onChange={event => setForm({ ...form, province: event.target.value })}>
@@ -2912,7 +2973,7 @@ function BrandsPage() {
   return <div className="page growth-page brands-page">
     <header className="growth-hero card">
       <span className="growth-hero-icon tone-brand"><Icon name="brand" size={28} /></span>
-      <div><p className="feed-section-kicker">MARKETPLACE DE MARCAS</p><h1>Encontra criadores para a tua marca</h1>
+      <div><p className="feed-section-kicker">Marketplace de marcas</p><h1>Encontra criadores para a tua marca</h1>
         <p>Filtra por província, área e número de seguidores e envia uma proposta de campanha. Pagas pelo Biva quando o criador aceitar; o Biva fica com 15%.</p></div>
     </header>
     <div className="brand-filters card" role="search">
@@ -2997,8 +3058,13 @@ function CreatorPartnerships() {
       if (payment === "sucesso") window.setTimeout(load, 4000);
     }
   }, []);
+  const [paying, setPaying] = useState(null);
   const act = async (campaign, action) => {
     setError("");
+    if (action === "pay") {
+      setPaying({ campaign, onPay: choice => api(`/campaigns/${campaign.id}/pay`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(choice) }) });
+      return;
+    }
     try {
       const result = await api(`/campaigns/${campaign.id}/${action}`, { method: "POST" });
       if (result.checkoutUrl) return window.location.assign(result.checkoutUrl);
@@ -3030,6 +3096,8 @@ function CreatorPartnerships() {
     </li>;
   };
   return <>
+    {paying && <PaymentDialog title={`Pagar a campanha «${paying.campaign.title}»`} amountKz={paying.campaign.budget} onPay={paying.onPay}
+      onDone={() => { setNotice("Campanha paga. O criador já pode começar."); load(); }} onClose={() => { setPaying(null); load(); }} />}
     <section className="creator-card" aria-labelledby="partnerships-title">
       <div className="creator-card-head"><div><h2 id="partnerships-title">Parcerias com marcas</h2><p>Propostas de campanhas pagas. O Biva fica com 15% de cada campanha.</p></div>
         <Link className="btn secondary" to="/marcas"><Icon name="brand" size={16} /> Marketplace de marcas</Link></div>
@@ -3103,7 +3171,7 @@ function ChallengesPage() {
   return <div className="page growth-page challenges-page">
     <header className="growth-hero card">
       <span className="growth-hero-icon tone-trophy"><Icon name="trophy" size={28} /></span>
-      <div><p className="feed-section-kicker">DESAFIOS DO MÊS</p><h1>Participa e ganha prémios</h1>
+      <div><p className="feed-section-kicker">Desafios do mês</p><h1>Participa e ganha prémios</h1>
         <p>Escolhe uma das tuas publicações para entrar no desafio. Ganha quem tiver mais gostos quando o desafio terminar.</p></div>
       {user?.is_admin && !creating && <button className="btn" type="button" onClick={() => setCreating(true)}><Icon name="plus" size={16} /> Novo desafio</button>}
     </header>
@@ -3174,7 +3242,7 @@ function InvitePage() {
   return <div className="page narrow growth-page">
     <header className="growth-hero card">
       <span className="growth-hero-icon tone-gift"><Icon name="gift" size={28} /></span>
-      <div><p className="feed-section-kicker">CONVIDAR AMIGOS</p><h1>Traz os teus amigos e ganha estrelas</h1>
+      <div><p className="feed-section-kicker">Convidar amigos</p><h1>Traz os teus amigos e ganha estrelas</h1>
         <p>Por cada pessoa que entrar com o teu convite, confirmar o email e fizer a primeira publicação, ganhas {data?.bonus ?? 50} estrelas.</p></div>
     </header>
     <section className="creator-card">
@@ -3204,7 +3272,7 @@ function AcademyPage() {
   return <div className="page narrow growth-page">
     <header className="growth-hero card">
       <span className="growth-hero-icon tone-academy"><Icon name="academy" size={28} /></span>
-      <div><p className="feed-section-kicker">ACADEMIA BIVA</p><h1>Cresce como criador</h1>
+      <div><p className="feed-section-kicker">Academia Biva</p><h1>Cresce como criador</h1>
         <p>Guias curtos para chegares aos 10 mil seguidores e entrares no Programa de Parceiros.</p></div>
     </header>
     <div className="academy-grid">{ACADEMY_GUIDES.map(([title, icon, tips], index) => <article className="creator-card academy-card" key={title}>
@@ -3469,6 +3537,883 @@ function AdminFinance() {
 }
 
 // ---------------------------------------------------------------------------------------------
+// Pagamento: Multicaixa Express, Referência ou cartão — um só ecrã para todos os produtos
+// ---------------------------------------------------------------------------------------------
+const PAYMENT_METHODS = {
+  express: ["Multicaixa Express", "Recebes o pedido na app do teu telemóvel.", "phone"],
+  reference: ["Pagamento por Referência", "Paga no ATM, no Multicaixa Express ou no internet banking.", "reference"],
+  card: ["Cartão", "Visa ou Mastercard.", "card"]
+};
+
+// onPay(choice) faz o pedido ao servidor e devolve a resposta (checkoutUrl, demo, express ou reference).
+function PaymentDialog({ title, amountKz, onPay, onDone, onClose }) {
+  const [methods, setMethods] = useState(null);
+  const [mode, setMode] = useState("stripe");
+  const [method, setMethod] = useState("");
+  const [phone, setPhone] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [pending, setPending] = useState(null);
+  const [state, setState] = useState("pending");
+
+  useEffect(() => {
+    api("/payments/methods").then(result => { setMethods(result.methods); setMode(result.mode); setMethod(result.methods[0] || ""); })
+      .catch(() => { setMethods([]); setMode("off"); });
+  }, []);
+
+  useEffect(() => {
+    const onKey = event => { if (event.key === "Escape" && !busy) onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose, busy]);
+
+  // Enquanto espera pela confirmação, pergunta ao servidor de poucos em poucos segundos.
+  useEffect(() => {
+    if (!pending || state !== "pending") return undefined;
+    const timer = window.setInterval(async () => {
+      try {
+        const result = await api(`/payments/${pending.paymentId}`);
+        setState(result.status);
+        if (result.status === "paid") onDone();
+      } catch { /* tenta outra vez no próximo intervalo */ }
+    }, pending.method === "express" ? 3000 : 8000);
+    return () => window.clearInterval(timer);
+  }, [pending, state]);
+
+  const pay = async event => {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      const result = await onPay(mode === "demo" ? {} : { method, ...(method === "express" && { phone }) });
+      if (result.checkoutUrl) return window.location.assign(result.checkoutUrl);
+      if (result.demo || result.activated) { setState("paid"); onDone(result); return; }
+      if (result.method === "express" || result.method === "reference") { setPending(result); setState("pending"); return; }
+      if (result.error) setError(result.error);
+    } catch (payError) {
+      setError(payError.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const simulate = async () => {
+    try { setState((await api(`/payments/${pending.paymentId}/simulate`, { method: "POST" })).status); } catch (simError) { setError(simError.message); }
+  };
+
+  const copy = text => navigator.clipboard?.writeText(String(text)).catch(() => {});
+  const close = () => { if (!busy) onClose(); };
+
+  return createPortal(<div className="modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) close(); }}>
+    <div className="modal card payment-dialog" role="dialog" aria-modal="true" aria-labelledby="payment-title">
+      <div className="share-dialog-head">
+        <h2 id="payment-title">{state === "paid" ? "Pagamento confirmado" : title}</h2>
+        <button className="round-button" type="button" aria-label="Fechar" onClick={close}><Icon name="close" size={18} /></button>
+      </div>
+      <div className="payment-amount"><small>Valor a pagar</small><strong>{formatPrice(amountKz)}</strong></div>
+
+      {state === "paid" ? <div className="payment-result is-ok">
+        <span className="payment-result-icon"><Icon name="check" size={28} /></span>
+        <p>Recebemos o teu pagamento. Obrigado!</p>
+        <button className="btn" type="button" onClick={onClose}>Concluir</button>
+      </div>
+
+      : pending ? (pending.method === "express" ? <div className="payment-wait">
+        <span className="payment-pulse" aria-hidden="true"><Icon name="phone" size={26} /></span>
+        <h3>Confirma na app Multicaixa Express</h3>
+        <p>Enviámos o pedido para o número {pending.phone}. Abre a app e aceita o pagamento.</p>
+        {pending.qrCodeUrl && <figure className="payment-qr"><img src={pending.qrCodeUrl} alt="Código QR para pagar com o Multicaixa Express" /><figcaption>Ou lê este código com a app.</figcaption></figure>}
+        {pending.deeplink && <a className="btn secondary" href={pending.deeplink}>Abrir a app</a>}
+        <PaymentState state={state} />
+      </div> : <div className="payment-wait">
+        <h3>Paga com estes dados</h3>
+        <dl className="payment-reference">
+          <div><dt>Entidade</dt><dd>{pending.entity}</dd><button type="button" className="text-button" onClick={() => copy(pending.entity)}>Copiar</button></div>
+          <div><dt>Referência</dt><dd>{String(pending.reference).replace(/(\d{3})(?=\d)/g, "$1 ")}</dd><button type="button" className="text-button" onClick={() => copy(pending.reference)}>Copiar</button></div>
+          <div><dt>Valor</dt><dd>{formatPrice(pending.amount)}</dd></div>
+        </dl>
+        <p className="muted">No ATM, no Multicaixa Express ou no internet banking: escolhe <strong>Pagamentos → Pagamento por Referência</strong>. Válida até {new Date(pending.expiresAt).toLocaleDateString("pt-PT", { day: "numeric", month: "long" })}. Podes fechar esta janela: confirmamos sozinhos quando pagares.</p>
+        {pending.sandbox && <button className="btn secondary" type="button" onClick={simulate}>Simular pagamento (teste)</button>}
+        <PaymentState state={state} />
+      </div>)
+
+      : <form className="payment-form" onSubmit={pay}>
+        {mode === "demo" && <p className="info-draft" role="note"><Icon name="info" size={15} /> Modo de demonstração: o pagamento é aprovado sem cobrança.</p>}
+        {mode === "off" && <p className="error">Os pagamentos ainda não estão disponíveis.</p>}
+        {mode !== "demo" && methods && methods.length > 0 && <div className="payment-methods" role="radiogroup" aria-label="Método de pagamento">
+          {methods.map(id => {
+            const [label, hint, icon] = PAYMENT_METHODS[id];
+            return <label key={id} className={`payment-method${method === id ? " is-selected" : ""}`}>
+              <input type="radio" name="payment-method" checked={method === id} onChange={() => setMethod(id)} />
+              <span className={`payment-method-icon is-${id}`}><Icon name={icon} size={20} /></span>
+              <span><strong>{label}</strong><small>{hint}</small></span>
+            </label>;
+          })}
+        </div>}
+        {method === "express" && mode !== "demo" && <label className="payment-phone">Número do Multicaixa Express
+          <span><b>+244</b><input type="tel" inputMode="numeric" autoComplete="tel-national" placeholder="9XX XXX XXX" maxLength={11} required value={phone}
+            onChange={event => setPhone(event.target.value.replace(/[^\d ]/g, ""))} /></span></label>}
+        {error && <p className="error" role="alert">{error}</p>}
+        <div className="modal-actions">
+          <button className="btn secondary" type="button" onClick={close} disabled={busy}>Cancelar</button>
+          <button className="btn" type="submit" disabled={busy || mode === "off" || !methods}>{busy ? "A preparar..." : `Pagar ${formatPrice(amountKz)}`}</button>
+        </div>
+      </form>}
+    </div>
+  </div>, document.body);
+}
+
+function PaymentState({ state }) {
+  if (state === "pending") return <p className="payment-state"><span className="payment-spinner" aria-hidden="true" /> À espera da confirmação...</p>;
+  if (state === "failed") return <p className="payment-state is-error" role="alert">O pagamento foi recusado ou cancelado. Podes tentar outra vez.</p>;
+  if (state === "expired") return <p className="payment-state is-error" role="alert">O prazo para pagar terminou. Gera um novo pagamento.</p>;
+  return null;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Diretos (lives): vídeo por WebRTC entre quem emite e cada espectador, chat e estrelas
+// ---------------------------------------------------------------------------------------------
+let pendingHostStream = null; // a câmara aberta no diálogo passa para a sala sem pedir outra vez
+
+const liveDuration = since => {
+  const seconds = Math.max(0, Math.floor((Date.now() - new Date(since).getTime()) / 1000));
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = seconds % 60;
+  return `${h ? `${h}:` : ""}${String(m).padStart(h ? 2 : 1, "0")}:${String(s).padStart(2, "0")}`;
+};
+
+// Espera que o browser junte os caminhos de rede (ICE) para enviar a oferta/resposta completa.
+const waitForIce = (pc, timeout = 3500) => new Promise(resolve => {
+  if (pc.iceGatheringState === "complete") return resolve();
+  const timer = window.setTimeout(resolve, timeout);
+  pc.addEventListener("icegatheringstatechange", () => { if (pc.iceGatheringState === "complete") { window.clearTimeout(timer); resolve(); } });
+});
+
+const sendSignal = (liveId, to, kind, payload = "") => api(`/lives/${liveId}/signals`, {
+  method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ to, kind, payload })
+});
+
+function LiveBadge({ small }) {
+  return <span className={`live-badge${small ? " is-small" : ""}`}><span className="live-dot" aria-hidden="true" />Ao vivo</span>;
+}
+
+function StartLiveDialog({ onClose }) {
+  const navigate = useNavigate();
+  const videoRef = useRef(null);
+  const [stream, setStream] = useState(null);
+  const [title, setTitle] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    let current = null;
+    if (!navigator.mediaDevices?.getUserMedia) { setError("Este browser não permite usar a câmara. Usa o Chrome, Edge ou Safari atualizados."); return undefined; }
+    navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1280 }, height: { ideal: 720 } }, audio: true })
+      .then(media => { current = media; setStream(media); if (videoRef.current) videoRef.current.srcObject = media; })
+      .catch(() => setError("Não foi possível abrir a câmara e o microfone. Autoriza o acesso no browser e tenta outra vez."));
+    return () => { if (current && current !== pendingHostStream) current.getTracks().forEach(track => track.stop()); };
+  }, []);
+  const start = async event => {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      const result = await api("/lives", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title }) });
+      pendingHostStream = stream;
+      navigate(`/live/${result.id}`);
+    } catch (startError) {
+      setError(startError.message);
+      setBusy(false);
+    }
+  };
+  return createPortal(<div className="modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget && !busy) onClose(); }}>
+    <form className="modal card start-live-dialog" role="dialog" aria-modal="true" aria-labelledby="start-live-title" onSubmit={start}>
+      <div className="share-dialog-head">
+        <h2 id="start-live-title">Começar um direto</h2>
+        <button className="round-button" type="button" aria-label="Fechar" onClick={onClose} disabled={busy}><Icon name="close" size={18} /></button>
+      </div>
+      <div className="start-live-preview">
+        <video ref={videoRef} autoPlay muted playsInline />
+        {!stream && !error && <span>A abrir a câmara...</span>}
+        {stream && <LiveBadge small />}
+      </div>
+      <label className="start-live-title">Título do direto<input required maxLength={120} value={title} onChange={event => setTitle(event.target.value)} placeholder="Ex.: Conversa sobre música angolana" /></label>
+      <p className="muted create-page-note">Quem te segue recebe uma notificação. O vídeo chega diretamente a até 8 pessoas; o chat e as estrelas funcionam para todos.</p>
+      {error && <p className="error" role="alert">{error}</p>}
+      <div className="modal-actions">
+        <button className="btn secondary" type="button" onClick={onClose} disabled={busy}>Cancelar</button>
+        <button className="btn live-start-button" type="submit" disabled={busy || !stream || !title.trim()}><Icon name="live" size={16} /> {busy ? "A começar..." : "Entrar em direto"}</button>
+      </div>
+    </form>
+  </div>, document.body);
+}
+
+function LivePage() {
+  const { liveId } = useParams();
+  if (liveId) return <LiveRoom key={liveId} liveId={liveId} />;
+  return <LiveList />;
+}
+
+function LiveList() {
+  const { user } = useContext(UserContext);
+  const [lives, setLives] = useState(null);
+  const [starting, setStarting] = useState(false);
+  const [, tick] = useState(0);
+  const load = () => api("/lives").then(result => setLives(result.lives)).catch(() => setLives([]));
+  usePolling(load, 15000, true);
+  useEffect(() => { load(); const timer = window.setInterval(() => tick(value => value + 1), 1000); return () => window.clearInterval(timer); }, []);
+  const mine = lives?.find(live => user && live.username === user.username);
+  return <div className="pages-view live-list">
+    <header className="pages-head">
+      <div><h1>Diretos</h1><p>Vê quem está a emitir agora, conversa no chat e apoia com estrelas.</p></div>
+      {user ? (mine ? <Link className="btn live-start-button" to={`/live/${mine.id}`}><Icon name="live" size={16} /> Voltar ao teu direto</Link>
+        : <button className="btn live-start-button" type="button" onClick={() => setStarting(true)}><Icon name="live" size={16} /> Começar um direto</button>)
+        : <Link className="btn" to="/login">Entrar para emitir</Link>}
+    </header>
+    {!lives && <div className="empty card">A procurar diretos...</div>}
+    {lives && !lives.length && <div className="empty card pages-empty live-empty">
+      <span className="group-lock-icon live-empty-icon"><Icon name="live" size={26} /></span>
+      <p>Ninguém está em direto neste momento. Sê a primeira pessoa: mostra o que estás a fazer, responde a perguntas, recebe estrelas.</p>
+      {user && <button className="btn live-start-button" type="button" onClick={() => setStarting(true)}><Icon name="live" size={16} /> Começar um direto</button>}
+    </div>}
+    {lives?.length > 0 && <div className="pages-grid">{lives.map(live => <Link key={live.id} to={`/live/${live.id}`} className="live-card card">
+      <span className={`live-card-cover tone-page-${pageTone(live.username)}`}>
+        <span className="live-card-avatar"><Avatar user={live} size="large" /></span>
+        <LiveBadge small />
+        <span className="live-card-viewers"><Icon name="eye" size={13} /> {formatCount(live.viewers)}</span>
+      </span>
+      <span className="live-card-body">
+        <strong>{live.title}</strong>
+        <small>{live.display_name}<VerifiedBadge show={live.is_verified} /> · há {liveDuration(live.started_at)}</small>
+      </span>
+    </Link>)}</div>}
+    {starting && <StartLiveDialog onClose={() => setStarting(false)} />}
+  </div>;
+}
+
+function LiveRoom({ liveId }) {
+  const { user } = useContext(UserContext);
+  const navigate = useNavigate();
+  const [live, setLive] = useState(null);
+  const [supporters, setSupporters] = useState([]);
+  const [error, setError] = useState("");
+  const [comments, setComments] = useState([]);
+  const [text, setText] = useState("");
+  const [config, setConfig] = useState({ iceServers: [{ urls: "stun:stun.cloudflare.com:3478" }], giftAmounts: [1, 5, 10, 50, 100] });
+  const [videoState, setVideoState] = useState("connecting");
+  const [muted, setMuted] = useState(true);
+  const [micOn, setMicOn] = useState(true);
+  const [camOn, setCamOn] = useState(true);
+  const [panel, setPanel] = useState("chat");
+  const [balance, setBalance] = useState(null);
+  const [giftMessage, setGiftMessage] = useState("");
+  const [, tick] = useState(0);
+  const videoRef = useRef(null);
+  const chatRef = useRef(null);
+  const streamRef = useRef(null);
+  const peers = useRef(new Map());     // quem emite: uma ligação por espectador
+  const viewerPc = useRef(null);       // espectador: a ligação a quem emite
+  const viewerSession = useRef("");    // identifica o pedido atual (ignora respostas antigas)
+  const lastSignal = useRef(0);
+  const lastComment = useRef(0);
+  const isHost = Boolean(live?.is_host);
+  const ended = live?.status === "ended";
+
+  const loadLive = async () => {
+    try {
+      const result = await api(`/lives/${liveId}`);
+      setLive(result.live);
+      setSupporters(result.supporters);
+    } catch (loadError) {
+      setError(loadError.message);
+    }
+  };
+
+  useEffect(() => {
+    loadLive();
+    api("/lives/config").then(setConfig).catch(() => {});
+    const timer = window.setInterval(() => tick(value => value + 1), 1000);
+    return () => window.clearInterval(timer);
+  }, [liveId]);
+
+  // ----- Quem emite: câmara + uma ligação WebRTC por espectador -----
+  useEffect(() => {
+    if (!isHost || ended) return undefined;
+    let cancelled = false;
+    (async () => {
+      let stream = pendingHostStream;
+      pendingHostStream = null;
+      if (!stream) {
+        try { stream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1280 }, height: { ideal: 720 } }, audio: true }); }
+        catch { setVideoState("no-camera"); return; }
+      }
+      if (cancelled) { stream.getTracks().forEach(track => track.stop()); return; }
+      streamRef.current = stream;
+      if (videoRef.current) videoRef.current.srcObject = stream;
+      setVideoState("live");
+    })();
+    return () => {
+      cancelled = true;
+      peers.current.forEach(pc => pc.close());
+      peers.current.clear();
+      streamRef.current?.getTracks().forEach(track => track.stop());
+    };
+  }, [isHost, ended]);
+
+  const answerOffer = async signal => {
+    const viewerId = signal.from_user;
+    peers.current.get(viewerId)?.close();
+    if (peers.current.size >= (config.maxVideoViewers || 8) || !streamRef.current) {
+      await sendSignal(liveId, viewerId, "bye", JSON.stringify({ session: JSON.parse(signal.payload).session, reason: "full" }));
+      return;
+    }
+    const pc = new RTCPeerConnection({ iceServers: config.iceServers, iceTransportPolicy: config.iceTransportPolicy || "all" });
+    peers.current.set(viewerId, pc);
+    streamRef.current.getTracks().forEach(track => pc.addTrack(track, streamRef.current));
+    pc.addEventListener("connectionstatechange", () => {
+      if (["failed", "closed", "disconnected"].includes(pc.connectionState)) { pc.close(); peers.current.delete(viewerId); }
+    });
+    const offer = JSON.parse(signal.payload);
+    await pc.setRemoteDescription({ type: "offer", sdp: offer.sdp });
+    await pc.setLocalDescription(await pc.createAnswer());
+    await waitForIce(pc);
+    await sendSignal(liveId, viewerId, "answer", JSON.stringify({ session: offer.session, sdp: pc.localDescription.sdp }));
+  };
+
+  // ----- Espectador: pede o vídeo a quem emite -----
+  const connectViewer = async () => {
+    if (!live || isHost || ended || !user || typeof RTCPeerConnection !== "function") return;
+    viewerPc.current?.close();
+    setVideoState("connecting");
+    const pc = new RTCPeerConnection({ iceServers: config.iceServers, iceTransportPolicy: config.iceTransportPolicy || "all" });
+    viewerPc.current = pc;
+    pc.addTransceiver("video", { direction: "recvonly" });
+    pc.addTransceiver("audio", { direction: "recvonly" });
+    pc.addEventListener("track", event => { if (videoRef.current) videoRef.current.srcObject = event.streams[0]; setVideoState("live"); });
+    pc.addEventListener("connectionstatechange", () => {
+      if (pc.connectionState === "failed") setVideoState("failed");
+    });
+    await pc.setLocalDescription(await pc.createOffer());
+    await waitForIce(pc);
+    viewerSession.current = Math.random().toString(36).slice(2);
+    await sendSignal(liveId, live.host_id, "offer", JSON.stringify({ session: viewerSession.current, sdp: pc.localDescription.sdp }));
+  };
+
+  useEffect(() => {
+    if (live && !isHost && !ended && user) connectViewer().catch(() => setVideoState("failed"));
+    return () => {
+      if (viewerPc.current && live && !isHost) { sendSignal(liveId, live.host_id, "bye").catch(() => {}); viewerPc.current.close(); viewerPc.current = null; }
+    };
+  }, [live?.id, isHost, ended, user?.id]);
+
+  // Sinais (ofertas para quem emite; respostas para quem vê), sinal de vida e chat.
+  usePolling(async () => {
+    if (!user || !live || ended) return;
+    const result = await api(`/lives/${liveId}/signals?after=${lastSignal.current}`);
+    for (const signal of result.signals) {
+      lastSignal.current = Math.max(lastSignal.current, signal.id);
+      if (isHost && signal.kind === "offer") await answerOffer(signal).catch(error => console.warn("Live offer:", error.message));
+      if (isHost && signal.kind === "bye") { peers.current.get(signal.from_user)?.close(); peers.current.delete(signal.from_user); }
+      if (!isHost && (signal.kind === "answer" || signal.kind === "bye")) {
+        let data = {};
+        try { data = JSON.parse(signal.payload || "{}"); } catch { data = {}; }
+        if (data.session !== viewerSession.current) continue;
+        if (signal.kind === "answer" && viewerPc.current?.signalingState === "have-local-offer") {
+          await viewerPc.current.setRemoteDescription({ type: "answer", sdp: data.sdp }).catch(() => setVideoState("failed"));
+        }
+        if (signal.kind === "bye") setVideoState(data.reason === "full" ? "full" : "connecting");
+      }
+    }
+  }, 1500, Boolean(user && live && !ended));
+
+  usePolling(async () => {
+    if (!user || !live || ended) return;
+    const beat = await api(`/lives/${liveId}/heartbeat`, { method: "POST" });
+    setLive(current => current && { ...current, viewers: beat.viewers, stars: beat.stars, status: beat.status });
+  }, 8000, Boolean(user && live && !ended));
+
+  usePolling(async () => {
+    const result = await api(`/lives/${liveId}/comments?after=${lastComment.current}`);
+    if (!result.comments.length) return;
+    lastComment.current = result.comments[result.comments.length - 1].id;
+    setComments(current => [...current, ...result.comments].slice(-150));
+    if (result.comments.some(comment => comment.stars)) loadLive();
+  }, 2500, Boolean(live));
+
+  useEffect(() => { chatRef.current?.scrollTo({ top: chatRef.current.scrollHeight }); }, [comments.length]);
+
+  const sendComment = async event => {
+    event.preventDefault();
+    if (!text.trim()) return;
+    const body = text;
+    setText("");
+    try {
+      await api(`/lives/${liveId}/comments`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ body }) });
+    } catch (sendError) {
+      setText(body);
+      setGiftMessage(sendError.message);
+    }
+  };
+
+  const gift = async amount => {
+    setGiftMessage("");
+    try {
+      const result = await api(`/lives/${liveId}/stars`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ amount }) });
+      setBalance(result.balance);
+    } catch (giftError) {
+      setGiftMessage(giftError.message);
+    }
+  };
+
+  const toggleTrack = kind => {
+    const track = streamRef.current?.getTracks().find(item => item.kind === kind);
+    if (!track) return;
+    track.enabled = !track.enabled;
+    kind === "audio" ? setMicOn(track.enabled) : setCamOn(track.enabled);
+  };
+
+  const endLive = async () => {
+    if (!window.confirm("Terminar o direto para toda a gente?")) return;
+    try {
+      await api(`/lives/${liveId}/end`, { method: "POST" });
+      streamRef.current?.getTracks().forEach(track => track.stop());
+      await loadLive();
+    } catch (endError) {
+      setError(endError.message);
+    }
+  };
+
+  useEffect(() => { if (user && !isHost) api("/stars").then(result => setBalance(result.balance)).catch(() => {}); }, [user?.id, isHost]);
+
+  if (error && !live) return <div className="page narrow"><div className="empty card">{error} <Link to="/live">Ver diretos</Link></div></div>;
+  if (!live) return <div className="page narrow"><div className="empty card">A abrir o direto...</div></div>;
+
+  const overlayText = {
+    connecting: "A ligar ao direto...",
+    failed: "Não foi possível receber o vídeo nesta rede. O chat e as estrelas continuam a funcionar.",
+    full: "O vídeo chegou ao limite de espectadores. Continua no chat — o vídeo para muitas pessoas chega em breve.",
+    "no-camera": "Não foi possível abrir a câmara. Autoriza o acesso e recarrega a página."
+  }[videoState];
+
+  return <div className="live-room">
+    <Link className="page-back" to="/live"><Icon name="previous" size={18} /> Todos os diretos</Link>
+    <div className="live-layout">
+      <section className="live-stage">
+        <div className={`live-video${ended ? " is-ended" : ""}`}>
+          <video ref={videoRef} autoPlay playsInline muted={isHost || muted} />
+          {ended ? <div className="live-overlay is-ended">
+            <Avatar user={live} size="large" />
+            <strong>O direto terminou</strong>
+            <span>{formatCount(live.peak_viewers)} {live.peak_viewers === 1 ? "pessoa viu" : "pessoas viram"} ao mesmo tempo · {formatCount(live.stars)} estrelas recebidas</span>
+            <Link className="btn" to={`/u/${live.username}`}>Ver perfil de {live.display_name}</Link>
+          </div> : !user ? <div className="live-overlay"><strong>Entra na tua conta para ver o direto.</strong><Link className="btn" to="/login">Entrar</Link></div>
+            : overlayText && videoState !== "live" && <div className="live-overlay">{videoState === "connecting" && <span className="payment-spinner" aria-hidden="true" />}<span>{overlayText}</span>
+              {videoState === "failed" && <button className="btn secondary" type="button" onClick={() => connectViewer()}>Tentar outra vez</button>}</div>}
+          {!ended && <div className="live-topbar">
+            <LiveBadge />
+            <span className="live-chip"><Icon name="eye" size={14} /> {formatCount(live.viewers)}</span>
+            <span className="live-chip">{liveDuration(live.started_at)}</span>
+            <span className="live-chip live-chip-stars"><Icon name="star" size={14} /> {formatCount(live.stars)}</span>
+          </div>}
+          {!ended && !isHost && user && videoState === "live" && <button className="live-sound" type="button" onClick={() => setMuted(value => !value)} aria-pressed={!muted}>
+            <Icon name={muted ? "volumeOff" : "volumeOn"} size={18} /> {muted ? "Ativar som" : "Som ligado"}</button>}
+          {isHost && !ended && <div className="live-controls">
+            <button type="button" className={micOn ? "" : "is-off"} onClick={() => toggleTrack("audio")} aria-pressed={!micOn} aria-label={micOn ? "Desligar microfone" : "Ligar microfone"}><Icon name={micOn ? "mic" : "micOff"} size={20} /></button>
+            <button type="button" className={camOn ? "" : "is-off"} onClick={() => toggleTrack("video")} aria-pressed={!camOn} aria-label={camOn ? "Desligar câmara" : "Ligar câmara"}><Icon name={camOn ? "video" : "videoOff"} size={20} /></button>
+            <button type="button" className="live-end" onClick={endLive}><Icon name="stop" size={18} /> Terminar</button>
+          </div>}
+        </div>
+        <div className="live-host">
+          <Link to={`/u/${live.username}`}><Avatar user={live} size="large" /></Link>
+          <div><h1>{live.title}</h1><p><Link className="post-author" to={`/u/${live.username}`}>{live.display_name}</Link><VerifiedBadge show={live.is_verified} /></p></div>
+        </div>
+      </section>
+
+      <aside className="live-side card">
+        <div className="pages-tabs live-tabs" role="tablist">
+          <button type="button" role="tab" aria-selected={panel === "chat"} onClick={() => setPanel("chat")}>Chat<span>{comments.length}</span></button>
+          <button type="button" role="tab" aria-selected={panel === "top"} onClick={() => setPanel("top")}>Apoiantes<span>{supporters.length}</span></button>
+        </div>
+        {panel === "chat" ? <>
+          <ol className="live-chat" ref={chatRef} aria-live="polite">
+            {!comments.length && <li className="live-chat-empty">Ainda não há mensagens. Diz olá!</li>}
+            {comments.map(comment => <li key={comment.id} className={comment.stars ? "is-gift" : ""}>
+              <Avatar user={comment} size="tiny" />
+              <span><strong>{comment.display_name || "Alguém"}</strong> {comment.stars ? <span className="live-gift-text"><Icon name="star" size={13} /> {comment.body}</span> : comment.body}</span>
+            </li>)}
+          </ol>
+          {user && !ended && <>
+            {!isHost && <div className="live-gifts">
+              {config.giftAmounts.map(amount => <button key={amount} type="button" onClick={() => gift(amount)} disabled={balance !== null && balance < amount}><Icon name="star" size={13} /> {amount}</button>)}
+              <Link to="/estrelas" className="live-balance">{balance === null ? "" : `Saldo: ${formatCount(balance)}`}</Link>
+            </div>}
+            {giftMessage && <p className="live-gift-message" role="status">{giftMessage}</p>}
+            <form className="live-chat-form" onSubmit={sendComment}>
+              <input value={text} maxLength={300} onChange={event => setText(event.target.value)} placeholder="Escreve no chat..." aria-label="Mensagem para o chat" />
+              <button className="round-button" type="submit" aria-label="Enviar" disabled={!text.trim()}><Icon name="send" size={17} /></button>
+            </form>
+          </>}
+        </> : <ol className="supporters-list live-top">
+          {!supporters.length && <li className="live-chat-empty">Ainda ninguém ofereceu estrelas neste direto.</li>}
+          {supporters.map((person, index) => <li key={person.username}>
+            <span className={`supporter-rank rank-${index + 1}`}>{index + 1}</span>
+            <Avatar user={person} size="tiny" />
+            <Link className="post-author" to={`/u/${person.username}`}>{person.display_name}</Link>
+            <span className="supporter-stars"><Icon name="star" size={13} /> {formatCount(person.stars)}</span>
+          </li>)}
+        </ol>}
+      </aside>
+    </div>
+  </div>;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Amigos, Eventos e Notificações (mesma linguagem das Páginas e Grupos)
+// ---------------------------------------------------------------------------------------------
+function PeopleCard({ person, children, subtitle }) {
+  return <article className="person-card card">
+    <Link to={`/u/${person.username}`} className="person-card-avatar"><Avatar user={person} size="large" /></Link>
+    <Link className="person-card-name" to={`/u/${person.username}`}>{person.display_name}</Link>
+    <small>{subtitle || `@${person.username}`}</small>
+    <div className="person-card-actions">{children}</div>
+  </article>;
+}
+
+function Friends() {
+  const { user } = useContext(UserContext);
+  const [data, setData] = useState(null);
+  const [error, setError] = useState("");
+  const [tab, setTab] = useState("requests");
+  const [sent, setSent] = useState(() => new Set());
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState(null);
+
+  const load = async () => {
+    try {
+      const result = await api("/friends");
+      setData(result);
+      setError("");
+      if (!result.requests.length) setTab(current => current === "requests" ? "suggestions" : current);
+    } catch (loadError) {
+      setError(loadError.message);
+    }
+  };
+  useEffect(() => { if (user) load(); }, [user?.id]);
+
+  // Procurar pessoas por nome (com uma pequena pausa enquanto se escreve).
+  useEffect(() => {
+    const term = query.trim();
+    if (!term) { setResults(null); return undefined; }
+    const timer = window.setTimeout(() => api(`/users/search?q=${encodeURIComponent(term)}`).then(result => setResults(result.users)).catch(() => setResults([])), 250);
+    return () => window.clearTimeout(timer);
+  }, [query]);
+
+  const sendRequest = async person => {
+    setSent(current => new Set(current).add(person.id));
+    try {
+      await api(`/friends/${person.id}/request`, { method: "POST" });
+    } catch (requestError) {
+      setSent(current => { const next = new Set(current); next.delete(person.id); return next; });
+      setError(requestError.message);
+    }
+  };
+
+  const answer = async (request, action) => {
+    setData(current => ({
+      ...current,
+      requests: current.requests.filter(item => item.id !== request.id),
+      friends: action === "accept" ? [...current.friends, { id: request.user_id, username: request.username, display_name: request.display_name, avatar_url: request.avatar_url }] : current.friends
+    }));
+    try {
+      await api(`/friends/requests/${request.id}/${action}`, { method: "POST" });
+    } catch (answerError) {
+      setError(answerError.message);
+      load();
+    }
+  };
+
+  if (!user) return <div className="page narrow"><div className="empty card">Entra na tua conta para ver os teus amigos. <Link to="/login">Entrar</Link></div></div>;
+
+  const friendIds = new Set((data?.friends || []).map(friend => friend.id));
+  const addButton = person => friendIds.has(person.id)
+    ? <Link className="btn secondary" to={`/messages/${person.id}`}><Icon name="messages" size={15} /> Mensagem</Link>
+    : sent.has(person.id)
+      ? <button className="btn secondary" type="button" disabled><Icon name="check" size={15} /> Pedido enviado</button>
+      : <button className="btn" type="button" onClick={() => sendRequest(person)}><Icon name="friends" size={15} /> Adicionar</button>;
+
+  const tabs = [["requests", "Pedidos", data?.requests.length || 0], ["suggestions", "Sugestões", data?.suggestions.length || 0], ["friends", "Os teus amigos", data?.friends.length || 0]];
+
+  return <div className="pages-view">
+    <header className="pages-head">
+      <div><h1>Amigos</h1><p>Responde a pedidos, encontra pessoas que conheces e fala com os teus amigos.</p></div>
+    </header>
+    <div className="pages-toolbar">
+      <div className="pages-tabs" role="tablist" aria-label="Amigos">
+        {tabs.map(([id, label, count]) => <button key={id} type="button" role="tab" aria-selected={!results && tab === id} onClick={() => { setTab(id); setQuery(""); }}>{label}<span>{count}</span></button>)}
+      </div>
+      <label className="pages-search"><Icon name="search" size={17} /><input type="search" placeholder="Procurar pessoas" aria-label="Procurar pessoas" value={query} onChange={event => setQuery(event.target.value)} /></label>
+    </div>
+    {error && <p className="error" role="alert">{error}</p>}
+    {!data && !error && <div className="empty card">A carregar...</div>}
+    {results && (results.length
+      ? <div className="people-grid">{results.map(person => <PeopleCard key={person.id} person={person}>{addButton(person)}</PeopleCard>)}</div>
+      : <div className="empty card pages-empty"><p>Ninguém com esse nome. Experimenta o nome de utilizador (sem @).</p></div>)}
+    {!results && data && tab === "requests" && (data.requests.length
+      ? <div className="people-grid">{data.requests.map(request => <PeopleCard key={request.id} person={request} subtitle={`Pediu ${relativeTime(request.created_at)}`}>
+        <button className="btn" type="button" onClick={() => answer(request, "accept")}><Icon name="check" size={15} /> Confirmar</button>
+        <button className="btn secondary" type="button" onClick={() => answer(request, "reject")}>Recusar</button>
+      </PeopleCard>)}</div>
+      : <div className="empty card pages-empty"><p>Não tens pedidos de amizade por responder.</p><button className="btn secondary" type="button" onClick={() => setTab("suggestions")}>Ver sugestões</button></div>)}
+    {!results && data && tab === "suggestions" && (data.suggestions.length
+      ? <div className="people-grid">{data.suggestions.map(person => <PeopleCard key={person.id} person={person}>{addButton(person)}</PeopleCard>)}</div>
+      : <div className="empty card pages-empty"><p>Ainda não há sugestões. Convida os teus amigos para o Biva.</p><Link className="btn" to="/convidar"><Icon name="gift" size={15} /> Convidar amigos</Link></div>)}
+    {!results && data && tab === "friends" && (data.friends.length
+      ? <div className="people-grid">{data.friends.map(person => <PeopleCard key={person.id} person={person}>
+        <Link className="btn secondary" to={`/messages/${person.id}`}><Icon name="messages" size={15} /> Mensagem</Link>
+      </PeopleCard>)}</div>
+      : <div className="empty card pages-empty"><p>Ainda não tens amigos no Biva. Começa pelas sugestões.</p><button className="btn" type="button" onClick={() => setTab("suggestions")}>Ver sugestões</button></div>)}
+  </div>;
+}
+
+// ----- Eventos -----
+const eventDay = value => new Date(value).toLocaleDateString("pt-PT", { day: "2-digit" });
+const eventMonth = value => SHORT_MONTHS[new Date(value).getMonth()];
+const eventWhen = value => new Date(value).toLocaleString("pt-PT", { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" });
+
+function EventDate({ value }) {
+  return <span className="event-date-tile" aria-hidden="true"><strong>{eventDay(value)}</strong><small>{eventMonth(value)}</small></span>;
+}
+
+function CreateEventDialog({ onClose, onCreated }) {
+  const [form, setForm] = useState({ name: "", startsAt: "", location: "", description: "" });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    const onKey = event => { if (event.key === "Escape" && !busy) onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose, busy]);
+  const submit = async event => {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      await api("/events", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
+      onCreated();
+    } catch (createError) {
+      setError(createError.message);
+      setBusy(false);
+    }
+  };
+  const minDate = new Date(Date.now() + 5 * 60_000 - new Date().getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+  return createPortal(<div className="modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget && !busy) onClose(); }}>
+    <form className="modal card create-page-dialog" role="dialog" aria-modal="true" aria-labelledby="create-event-title" onSubmit={submit}>
+      <div className="share-dialog-head">
+        <h2 id="create-event-title">Criar evento</h2>
+        <button className="round-button" type="button" aria-label="Fechar" onClick={onClose} disabled={busy}><Icon name="close" size={18} /></button>
+      </div>
+      <div className="create-page-grid">
+        <div className="create-page-fields">
+          <label>Nome<input required autoFocus maxLength={120} value={form.name} onChange={event => setForm({ ...form, name: event.target.value })} placeholder="Ex.: Feira de artesanato no Benfica" /></label>
+          <label>Quando<input required type="datetime-local" min={minDate} value={form.startsAt} onChange={event => setForm({ ...form, startsAt: event.target.value })} /></label>
+          <label>Onde<input maxLength={160} value={form.location} onChange={event => setForm({ ...form, location: event.target.value })} placeholder="Ex.: Mercado do Benfica, Luanda" /></label>
+          <label>Detalhes <small>{form.description.length}/2000</small><textarea rows={3} maxLength={2000} value={form.description} onChange={event => setForm({ ...form, description: event.target.value })} placeholder="O que vai acontecer e o que as pessoas devem levar." /></label>
+        </div>
+        <div className="create-page-preview" aria-label="Pré-visualização">
+          <small>Pré-visualização</small>
+          <div className="event-card card is-preview">
+            {form.startsAt ? <EventDate value={form.startsAt} /> : <span className="event-date-tile" aria-hidden="true"><strong>--</strong><small>mês</small></span>}
+            <div className="event-card-body"><strong>{form.name || "Nome do evento"}</strong><small>{form.startsAt ? eventWhen(form.startsAt) : "Data e hora"}</small>{form.location && <small><Icon name="location" size={13} /> {form.location}</small>}</div>
+          </div>
+        </div>
+      </div>
+      {error && <p className="error" role="alert">{error}</p>}
+      <div className="modal-actions">
+        <button className="btn secondary" type="button" onClick={onClose} disabled={busy}>Cancelar</button>
+        <button className="btn" type="submit" disabled={busy || !form.name.trim() || !form.startsAt}>{busy ? "A criar..." : "Criar evento"}</button>
+      </div>
+    </form>
+  </div>, document.body);
+}
+
+function Events() {
+  const { user } = useContext(UserContext);
+  const [events, setEvents] = useState(null);
+  const [error, setError] = useState("");
+  const [tab, setTab] = useState("upcoming");
+  const [creating, setCreating] = useState(false);
+
+  const load = async () => {
+    try {
+      setEvents((await api("/events")).events);
+      setError("");
+    } catch (loadError) {
+      setError(loadError.message);
+    }
+  };
+  useEffect(() => { load(); }, [user?.id]);
+
+  const toggleRsvp = async item => {
+    const going = !item.is_attending;
+    const apply = (value, delta) => setEvents(current => current.map(event => event.id === item.id ? { ...event, is_attending: value, attendee_count: event.attendee_count + delta } : event));
+    apply(going, going ? 1 : -1);
+    try {
+      await api(`/events/${item.id}/rsvp`, { method: "POST" });
+    } catch (rsvpError) {
+      apply(!going, going ? -1 : 1);
+      setError(rsvpError.message);
+    }
+  };
+
+  const deleteEvent = async item => {
+    if (!window.confirm(`Apagar o evento «${item.name}»? Os participantes deixam de o ver.`)) return;
+    try {
+      await api(`/events/${item.id}`, { method: "DELETE" });
+      setEvents(current => current.filter(event => event.id !== item.id));
+    } catch (deleteError) {
+      setError(deleteError.message);
+    }
+  };
+
+  const all = events || [];
+  const going = all.filter(item => item.is_attending);
+  const mine = all.filter(item => user && String(item.creator_id) === String(user.id));
+  const tabs = [["upcoming", "Próximos", all.length], ...(user ? [["going", "Vou", going.length], ["mine", "Organizados por ti", mine.length]] : [])];
+  const visible = tab === "going" ? going : tab === "mine" ? mine : all;
+
+  return <div className="pages-view">
+    <header className="pages-head">
+      <div><h1>Eventos</h1><p>Descobre o que acontece perto de ti, confirma presença ou organiza o teu.</p></div>
+      {user ? <button className="btn" type="button" onClick={() => setCreating(true)}><Icon name="plus" size={16} /> Criar evento</button> : <Link className="btn" to="/login">Entrar para criar</Link>}
+    </header>
+    <div className="pages-toolbar">
+      <div className="pages-tabs" role="tablist" aria-label="Que eventos mostrar">
+        {tabs.map(([id, label, count]) => <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => setTab(id)}>{label}<span>{count}</span></button>)}
+      </div>
+    </div>
+    {error && <p className="error" role="alert">{error}</p>}
+    {!events && !error && <div className="empty card">A carregar eventos...</div>}
+    {events && !visible.length && <div className="empty card pages-empty">
+      <p>{tab === "going" ? "Ainda não confirmaste presença em nenhum evento." : tab === "mine" ? "Ainda não organizaste nenhum evento." : "Não há eventos marcados para os próximos dias."}</p>
+      {user && <button className="btn" type="button" onClick={() => setCreating(true)}><Icon name="plus" size={16} /> Criar evento</button>}
+    </div>}
+    {visible.length > 0 && <div className="event-list">{visible.map(item => <article className="event-card card" key={item.id}>
+      <EventDate value={item.starts_at} />
+      <div className="event-card-body">
+        <h2>{item.name}</h2>
+        <small><Icon name="events" size={13} /> {eventWhen(item.starts_at)}</small>
+        {item.location && <small><Icon name="location" size={13} /> {item.location}</small>}
+        {item.description && <p>{item.description}</p>}
+        <small className="event-meta">{formatCount(item.attendee_count)} {item.attendee_count === 1 ? "pessoa vai" : "pessoas vão"} · organizado por <Link to={`/u/${item.creator_username}`}>{item.creator_name}</Link></small>
+      </div>
+      {user && <div className="event-card-actions">
+        <button className={`btn${item.is_attending ? " secondary page-following" : ""}`} type="button" aria-pressed={item.is_attending} onClick={() => toggleRsvp(item)}>
+          {item.is_attending ? <><Icon name="check" size={15} /><span className="when-idle">Vou</span><span className="when-hover">Já não vou</span></> : <><Icon name="plus" size={15} /> Vou participar</>}
+        </button>
+        {String(item.creator_id) === String(user.id) && <button className="btn secondary danger-text icon-only" type="button" aria-label={`Apagar ${item.name}`} title="Apagar" onClick={() => deleteEvent(item)}><Icon name="trash" size={16} /></button>}
+      </div>}
+    </article>)}</div>}
+    {creating && <CreateEventDialog onClose={() => setCreating(false)} onCreated={() => { setCreating(false); setTab("mine"); load(); }} />}
+  </div>;
+}
+
+// ----- Notificações -----
+const NOTIFICATION_ICONS = {
+  like: ["heart", "coral"], comment: ["messages", "ceu"], message: ["messages", "ceu"], friend_request: ["friends", "lagoa"], friend_accept: ["friends", "lagoa"],
+  follow: ["profile", "lagoa"], group_join: ["groups", "lagoa"], event_rsvp: ["events", "coral"], share: ["share", "ceu"],
+  stars: ["star", "coral"], campaign: ["brand", "lagoa"], challenge: ["trophy", "coral"], referral: ["gift", "coral"],
+  ad: ["ad", "coral"], payout: ["gift", "lagoa"], live: ["live", "coral"], moderation: ["shield", "tinta"]
+};
+
+function notificationGroup(value) {
+  const date = new Date(value);
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const diff = (today - new Date(date.getFullYear(), date.getMonth(), date.getDate())) / 86_400_000;
+  return diff <= 0 ? "Hoje" : diff === 1 ? "Ontem" : diff < 7 ? "Esta semana" : "Antes";
+}
+
+function Notifications() {
+  const { user, refreshUser } = useContext(UserContext);
+  const navigate = useNavigate();
+  const [notifications, setNotifications] = useState(null);
+  const [error, setError] = useState("");
+  const [onlyUnread, setOnlyUnread] = useState(false);
+
+  const load = async () => {
+    try {
+      setNotifications((await api("/notifications")).notifications);
+      setError("");
+    } catch (loadError) {
+      setError(loadError.message);
+    }
+  };
+  useEffect(() => { if (user) load(); }, [user?.id]);
+
+  const open = async item => {
+    if (!item.read) {
+      setNotifications(current => current.map(entry => entry.id === item.id ? { ...entry, read: true } : entry));
+      api(`/notifications/${item.id}/read`, { method: "POST" }).then(refreshUser).catch(() => {});
+    }
+    if (item.type === "live" && item.actor_username) return navigate("/live");
+    if (["campaign"].includes(item.type)) return navigate("/creator/parcerias");
+    if (["payout"].includes(item.type)) return navigate("/creator/ganhos");
+    if (["ad"].includes(item.type)) return navigate("/creator/anuncios");
+    if (["stars", "referral", "challenge"].includes(item.type)) return navigate("/estrelas");
+    if (item.actor_username) navigate(`/u/${item.actor_username}`);
+  };
+
+  const markAllRead = async () => {
+    setNotifications(current => current.map(entry => ({ ...entry, read: true })));
+    try {
+      await api("/notifications/read-all", { method: "POST" });
+      await refreshUser();
+    } catch (readError) {
+      setError(readError.message);
+    }
+  };
+
+  if (!user) return <div className="page narrow"><div className="empty card">Entra na tua conta para ver as notificações. <Link to="/login">Entrar</Link></div></div>;
+  const unread = (notifications || []).filter(item => !item.read).length;
+  const visible = (notifications || []).filter(item => !onlyUnread || !item.read);
+  const groups = visible.reduce((list, item) => {
+    const label = notificationGroup(item.created_at);
+    const group = list.find(entry => entry.label === label);
+    group ? group.items.push(item) : list.push({ label, items: [item] });
+    return list;
+  }, []);
+
+  return <div className="pages-view notifications-view">
+    <header className="pages-head">
+      <div><h1>Notificações</h1><p>{unread ? `Tens ${formatCount(unread)} ${unread === 1 ? "notificação por ler" : "notificações por ler"}.` : "Estás em dia."}</p></div>
+      {unread > 0 && <button className="btn secondary" type="button" onClick={markAllRead}><Icon name="check" size={15} /> Marcar todas como lidas</button>}
+    </header>
+    <div className="pages-tabs notification-tabs" role="tablist" aria-label="Filtrar notificações">
+      <button type="button" role="tab" aria-selected={!onlyUnread} onClick={() => setOnlyUnread(false)}>Todas<span>{(notifications || []).length}</span></button>
+      <button type="button" role="tab" aria-selected={onlyUnread} onClick={() => setOnlyUnread(true)}>Por ler<span>{unread}</span></button>
+    </div>
+    {error && <p className="error" role="alert">{error}</p>}
+    {!notifications && !error && <div className="empty card">A carregar...</div>}
+    {notifications && !visible.length && <div className="empty card pages-empty"><span className="group-lock-icon"><Icon name="notifications" size={26} /></span><p>{onlyUnread ? "Não tens notificações por ler." : "Ainda não tens notificações. Quando alguém interagir contigo, aparece aqui."}</p></div>}
+    {groups.map(group => <section key={group.label} className="notification-group card" aria-label={group.label}>
+      <h2>{group.label}</h2>
+      <ul>{group.items.map(item => {
+        const [icon, tone] = NOTIFICATION_ICONS[item.type] || ["notifications", "lagoa"];
+        return <li key={item.id}>
+          <button type="button" className={`notification-row${item.read ? "" : " is-unread"}`} onClick={() => open(item)}>
+            <span className="notification-avatar">
+              <Avatar user={{ display_name: item.actor_name || "Biva", avatar_url: item.actor_avatar }} />
+              <span className={`notification-type tone-page-${tone}`}><Icon name={icon} size={12} /></span>
+            </span>
+            <span className="notification-text"><span><strong>{item.actor_name || "Biva"}</strong> {item.text}</span><small>{relativeTime(item.created_at)}</small></span>
+            {!item.read && <span className="notification-unread-dot" aria-label="Por ler" />}
+          </button>
+        </li>;
+      })}</ul>
+    </section>)}
+  </div>;
+}
+
+// ---------------------------------------------------------------------------------------------
 // Páginas informativas
 // ---------------------------------------------------------------------------------------------
 
@@ -3496,7 +4441,7 @@ function InfoPage({ kicker, title, intro, draft, children }) {
 }
 
 function About() {
-  return <InfoPage kicker="SOBRE" title="Conecta. Partilha. Vive."
+  return <InfoPage kicker="Sobre" title="Conecta. Partilha. Vive."
     intro="O Biva é o lugar para estares perto de quem importa: as tuas pessoas, as tuas ideias e a tua comunidade, num espaço seguro e teu.">
     <img className="about-logo" src="/biva-logo-full.png" alt="Biva — conecta, partilha, vive" />
     <h2>O que podes fazer no Biva</h2>
@@ -3536,7 +4481,7 @@ const HELP_TOPICS = [
 ];
 
 function Help() {
-  return <InfoPage kicker="AJUDA" title="Como podemos ajudar?" intro="Respostas rápidas às perguntas mais comuns.">
+  return <InfoPage kicker="Ajuda" title="Como podemos ajudar?" intro="Respostas rápidas às perguntas mais comuns.">
     {HELP_TOPICS.map(([topic, questions]) => <section key={topic} className="help-topic">
       <h2>{topic}</h2>
       {questions.map(([question, answer]) => <details key={question}>
@@ -3548,7 +4493,7 @@ function Help() {
 }
 
 function Terms() {
-  return <InfoPage kicker="TERMOS" title="Termos de utilização" draft
+  return <InfoPage kicker="Termos" title="Termos de utilização" draft
     intro="As regras para vivermos bem no bairro. Ao criar uma conta, aceitas estes termos.">
     <h2>1. A tua conta</h2>
     <p>Precisas de um email válido, de dados verdadeiros e de ter pelo menos 13 anos. És responsável pela segurança da tua palavra-passe e pelo que é publicado com a tua conta. Não podes fazer-te passar por outra pessoa nem criar contas para obter vantagens (por exemplo, prémios de convites).</p>
@@ -3584,7 +4529,7 @@ function Terms() {
 }
 
 function Privacy() {
-  return <InfoPage kicker="PRIVACIDADE" title="Política de privacidade" draft
+  return <InfoPage kicker="Privacidade" title="Política de privacidade" draft
     intro="O que guardamos, para quê e como podes controlar os teus dados.">
     <h2>Dados que recolhemos</h2>
     <ul>
@@ -3617,7 +4562,7 @@ function Privacy() {
 }
 
 function AdRules() {
-  return <InfoPage kicker="PUBLICIDADE" title="Regras de publicidade" draft
+  return <InfoPage kicker="Publicidade" title="Regras de publicidade" draft
     intro="O que pode e não pode ser promovido no Biva. Todas as promoções são revistas pela equipa antes de aparecerem.">
     <h2>Como funciona a revisão</h2>
     <p>Depois de pagares, a promoção fica <strong>em revisão</strong> (normalmente menos de 24 horas). Se for aprovada, entra no ar e o prazo começa a contar. Se for recusada, explicamos o motivo e devolvemos o valor pago.</p>
@@ -3821,6 +4766,171 @@ function ImagePicker({ label, hint, busy, hasImage, onPick, onRemove }) {
   </div>;
 }
 
+// Verificação em dois passos: estado → (ligar) QR + código → ativa → (desligar) palavra-passe + código.
+function TwoFactorSettings() {
+  const [status, setStatus] = useState(null);       // { enabled, required }
+  const [setup, setSetup] = useState(null);         // { qr, secret } enquanto se configura
+  const [disabling, setDisabling] = useState(false);
+  const [code, setCode] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+
+  useEffect(() => { api("/auth/2fa").then(setStatus).catch(() => {}); }, []);
+
+  const run = async action => {
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try { await action(); } catch (actionError) { setError(actionError.message); } finally { setBusy(false); }
+  };
+
+  const start = () => run(async () => { setSetup(await api("/auth/2fa/setup", { method: "POST" })); setCode(""); });
+  const confirm = event => {
+    event.preventDefault();
+    run(async () => {
+      const result = await api("/auth/2fa/enable", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code }) });
+      setSetup(null);
+      setStatus(current => ({ ...current, enabled: true }));
+      setNotice(result.message);
+    });
+  };
+  const turnOff = event => {
+    event.preventDefault();
+    run(async () => {
+      const result = await api("/auth/2fa/disable", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password, code }) });
+      setDisabling(false);
+      setPassword("");
+      setCode("");
+      setStatus(current => ({ ...current, enabled: false }));
+      setNotice(result.message);
+    });
+  };
+  const codeInput = <label>Código de 6 dígitos<input className="two-factor-input" inputMode="numeric" autoComplete="one-time-code" required pattern="[0-9]{6}" maxLength={6}
+    value={code} onChange={event => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))} /></label>;
+
+  if (!status) return null;
+  return <div className="two-factor">
+    <div className="settings-action-row settings-security-row">
+      <span className={`settings-action-mark${status.enabled ? " is-on" : ""}`}><Icon name="shield" /></span>
+      <span>
+        <strong>Verificação em dois passos {status.enabled && <em className="two-factor-on">Ativa</em>}</strong>
+        <small>{status.enabled
+          ? "Ao entrar, pedimos a palavra-passe e um código da tua app de autenticação."
+          : status.required
+            ? "Obrigatória para administradores: sem ela não abres o painel de administração."
+            : "Mesmo que alguém descubra a tua palavra-passe, não entra sem o código do teu telemóvel."}</small>
+      </span>
+      {status.enabled
+        ? <button className="settings-account-link" type="button" onClick={() => { setDisabling(!disabling); setError(""); setCode(""); }}>{disabling ? "Cancelar" : "Desligar"}</button>
+        : !setup && <button className="settings-account-link" type="button" disabled={busy} onClick={start}>{busy ? "A preparar..." : "Ativar"} <Icon name="shield" size={14} /></button>}
+    </div>
+    {setup && <form className="settings-profile-form two-factor-setup" onSubmit={confirm}>
+      <img className="two-factor-qr" src={setup.qr} width="180" height="180" alt="Código QR para adicionar o Biva à app de autenticação" />
+      <div className="two-factor-steps">
+        <p><strong>1.</strong> Instala uma app de autenticação no telemóvel: Google Authenticator, Microsoft Authenticator ou Authy.</p>
+        <p><strong>2.</strong> Na app, toca em adicionar e lê este código QR. Se não conseguires, escreve esta chave:</p>
+        <code className="two-factor-secret">{setup.secret.match(/.{1,4}/g).join(" ")}</code>
+        <p><strong>3.</strong> Escreve o código que a app mostra para confirmar.</p>
+        {codeInput}
+        <div className="settings-form-actions">
+          <button className="btn" type="submit" disabled={busy || code.length !== 6}>{busy ? "A confirmar..." : "Confirmar e ativar"}</button>
+          <button className="btn secondary" type="button" onClick={() => setSetup(null)}>Cancelar</button>
+        </div>
+      </div>
+    </form>}
+    {disabling && <form className="settings-profile-form" onSubmit={turnOff}>
+      <label>Palavra-passe<input type="password" autoComplete="current-password" required value={password} onChange={event => setPassword(event.target.value)} /></label>
+      {codeInput}
+      <div className="settings-form-actions"><button className="btn danger" type="submit" disabled={busy || code.length !== 6}>{busy ? "A desligar..." : "Desligar verificação"}</button></div>
+    </form>}
+    {error && <p className="error" role="alert">{error}</p>}
+    {notice && <p className="settings-form-success" role="status"><Icon name="check" size={14} />{notice}</p>}
+  </div>;
+}
+
+// Segurança da conta: mudar a palavra-passe e terminar sessões abertas noutros dispositivos.
+// O servidor devolve um token novo; guardamo-lo para este dispositivo continuar com sessão iniciada.
+function SecuritySettings() {
+  const [form, setForm] = useState({ currentPassword: "", newPassword: "", confirm: "" });
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState("");
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+
+  const keepSession = result => {
+    if (result?.token) localStorage.setItem("token", result.token);
+    setNotice(result?.message || "Feito.");
+  };
+
+  const changePassword = async event => {
+    event.preventDefault();
+    setError("");
+    setNotice("");
+    if (form.newPassword !== form.confirm) return setError("As duas palavras-passe novas não são iguais.");
+    setBusy("password");
+    try {
+      keepSession(await api("/auth/password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ currentPassword: form.currentPassword, newPassword: form.newPassword })
+      }));
+      setForm({ currentPassword: "", newPassword: "", confirm: "" });
+      setOpen(false);
+    } catch (changeError) {
+      setError(changeError.message);
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const logoutEverywhere = async () => {
+    if (!window.confirm("Terminar a sessão em todos os outros dispositivos? Este continua com sessão iniciada.")) return;
+    setError("");
+    setNotice("");
+    setBusy("logout");
+    try {
+      keepSession(await api("/auth/logout-all", { method: "POST" }));
+    } catch (logoutError) {
+      setError(logoutError.message);
+    } finally {
+      setBusy("");
+    }
+  };
+
+  return <div className="security-settings">
+    <div className="settings-action-row settings-security-row">
+      <span className="settings-action-mark"><Icon name="lock" /></span>
+      <span><strong>Palavra-passe</strong><small>Ao mudá-la, as sessões abertas noutros dispositivos terminam.</small></span>
+      <button className="settings-account-link" type="button" aria-expanded={open} onClick={() => { setOpen(!open); setError(""); setNotice(""); }}>
+        {open ? "Cancelar" : "Mudar palavra-passe"} <Icon name={open ? "close" : "create"} size={14} />
+      </button>
+    </div>
+    {open && <form className="settings-profile-form security-password-form" onSubmit={changePassword}>
+      <label>Palavra-passe atual<input type="password" autoComplete="current-password" required value={form.currentPassword} onChange={event => setForm({ ...form, currentPassword: event.target.value })} /></label>
+      <label>Nova palavra-passe <small>Pelo menos {PASSWORD_MIN} caracteres</small><input type="password" autoComplete="new-password" required minLength={PASSWORD_MIN} value={form.newPassword} onChange={event => setForm({ ...form, newPassword: event.target.value })} /></label>
+      <label>Repete a nova palavra-passe<input type="password" autoComplete="new-password" required minLength={PASSWORD_MIN} value={form.confirm} onChange={event => setForm({ ...form, confirm: event.target.value })} /></label>
+      <div className="settings-form-actions"><button className="btn" type="submit" disabled={busy === "password"}>{busy === "password" ? "A guardar..." : "Mudar palavra-passe"}</button></div>
+    </form>}
+    <TwoFactorSettings />
+    <div className="settings-action-row settings-security-row">
+      <span className="settings-action-mark"><Icon name="devices" /></span>
+      <span><strong>Sessões abertas</strong><small>Perdeste o telemóvel ou entraste num computador de outra pessoa? Termina todas as outras sessões.</small></span>
+      <button className="settings-account-link" type="button" disabled={busy === "logout"} onClick={logoutEverywhere}>
+        {busy === "logout" ? "A terminar..." : "Terminar outras sessões"} <Icon name="logout" size={14} />
+      </button>
+    </div>
+    <div className="settings-action-row settings-security-row">
+      <span className="settings-action-mark"><Icon name="mail" /></span>
+      <span><strong>Esqueceste a palavra-passe?</strong><small>Recebe uma ligação segura no teu email.</small></span>
+      <Link className="settings-account-link" to="/forgot-password">Recuperar acesso <Icon name="externalLink" size={14} /></Link>
+    </div>
+    {error && <p className="error" role="alert">{error}</p>}
+    {notice && <p className="settings-form-success" role="status"><Icon name="check" size={14} />{notice}</p>}
+  </div>;
+}
+
 function Settings() {
   const { user, refreshUser } = useContext(UserContext);
   const { theme, setTheme } = useContext(ThemeContext);
@@ -3899,7 +5009,7 @@ function Settings() {
     <p className="settings-page-intro">Gere a tua experiência, consulta a tua conta e encontra rapidamente as áreas principais do Biva.</p>
     <div className="settings-layout">
       <nav className="settings-nav" aria-label="Secções das definições">
-        <p>GERIR PREFERÊNCIAS</p>
+        <p>Gerir preferências</p>
         <a href="#appearance" className="active"><span><Icon name="sun" /></span>Aparência</a>
         <a href="#notifications"><span><Icon name="notifications" /></span>Notificações</a>
         <a href="#privacy"><span><Icon name="settings" /></span>Privacidade</a>
@@ -3911,7 +5021,7 @@ function Settings() {
         <section className="settings-section card" id="appearance" aria-labelledby="appearance-heading">
           <div className="settings-section-heading">
             <span className="settings-option-icon"><Icon name="sun" /></span>
-            <div><p className="settings-section-kicker">PERSONALIZAÇÃO</p><h2 id="appearance-heading">Escolhe o teu ambiente</h2><p>Encontra o tema mais confortável para ti.</p></div>
+            <div><p className="settings-section-kicker">Personalização</p><h2 id="appearance-heading">Escolhe o teu ambiente</h2><p>Encontra o tema mais confortável para ti.</p></div>
           </div>
           <fieldset className="settings-theme-grid">
             <legend className="visually-hidden">Tema da aplicação</legend>
@@ -3941,7 +5051,7 @@ function Settings() {
         <section className="settings-section card" id="notifications" aria-labelledby="notification-settings-heading">
           <div className="settings-section-heading">
             <span className="settings-option-icon"><Icon name="notifications" /></span>
-            <div><p className="settings-section-kicker">ATIVIDADE</p><h2 id="notification-settings-heading">Notificações</h2><p>Acompanha novidades e interações da comunidade.</p></div>
+            <div><p className="settings-section-kicker">Atividade</p><h2 id="notification-settings-heading">Notificações</h2><p>Acompanha novidades e interações da comunidade.</p></div>
           </div>
           <div className="settings-action-row">
             <span className="settings-action-mark"><Icon name="notifications" /></span>
@@ -3958,7 +5068,7 @@ function Settings() {
         <section className="settings-section card" id="privacy" aria-labelledby="privacy-settings-heading">
           <div className="settings-section-heading">
             <span className="settings-option-icon"><Icon name="profile" /></span>
-            <div><p className="settings-section-kicker">CONTROLO</p><h2 id="privacy-settings-heading">Privacidade e visibilidade</h2><p>Confirma o que partilhas com as outras pessoas.</p></div>
+            <div><p className="settings-section-kicker">Controlo</p><h2 id="privacy-settings-heading">Privacidade e visibilidade</h2><p>Confirma o que partilhas com as outras pessoas.</p></div>
           </div>
           <div className="settings-info-panel">
             <span className="settings-info-mark"><Icon name="friends" /></span>
@@ -3975,7 +5085,7 @@ function Settings() {
         <section className="settings-section card" id="account" aria-labelledby="account-settings-heading">
           <div className="settings-section-heading">
             <span className="settings-option-icon"><Icon name="profile" /></span>
-            <div><p className="settings-section-kicker">PERFIL</p><h2 id="account-settings-heading">A tua conta</h2><p>As informações que partilhas com a comunidade.</p></div>
+            <div><p className="settings-section-kicker">Perfil</p><h2 id="account-settings-heading">A tua conta</h2><p>As informações que partilhas com a comunidade.</p></div>
           </div>
           {user
             ? <>
@@ -4011,11 +5121,7 @@ function Settings() {
                 <div><span className="settings-detail-icon"><Icon name="check" /></span><span><small>Estado do email</small><strong className={`settings-verification ${user.email_verified ? "verified" : "pending"}`}>{user.email_verified ? "Email confirmado" : "Confirmação pendente"}</strong></span></div>
                 <div><span className="settings-detail-icon"><Icon name="create" /></span><span><small>Biografia</small><strong>{user.bio?.trim() || "Ainda não adicionaste uma biografia."}</strong></span></div>
               </div>
-              <div className="settings-action-row settings-security-row">
-                <span className="settings-action-mark"><Icon name="settings" /></span>
-                <span><strong>Segurança e acesso</strong><small>Se precisares de alterar a palavra-passe, pede uma ligação segura de recuperação.</small></span>
-                <Link className="settings-account-link" to="/forgot-password">Recuperar acesso <Icon name="externalLink" size={14} /></Link>
-              </div>
+              <SecuritySettings />
               <BlockedAccounts />
               <AccountDataControls />
             </>
@@ -4024,7 +5130,7 @@ function Settings() {
         <section className="settings-section card" id="shortcuts" aria-labelledby="settings-shortcuts-heading">
           <div className="settings-section-heading">
             <span className="settings-option-icon"><Icon name="layers" /></span>
-            <div><p className="settings-section-kicker">BIVA</p><h2 id="settings-shortcuts-heading">Acede rapidamente</h2><p>Continua a explorar e a participar na comunidade.</p></div>
+            <div><p className="settings-section-kicker">Biva</p><h2 id="settings-shortcuts-heading">Acede rapidamente</h2><p>Continua a explorar e a participar na comunidade.</p></div>
           </div>
           <div className="settings-shortcuts-grid">
             <Link to="/friends"><Icon name="friends" /><span><strong>Amigos</strong><small>Encontra pessoas</small></span><Icon name="externalLink" size={14} /></Link>
@@ -4069,78 +5175,6 @@ function Create() {
   };
 
   return <div className="page narrow"><form className="panel card" onSubmit={submit}><div className="composer-top"><Avatar user={user} /><textarea required={!file} placeholder="Em que estás a pensar?" value={body} onChange={event => setBody(event.target.value)} /></div><label className="file-label">Fotografia/vídeo<input type="file" accept="image/*,video/*" onChange={event => setFile(event.target.files?.[0] || null)} /></label><ExclusiveToggle user={user} checked={exclusive} onChange={setExclusive} />{error && <p className="error">{error}</p>}<button className="btn" disabled={busy}>{busy ? "A publicar..." : "Publicar"}</button></form></div>;
-}
-
-function Friends() {
-  const { user } = useContext(UserContext);
-  const navigate = useNavigate();
-  const [data, setData] = useState({ friends: [], requests: [], suggestions: [] });
-  const [error, setError] = useState("");
-  const [busyId, setBusyId] = useState(null);
-
-  const load = async () => {
-    if (!token()) return;
-    try {
-      setData(await api("/friends"));
-      setError("");
-    } catch (loadError) {
-      setError(loadError.message);
-    }
-  };
-
-  useEffect(() => { load(); }, []);
-
-  const sendRequest = async id => {
-    if (!token()) return navigate("/login");
-    setBusyId(id);
-    setError("");
-    try {
-      await api(`/friends/${id}/request`, { method: "POST" });
-      await load();
-    } catch (actionError) {
-      setError(actionError.message);
-    } finally {
-      setBusyId(null);
-    }
-  };
-
-  const acceptRequest = async id => {
-    setBusyId(id);
-    setError("");
-    try {
-      await api(`/friends/requests/${id}/accept`, { method: "POST" });
-      await load();
-    } catch (actionError) {
-      setError(actionError.message);
-    } finally {
-      setBusyId(null);
-    }
-  };
-
-  const rejectRequest = async id => {
-    setBusyId(id);
-    setError("");
-    try {
-      await api(`/friends/requests/${id}/reject`, { method: "POST" });
-      await load();
-    } catch (actionError) {
-      setError(actionError.message);
-    } finally {
-      setBusyId(null);
-    }
-  };
-
-  if (!user) return <div className="page narrow"><div className="empty card">Entra na tua conta para ver os teus amigos. <Link to="/login">Entrar</Link></div></div>;
-
-  const personRow = (person, action) => <div className="person-row" key={person.id || person.user_id}><Link className="person-info" to={`/u/${person.username}`}><Avatar user={person} /><span><strong>{person.display_name}</strong><small>@{person.username}</small></span></Link>{action}</div>;
-
-  return <div className="page narrow">
-    <div className="feed-heading"><h1>Amigos</h1><p>Encontra pessoas e liga-te à tua comunidade.</p></div>
-    {error && <p className="error">{error}</p>}
-    {!!data.requests.length && <section className="section-card card"><h2>Pedidos recebidos</h2>{data.requests.map(request => personRow(request, <div className="profile-buttons"><button className="btn" disabled={busyId === request.id} onClick={() => acceptRequest(request.id)}>Aceitar</button><button className="btn secondary" disabled={busyId === request.id} onClick={() => rejectRequest(request.id)}>Recusar</button></div>))}</section>}
-    <section className="section-card card"><h2>Sugestões de amizade</h2>{data.suggestions.length ? data.suggestions.map(person => personRow(person, <button className="btn secondary" disabled={busyId === person.id} onClick={() => sendRequest(person.id)}>Adicionar amigo</button>)) : <p className="muted">Ainda não há sugestões.</p>}</section>
-    <section className="section-card card"><h2>Os teus amigos · {data.friends.length}</h2>{data.friends.length ? data.friends.map(person => personRow(person, <Link className="btn secondary" to={`/messages/${person.id}`}>Mensagem</Link>)) : <p className="muted">Os teus amigos aparecerão aqui.</p>}</section>
-  </div>;
 }
 
 // Valores em kwanzas: "2 500 Kz" (sem cêntimos quando o valor é inteiro).
@@ -4465,7 +5499,7 @@ function Profile() {
           {isOwnProfile && <ProfilePhotoControl kind="avatar" profile={profile} onUpdated={photoUpdated} />}
         </div>
         <div className="profile-identity-copy">
-          <p className="profile-kicker">{isAboutPage ? "PERFIL PESSOAL" : isOwnProfile ? "O TEU ESPAÇO NA COMUNIDADE" : "ESPAÇO DA COMUNIDADE"}</p>
+          <p className="profile-kicker">{isAboutPage ? "Perfil pessoal" : isOwnProfile ? "O teu espaço na comunidade" : "Espaço da comunidade"}</p>
           <h1>{profile.display_name}<VerifiedBadge show={profile.is_verified} /></h1>
           <p className="handle">@{profile.username}</p>
         </div>
@@ -4563,7 +5597,7 @@ function Profile() {
           <Link className="profile-share-action" to="/create" aria-label="Criar publicação" title="Criar publicação"><Icon name="create" /></Link>
         </div>}
         <div className="profile-posts-heading">
-          <div><p className="feed-section-kicker">{isOwnProfile ? "O TEU ESPAÇO NA COMUNIDADE" : `PUBLICAÇÕES DE @${profile.username}`}</p><h2>Publicações</h2></div>
+          <div><p className="feed-section-kicker">{isOwnProfile ? "O teu espaço na comunidade" : `Publicações de @${profile.username}`}</p><h2>Publicações</h2></div>
           {isOwnProfile && <Link to="/create">Criar publicação <Icon name="externalLink" size={14} /></Link>}
         </div>
         {posts.length ? posts.map(post => <PostCard key={post.id} post={post} onChanged={reloadProfilePosts} />) : <div className="empty card">Ainda não há publicações neste perfil.</div>}
@@ -4578,7 +5612,7 @@ function usePolling(callback, ms, enabled = true) {
   useEffect(() => { saved.current = callback; }, [callback]);
   useEffect(() => {
     if (!enabled) return undefined;
-    const tick = () => { if (document.visibilityState === "visible") saved.current(); };
+    const tick = () => { if (document.visibilityState === "visible") Promise.resolve(saved.current()).catch(() => {}); };
     const timer = window.setInterval(tick, ms);
     document.addEventListener("visibilitychange", tick);
     return () => {
@@ -4702,7 +5736,7 @@ function Messages() {
   return <div className="page messages-layout card">
     <aside className="conversation-list">
       <h1>Mensagens</h1>
-      <form className="search-form" onSubmit={searchUsers}><input value={search} onChange={event => setSearch(event.target.value)} placeholder="Procurar pessoas" /><button className="btn small">Pesquisar</button></form>
+      <form className="search-form pages-search" onSubmit={searchUsers}><Icon name="search" size={17} /><input value={search} onChange={event => setSearch(event.target.value)} placeholder="Procurar pessoas" aria-label="Procurar pessoas para conversar" /></form>
       {results.map(personRow)}
       {conversations.map(personRow)}
       {!conversations.length && !results.length && <p className="muted">Procura uma pessoa para iniciar uma conversa.</p>}
@@ -4721,25 +5755,126 @@ function Messages() {
           <div ref={chatEnd} />
         </div>
         {canMessage
-          ? <form className="chat-form" onSubmit={sendMessage}><input value={body} onChange={event => setBody(event.target.value)} placeholder="Escreve uma mensagem..." maxLength="4000" /><button className="btn" disabled={busy || !body.trim()}>{busy ? "A enviar..." : "Enviar"}</button></form>
+          ? <form className="chat-form" onSubmit={sendMessage}><input value={body} onChange={event => setBody(event.target.value)} placeholder="Escreve uma mensagem..." maxLength="4000" /><button className="round-button chat-send" aria-label="Enviar mensagem" title="Enviar" disabled={busy || !body.trim()}><Icon name="send" size={18} /></button></form>
           : <p className="chat-blocked muted">Não é possível enviar mensagens para esta conta.</p>}
-      </> : <div className="empty chat-empty">Escolhe uma conversa ou procura alguém para enviar uma mensagem.</div>}
+      </> : <div className="empty chat-empty"><span className="group-lock-icon chat-empty-icon"><Icon name="messages" size={26} /></span><strong>As tuas conversas</strong><span>Escolhe uma conversa ou procura alguém para enviar uma mensagem.</span></div>}
       {error && <p className="error">{error}</p>}
     </section>
   </div>;
 }
 
+// ---------------------------------------------------------------------------------------------
+// Grupos: descobrir, participar, criar e conversar em grupo (mesma linguagem das Páginas)
+// ---------------------------------------------------------------------------------------------
+function GroupLogo({ group, size = "" }) {
+  return <span className={`page-logo group-logo tone-page-${pageTone(group.name)} ${size}`} aria-hidden="true">{pageMonogram(group.name)}</span>;
+}
+
+function MemberStack({ members = [], total }) {
+  if (!members.length) return null;
+  return <span className="member-stack" aria-label={`${formatCount(total)} ${total === 1 ? "membro" : "membros"}`}>
+    {members.slice(0, 4).map(member => <Avatar key={member.username} user={member} size="tiny" />)}
+    {total > 4 && <span className="member-stack-more">+{formatCount(total - 4)}</span>}
+  </span>;
+}
+
+function JoinGroupButton({ group, user, busy, onJoin, onLeave }) {
+  if (!user) return <Link className="btn" to="/login">Entrar para participar</Link>;
+  if (group.owner_username === user.username) return <Link className="btn secondary" to={`/groups/${group.id}`}><Icon name="settings" size={15} /> Gerir</Link>;
+  return group.is_member
+    ? <button className="btn secondary page-following" type="button" disabled={busy} aria-pressed="true" onClick={() => onLeave(group)}>
+      <Icon name="check" size={15} /><span className="when-idle">Membro</span><span className="when-hover">Sair do grupo</span></button>
+    : <button className="btn" type="button" disabled={busy} aria-pressed="false" onClick={() => onJoin(group)}><Icon name="plus" size={15} /> Participar</button>;
+}
+
+function GroupCard({ group, user, busy, onJoin, onLeave }) {
+  return <article className="page-card card">
+    <Link className={`page-card-cover tone-page-${pageTone(group.name)}`} to={`/groups/${group.id}`} tabIndex={-1} aria-hidden="true" />
+    <div className="page-card-body">
+      <Link to={`/groups/${group.id}`} className="page-card-logo-link" aria-hidden="true" tabIndex={-1}><GroupLogo group={group} /></Link>
+      <h2><Link to={`/groups/${group.id}`}>{group.name}</Link></h2>
+      <p className="page-card-description">{group.description || "Um espaço para a comunidade."}</p>
+      <div className="group-card-meta">
+        <MemberStack members={group.member_preview} total={group.member_count} />
+        <span>{formatCount(group.member_count)} {group.member_count === 1 ? "membro" : "membros"} · {formatCount(group.post_count)} {group.post_count === 1 ? "publicação" : "publicações"}</span>
+      </div>
+      <div className="page-card-footer">
+        <Link className="page-owner" to={`/u/${group.owner_username}`}><Avatar user={{ display_name: group.owner_name, avatar_url: group.owner_avatar }} size="tiny" /><span>{group.owner_name}</span></Link>
+        <JoinGroupButton group={group} user={user} busy={busy} onJoin={onJoin} onLeave={onLeave} />
+      </div>
+    </div>
+  </article>;
+}
+
+function CreateGroupDialog({ onClose, onCreated }) {
+  const [form, setForm] = useState({ name: "", description: "" });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    const onKey = event => { if (event.key === "Escape" && !busy) onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose, busy]);
+  const submit = async event => {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      const result = await api("/groups", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
+      onCreated(result.group);
+    } catch (createError) {
+      setError(createError.message);
+      setBusy(false);
+    }
+  };
+  const preview = { name: form.name || "Nome do grupo" };
+  return createPortal(<div className="modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget && !busy) onClose(); }}>
+    <form className="modal card create-page-dialog" role="dialog" aria-modal="true" aria-labelledby="create-group-title" onSubmit={submit}>
+      <div className="share-dialog-head">
+        <h2 id="create-group-title">Criar grupo</h2>
+        <button className="round-button" type="button" aria-label="Fechar" onClick={onClose} disabled={busy}><Icon name="close" size={18} /></button>
+      </div>
+      <div className="create-page-grid">
+        <div className="create-page-fields">
+          <label>Nome<input required autoFocus maxLength={100} value={form.name} onChange={event => setForm({ ...form, name: event.target.value })} placeholder="Ex.: Fotógrafos de Luanda" /></label>
+          <label>Sobre o que é <small>{form.description.length}/2000</small><textarea rows={5} maxLength={2000} value={form.description}
+            onChange={event => setForm({ ...form, description: event.target.value })} placeholder="Diz quem deve participar e o que se partilha aqui." /></label>
+          <p className="muted create-page-note">Só os membros veem e publicam no grupo. Tu ficas como administrador.</p>
+        </div>
+        <div className="create-page-preview" aria-label="Pré-visualização">
+          <small>Pré-visualização</small>
+          <div className="page-card card is-preview">
+            <span className={`page-card-cover tone-page-${pageTone(preview.name)}`} />
+            <div className="page-card-body">
+              <GroupLogo group={preview} />
+              <h2>{preview.name}</h2>
+              <p className="page-card-description">{form.description || "A descrição aparece aqui."}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+      {error && <p className="error" role="alert">{error}</p>}
+      <div className="modal-actions">
+        <button className="btn secondary" type="button" onClick={onClose} disabled={busy}>Cancelar</button>
+        <button className="btn" type="submit" disabled={busy || !form.name.trim()}>{busy ? "A criar..." : "Criar grupo"}</button>
+      </div>
+    </form>
+  </div>, document.body);
+}
+
 function Groups() {
   const { groupId } = useParams();
-  const { user } = useContext(UserContext);
   const navigate = useNavigate();
-  const [groups, setGroups] = useState([]);
-  const [posts, setPosts] = useState([]);
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
+  const { user } = useContext(UserContext);
+  const [groups, setGroups] = useState(null);
+  const [posts, setPosts] = useState(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const group = groups.find(item => String(item.id) === groupId);
+  const [creating, setCreating] = useState(false);
+  const [tab, setTab] = useState("discover");
+  const [query, setQuery] = useState("");
+  const group = groups?.find(item => String(item.id) === groupId);
+  const ownsGroup = Boolean(group && user && group.owner_username === user.username);
 
   const loadGroups = async () => {
     try {
@@ -4750,104 +5885,254 @@ function Groups() {
       setError(loadError.message);
     }
   };
+  const loadPosts = id => api(`/posts?groupId=${encodeURIComponent(id)}`).then(result => setPosts(result.posts)).catch(loadError => setError(loadError.message));
 
-  useEffect(() => { loadGroups(); }, []);
+  useEffect(() => { loadGroups(); }, [user?.id]);
+  // As publicações de um grupo só são visíveis para os membros.
   useEffect(() => {
-    if (!groupId) {
-      setPosts([]);
-      return;
-    }
-    api(`/posts?groupId=${encodeURIComponent(groupId)}`)
-      .then(result => setPosts(result.posts))
-      .catch(loadError => setError(loadError.message));
-  }, [groupId]);
+    setPosts(null);
+    if (groupId && group?.is_member) loadPosts(groupId);
+    if (groupId) window.scrollTo(0, 0);
+  }, [groupId, group?.is_member]);
 
-  const createGroup = async event => {
+  const setMembership = async (target, joining) => {
+    setError("");
+    const apply = (value, delta) => setGroups(current => current.map(item => item.id === target.id
+      ? { ...item, is_member: value, member_count: item.member_count + delta } : item));
+    apply(joining, joining ? 1 : -1);
+    try {
+      await api(`/groups/${target.id}/${joining ? "join" : "leave"}`, { method: "POST" });
+    } catch (membershipError) {
+      apply(!joining, joining ? -1 : 1);
+      setError(membershipError.message);
+    }
+  };
+
+  const deleteGroup = async () => {
+    if (!window.confirm(`Apagar o grupo «${group.name}» e todas as publicações dele? Esta ação não pode ser desfeita.`)) return;
+    setBusy(true);
+    try {
+      await api(`/groups/${group.id}`, { method: "DELETE" });
+      setGroups(current => current.filter(item => item.id !== group.id));
+      navigate("/groups");
+    } catch (deleteError) {
+      setError(deleteError.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // ----- Grupo individual -----
+  if (groupId) {
+    if (!groups && !error) return <div className="page narrow"><div className="empty card">A carregar grupo...</div></div>;
+    if (!group) return <div className="page narrow"><div className="empty card">Este grupo não existe ou foi apagado. <Link to="/groups">Ver todos os grupos</Link></div></div>;
+    return <div className="pages-view page-detail">
+      <Link className="page-back" to="/groups"><Icon name="previous" size={18} /> Todos os grupos</Link>
+      <section className="page-hero card">
+        <div className={`page-hero-cover tone-page-${pageTone(group.name)}`}><span className="page-hero-mark" aria-hidden="true">{pageMonogram(group.name)}</span></div>
+        <div className="page-hero-body">
+          <GroupLogo group={group} size="large" />
+          <div className="page-hero-text">
+            <h1>{group.name}</h1>
+            <p><span className="page-category"><Icon name="groups" size={13} /> Grupo</span>
+              <span>{formatCount(group.member_count)} {group.member_count === 1 ? "membro" : "membros"}</span>
+              <span>{formatCount(group.post_count)} {group.post_count === 1 ? "publicação" : "publicações"}</span>
+              <MemberStack members={group.member_preview} total={group.member_count} /></p>
+          </div>
+          <div className="page-hero-actions">
+            {ownsGroup
+              ? <button className="btn secondary danger-text" type="button" disabled={busy} onClick={deleteGroup}><Icon name="trash" size={15} /> Apagar grupo</button>
+              : <JoinGroupButton group={group} user={user} busy={busy} onJoin={item => setMembership(item, true)} onLeave={item => setMembership(item, false)} />}
+          </div>
+        </div>
+      </section>
+      {error && <p className="error" role="alert">{error}</p>}
+      <div className="page-detail-grid">
+        <aside className="page-about card">
+          <h2>Sobre</h2>
+          <p>{group.description || "Um espaço para a comunidade."}</p>
+          <ul>
+            <li><Icon name="shield" size={16} /><span>Só os membros veem e publicam</span></li>
+            <li><Icon name="profile" size={16} /><span>Criado por <Link to={`/u/${group.owner_username}`}>{group.owner_name}</Link></span></li>
+            <li><Icon name="events" size={16} /><span>Desde {new Date(group.created_at).toLocaleDateString("pt-PT", { month: "long", year: "numeric" })}</span></li>
+          </ul>
+        </aside>
+        <section className="page-posts" aria-label="Publicações do grupo">
+          {group.is_member ? <>
+            <Composer target={{ type: "group", id: group.id }} onPosted={() => { loadPosts(group.id); loadGroups(); }} />
+            {!posts && <div className="empty card">A carregar publicações...</div>}
+            {posts?.map(post => <PostCard key={post.id} post={post} onChanged={() => loadPosts(group.id)} />)}
+            {posts && !posts.length && <div className="empty card page-empty"><GroupLogo group={group} /><p>Ainda não há conversa neste grupo. Começa tu: apresenta-te ou faz uma pergunta.</p></div>}
+          </> : <div className="empty card page-empty group-locked">
+            <span className="group-lock-icon"><Icon name="shield" size={26} /></span>
+            <p>As publicações deste grupo só são visíveis para os membros.</p>
+            <JoinGroupButton group={group} user={user} busy={busy} onJoin={item => setMembership(item, true)} onLeave={item => setMembership(item, false)} />
+          </div>}
+        </section>
+      </div>
+    </div>;
+  }
+
+  // ----- Lista de grupos -----
+  const all = groups || [];
+  const mine = all.filter(item => user && item.owner_username === user.username);
+  const joined = all.filter(item => item.is_member && !(user && item.owner_username === user.username));
+  const tabs = [["discover", "Descobrir", all.length], ...(user ? [["joined", "Participas", joined.length], ["mine", "Criados por ti", mine.length]] : [])];
+  const source = tab === "mine" ? mine : tab === "joined" ? joined : all;
+  const term = query.trim().toLowerCase();
+  const visible = source.filter(item => !term || `${item.name} ${item.description} ${item.owner_name}`.toLowerCase().includes(term));
+
+  return <div className="pages-view">
+    <header className="pages-head">
+      <div><h1>Grupos</h1><p>Junta-te a pessoas com os mesmos interesses e conversa num espaço só para membros.</p></div>
+      {user ? <button className="btn" type="button" onClick={() => setCreating(true)}><Icon name="plus" size={16} /> Criar grupo</button>
+        : <Link className="btn" to="/login">Entrar para criar</Link>}
+    </header>
+    <div className="pages-toolbar">
+      <div className="pages-tabs" role="tablist" aria-label="Que grupos mostrar">
+        {tabs.map(([id, label, count]) => <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => setTab(id)}>{label}<span>{count}</span></button>)}
+      </div>
+      <label className="pages-search"><Icon name="search" size={17} /><input type="search" placeholder="Procurar grupos" aria-label="Procurar grupos" value={query} onChange={event => setQuery(event.target.value)} /></label>
+    </div>
+    {error && <p className="error" role="alert">{error}</p>}
+    {!groups && !error && <div className="empty card">A carregar grupos...</div>}
+    {groups && !visible.length && <div className="empty card pages-empty">
+      {term ? <p>Nenhum grupo corresponde à pesquisa.</p>
+        : tab === "mine" ? <><p>Ainda não criaste nenhum grupo. Junta pessoas à volta de um tema que gostas.</p><button className="btn" type="button" onClick={() => setCreating(true)}><Icon name="plus" size={16} /> Criar o primeiro grupo</button></>
+          : tab === "joined" ? <><p>Ainda não participas em nenhum grupo.</p><button className="btn secondary" type="button" onClick={() => setTab("discover")}>Descobrir grupos</button></>
+            : <><p>Ainda não há grupos. Cria o primeiro e convida os teus amigos.</p>{user && <button className="btn" type="button" onClick={() => setCreating(true)}><Icon name="plus" size={16} /> Criar grupo</button>}</>}
+    </div>}
+    {visible.length > 0 && <div className="pages-grid">{visible.map(item => <GroupCard key={item.id} group={item} user={user} busy={busy}
+      onJoin={target => setMembership(target, true)} onLeave={target => setMembership(target, false)} />)}</div>}
+    {creating && <CreateGroupDialog onClose={() => setCreating(false)} onCreated={created => { setCreating(false); loadGroups().then(() => navigate(`/groups/${created.id}`)); }} />}
+  </div>;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Páginas: descobrir, seguir, criar e ver páginas
+// ---------------------------------------------------------------------------------------------
+const PAGE_CATEGORIES = ["Comunidade", "Negócio local", "Marca", "Artista", "Música", "Desporto", "Educação", "Tecnologia",
+  "Moda e beleza", "Comida e bebida", "Notícias", "Entretenimento", "Organização sem fins lucrativos"];
+
+// Cada categoria fica sempre com a mesma família de cor (lagoa, céu, coral ou tinta).
+const pageTone = category => {
+  const text = (category || "Comunidade").toLowerCase();
+  let hash = 0;
+  for (const char of text) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
+  return ["lagoa", "ceu", "coral", "tinta"][hash % 4];
+};
+
+// Monograma: iniciais das duas primeiras palavras ("Loja da Rita" → "LR").
+const pageMonogram = name => (name || "?").split(/\s+/).filter(word => word.length > 2 || /^[A-ZÁ-Ú]/.test(word))
+  .slice(0, 2).map(word => word.charAt(0).toUpperCase()).join("") || (name || "?").charAt(0).toUpperCase();
+
+function PageLogo({ page, size = "" }) {
+  return <span className={`page-logo tone-page-${pageTone(page.category)} ${size}`} aria-hidden="true">{pageMonogram(page.name)}</span>;
+}
+
+function FollowPageButton({ page, user, busy, onFollow, onUnfollow }) {
+  if (!user) return <Link className="btn" to="/login">Entrar para seguir</Link>;
+  if (page.owner_username === user.username) return <Link className="btn secondary" to={`/pages/${page.id}`}><Icon name="settings" size={15} /> Gerir</Link>;
+  return page.is_following
+    ? <button className="btn secondary page-following" type="button" disabled={busy} aria-pressed="true" onClick={() => onUnfollow(page)}>
+      <Icon name="check" size={15} /><span className="when-idle">A seguir</span><span className="when-hover">Deixar de seguir</span></button>
+    : <button className="btn" type="button" disabled={busy} aria-pressed="false" onClick={() => onFollow(page)}><Icon name="plus" size={15} /> Seguir</button>;
+}
+
+function PageCard({ page, user, busy, onFollow, onUnfollow }) {
+  return <article className="page-card card">
+    <Link className={`page-card-cover tone-page-${pageTone(page.category)}`} to={`/pages/${page.id}`} tabIndex={-1} aria-hidden="true" />
+    <div className="page-card-body">
+      <Link to={`/pages/${page.id}`} className="page-card-logo-link" aria-hidden="true" tabIndex={-1}><PageLogo page={page} /></Link>
+      <h2><Link to={`/pages/${page.id}`}>{page.name}</Link></h2>
+      <span className="page-category">{page.category}</span>
+      <p className="page-card-description">{page.description || "Ainda sem descrição."}</p>
+      <dl className="page-card-stats">
+        <div><dt>Seguidores</dt><dd>{formatCount(page.follower_count)}</dd></div>
+        <div><dt>Publicações</dt><dd>{formatCount(page.post_count)}</dd></div>
+      </dl>
+      <div className="page-card-footer">
+        <Link className="page-owner" to={`/u/${page.owner_username}`}><Avatar user={{ display_name: page.owner_name, avatar_url: page.owner_avatar }} size="tiny" /><span>{page.owner_name}</span></Link>
+        <FollowPageButton page={page} user={user} busy={busy} onFollow={onFollow} onUnfollow={onUnfollow} />
+      </div>
+    </div>
+  </article>;
+}
+
+function CreatePageDialog({ onClose, onCreated }) {
+  const [form, setForm] = useState({ name: "", category: "Comunidade", description: "" });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    const onKey = event => { if (event.key === "Escape" && !busy) onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose, busy]);
+  const submit = async event => {
     event.preventDefault();
     setBusy(true);
     setError("");
     try {
-      const result = await api("/groups", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, description })
-      });
-      setName("");
-      setDescription("");
-      await loadGroups();
-      navigate(`/groups/${result.group.id}`);
+      const result = await api("/pages", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
+      onCreated(result.page);
     } catch (createError) {
       setError(createError.message);
-    } finally {
       setBusy(false);
     }
   };
-
-  const groupAction = async (id, action) => {
-    const ownGroup = action === "delete";
-    if (ownGroup && !window.confirm("Apagar o grupo e todas as publicações dele? Esta ação não pode ser desfeita.")) return;
-    setBusy(true);
-    setError("");
-    try {
-      await api(ownGroup ? `/groups/${id}` : `/groups/${id}/leave`, { method: ownGroup ? "DELETE" : "POST" });
-      await loadGroups();
-      if (String(id) === groupId) navigate("/groups");
-    } catch (actionError) {
-      setError(actionError.message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const joinGroup = async id => {
-    setBusy(true);
-    setError("");
-    try {
-      await api(`/groups/${id}/join`, { method: "POST" });
-      await loadGroups();
-    } catch (joinError) {
-      setError(joinError.message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return <div className="page narrow">
-    <div className="feed-heading"><h1>Grupos</h1><p>Junta-te a pessoas com interesses em comum.</p></div>
-    {!user && <p className="muted">Entra na tua conta para criar grupos e participar.</p>}
-    {user && <form className="section-card card entity-form" onSubmit={createGroup}><h2>Criar grupo</h2><input required maxLength="100" value={name} onChange={event => setName(event.target.value)} placeholder="Nome do grupo" /><textarea maxLength="2000" rows="3" value={description} onChange={event => setDescription(event.target.value)} placeholder="Sobre o que é este grupo?" /><button className="btn" disabled={busy}>{busy ? "A criar..." : "Criar grupo"}</button></form>}
-    {error && <p className="error">{error}</p>}
-    <div className="entity-list">{groups.map(item => <article className="section-card card entity-card" key={item.id}>
-      <div><h2><Link to={`/groups/${item.id}`}>{item.name}</Link></h2><p>{item.description || "Um espaço para a comunidade."}</p><small>{item.member_count} membros · criado por {item.owner_name}</small></div>
-      {user && !item.is_member && <button className="btn secondary" disabled={busy} onClick={() => joinGroup(item.id)}>Participar</button>}
-      {user && item.is_member && (item.owner_username === user.username
-        ? <button className="btn secondary danger-text" disabled={busy} onClick={() => groupAction(item.id, "delete")}>Apagar grupo</button>
-        : <button className="btn secondary" disabled={busy} onClick={() => groupAction(item.id, "leave")}>Sair do grupo</button>)}
-    </article>)}</div>
-    {groupId && group && <section className="entity-detail">
-      <div className="feed-heading"><h2>{group.name}</h2><p>{group.description}</p></div>
-      {group.is_member
-        ? <Composer target={{ type: "group", id: group.id }} onPosted={() => api(`/posts?groupId=${group.id}`).then(result => setPosts(result.posts)).catch(loadError => setError(loadError.message))} />
-        : <div className="section-card card"><p>Participa no grupo para criar publicações.</p>{user && <button className="btn" onClick={() => joinGroup(group.id)}>Participar</button>}</div>}
-      {posts.map(post => <PostCard key={post.id} post={post} onChanged={() => api(`/posts?groupId=${group.id}`).then(result => setPosts(result.posts)).catch(loadError => setError(loadError.message))} />)}
-      {!posts.length && group.is_member && <div className="empty card">Ainda não há publicações neste grupo.</div>}
-    </section>}
-    {groupId && !group && !error && <div className="empty card">A carregar grupo...</div>}
-  </div>;
+  const preview = { ...form, name: form.name || "Nome da página", follower_count: 1, post_count: 0 };
+  return createPortal(<div className="modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget && !busy) onClose(); }}>
+    <form className="modal card create-page-dialog" role="dialog" aria-modal="true" aria-labelledby="create-page-title" onSubmit={submit}>
+      <div className="share-dialog-head">
+        <h2 id="create-page-title">Criar página</h2>
+        <button className="round-button" type="button" aria-label="Fechar" onClick={onClose} disabled={busy}><Icon name="close" size={18} /></button>
+      </div>
+      <div className="create-page-grid">
+        <div className="create-page-fields">
+          <label>Nome<input required autoFocus maxLength={100} value={form.name} onChange={event => setForm({ ...form, name: event.target.value })} placeholder="Ex.: Loja da Rita" /></label>
+          <label>Categoria<select value={form.category} onChange={event => setForm({ ...form, category: event.target.value })}>
+            {PAGE_CATEGORIES.map(category => <option key={category}>{category}</option>)}
+          </select></label>
+          <label>Descrição <small>{form.description.length}/2000</small><textarea rows={4} maxLength={2000} value={form.description}
+            onChange={event => setForm({ ...form, description: event.target.value })} placeholder="Conta às pessoas o que vão encontrar nesta página." /></label>
+          <p className="muted create-page-note">És tu quem publica na página. As pessoas que a seguem veem as publicações no feed.</p>
+        </div>
+        <div className="create-page-preview" aria-label="Pré-visualização">
+          <small>Pré-visualização</small>
+          <div className="page-card card is-preview">
+            <span className={`page-card-cover tone-page-${pageTone(preview.category)}`} />
+            <div className="page-card-body">
+              <PageLogo page={preview} />
+              <h2>{preview.name}</h2>
+              <span className="page-category">{preview.category}</span>
+              <p className="page-card-description">{form.description || "A descrição aparece aqui."}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+      {error && <p className="error" role="alert">{error}</p>}
+      <div className="modal-actions">
+        <button className="btn secondary" type="button" onClick={onClose} disabled={busy}>Cancelar</button>
+        <button className="btn" type="submit" disabled={busy || !form.name.trim()}>{busy ? "A criar..." : "Criar página"}</button>
+      </div>
+    </form>
+  </div>, document.body);
 }
 
 function Pages() {
   const { pageId } = useParams();
+  const navigate = useNavigate();
   const { user } = useContext(UserContext);
-  const [pages, setPages] = useState([]);
-  const [posts, setPosts] = useState([]);
-  const [name, setName] = useState("");
-  const [category, setCategory] = useState("Comunidade");
-  const [description, setDescription] = useState("");
+  const [pages, setPages] = useState(null);
+  const [posts, setPosts] = useState(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const page = pages.find(item => String(item.id) === pageId);
-  const ownsPage = page && page.owner_username === user?.username;
+  const [creating, setCreating] = useState(false);
+  const [tab, setTab] = useState("discover");
+  const [query, setQuery] = useState("");
+  const [category, setCategory] = useState("");
+  const page = pages?.find(item => String(item.id) === pageId);
+  const ownsPage = Boolean(page && user && page.owner_username === user.username);
 
   const loadPages = async () => {
     try {
@@ -4859,140 +6144,35 @@ function Pages() {
     }
   };
 
-  useEffect(() => { loadPages(); }, []);
+  useEffect(() => { loadPages(); }, [user?.id]);
   useEffect(() => {
-    if (!pageId) {
-      setPosts([]);
-      return;
-    }
-    api(`/posts?pageId=${encodeURIComponent(pageId)}`)
-      .then(result => setPosts(result.posts))
-      .catch(loadError => setError(loadError.message));
+    setPosts(null);
+    if (!pageId) return;
+    api(`/posts?pageId=${encodeURIComponent(pageId)}`).then(result => setPosts(result.posts)).catch(loadError => setError(loadError.message));
+    window.scrollTo(0, 0);
   }, [pageId]);
 
-  const createPage = async event => {
-    event.preventDefault();
-    setBusy(true);
+  // Seguir/deixar de seguir muda logo no ecrã; se o servidor falhar, volta atrás.
+  const setFollowing = async (target, following) => {
     setError("");
+    const apply = (value, delta) => setPages(current => current.map(item => item.id === target.id
+      ? { ...item, is_following: value, follower_count: item.follower_count + delta } : item));
+    apply(following, following ? 1 : -1);
     try {
-      await api("/pages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, category, description })
-      });
-      setName("");
-      setDescription("");
-      await loadPages();
-    } catch (createError) {
-      setError(createError.message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const pageAction = async (id, action) => {
-    const ownPage = action === "delete";
-    if (ownPage && !window.confirm("Apagar a página e todas as publicações dela? Esta ação não pode ser desfeita.")) return;
-    setBusy(true);
-    setError("");
-    try {
-      await api(ownPage ? `/pages/${id}` : `/pages/${id}/follow`, { method: "DELETE" });
-      await loadPages();
-    } catch (actionError) {
-      setError(actionError.message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const followPage = async id => {
-    setBusy(true);
-    setError("");
-    try {
-      await api(`/pages/${id}/follow`, { method: "POST" });
-      await loadPages();
+      await api(`/pages/${target.id}/follow`, { method: following ? "POST" : "DELETE" });
     } catch (followError) {
+      apply(!following, following ? -1 : 1);
       setError(followError.message);
-    } finally {
-      setBusy(false);
     }
   };
 
-  const reloadPosts = () => api(`/posts?pageId=${page.id}`).then(result => setPosts(result.posts)).catch(loadError => setError(loadError.message));
-
-  return <div className="page narrow">
-    <div className="feed-heading"><h1>Páginas</h1><p>Segue criadores, projetos e comunidades.</p></div>
-    {!user && <p className="muted">Entra na tua conta para criar páginas e segui-las.</p>}
-    {user && <form className="section-card card entity-form" onSubmit={createPage}><h2>Criar página</h2><input required maxLength="100" value={name} onChange={event => setName(event.target.value)} placeholder="Nome da página" /><input maxLength="60" value={category} onChange={event => setCategory(event.target.value)} placeholder="Categoria" /><textarea maxLength="2000" rows="3" value={description} onChange={event => setDescription(event.target.value)} placeholder="Descrição" /><button className="btn" disabled={busy}>{busy ? "A criar..." : "Criar página"}</button></form>}
-    {error && <p className="error">{error}</p>}
-    <div className="entity-list">{pages.map(item => <article className="section-card card entity-card" key={item.id}>
-      <div><h2><Link to={`/pages/${item.id}`}>{item.name}</Link></h2><small>{item.category} · {item.follower_count} seguidores · por {item.owner_name}</small><p>{item.description}</p></div>
-      {user && !item.is_following && <button className="btn secondary" disabled={busy} onClick={() => followPage(item.id)}>Seguir</button>}
-      {user && item.is_following && (item.owner_username === user.username
-        ? <button className="btn secondary danger-text" disabled={busy} onClick={() => pageAction(item.id, "delete")}>Apagar página</button>
-        : <button className="btn secondary" disabled={busy} onClick={() => pageAction(item.id, "unfollow")}>Deixar de seguir</button>)}
-    </article>)}</div>
-    {pageId && page && <section className="entity-detail">
-      <div className="feed-heading"><h2>{page.name}</h2><p>{page.category} · {page.description}</p></div>
-      {ownsPage && <Composer target={{ type: "page", id: page.id }} onPosted={reloadPosts} />}
-      {posts.map(post => <PostCard key={post.id} post={post} onChanged={reloadPosts} />)}
-      {!posts.length && <div className="empty card">{ownsPage ? "Ainda não há publicações nesta página." : "Esta página ainda não publicou conteúdo."}</div>}
-    </section>}
-    {pageId && !page && !error && <div className="empty card">A carregar página...</div>}
-  </div>;
-}
-
-function Events() {
-  const { user } = useContext(UserContext);
-  const [events, setEvents] = useState([]);
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [location, setLocation] = useState("");
-  const [startsAt, setStartsAt] = useState("");
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-
-  const load = async () => {
-    try {
-      const result = await api("/events");
-      setEvents(result.events);
-      setError("");
-    } catch (loadError) {
-      setError(loadError.message);
-    }
-  };
-
-  useEffect(() => { load(); }, []);
-
-  const createEvent = async event => {
-    event.preventDefault();
+  const deletePage = async () => {
+    if (!window.confirm(`Apagar a página «${page.name}» e todas as publicações dela? Esta ação não pode ser desfeita.`)) return;
     setBusy(true);
-    setError("");
     try {
-      await api("/events", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, description, location, startsAt })
-      });
-      setName("");
-      setDescription("");
-      setLocation("");
-      setStartsAt("");
-      await load();
-    } catch (createError) {
-      setError(createError.message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const deleteEvent = async id => {
-    if (!window.confirm("Apagar este evento? Os participantes deixam de o ver.")) return;
-    setBusy(true);
-    setError("");
-    try {
-      await api(`/events/${id}`, { method: "DELETE" });
-      await load();
+      await api(`/pages/${page.id}`, { method: "DELETE" });
+      setPages(current => current.filter(item => item.id !== page.id));
+      navigate("/pages");
     } catch (deleteError) {
       setError(deleteError.message);
     } finally {
@@ -5000,82 +6180,93 @@ function Events() {
     }
   };
 
-  const toggleRsvp = async id => {
-    setBusy(true);
-    setError("");
-    try {
-      await api(`/events/${id}/rsvp`, { method: "POST" });
-      await load();
-    } catch (rsvpError) {
-      setError(rsvpError.message);
-    } finally {
-      setBusy(false);
-    }
-  };
+  const reloadPosts = () => api(`/posts?pageId=${page.id}`).then(result => setPosts(result.posts)).catch(loadError => setError(loadError.message));
 
-  return <div className="page narrow">
-    <div className="feed-heading"><h1>Eventos</h1><p>Descobre o que acontece e combina encontros.</p></div>
-    {user
-      ? <form className="section-card card entity-form" onSubmit={createEvent}><h2>Criar evento</h2><input required maxLength="120" value={name} onChange={event => setName(event.target.value)} placeholder="Nome do evento" /><input maxLength="160" value={location} onChange={event => setLocation(event.target.value)} placeholder="Localização" /><input required type="datetime-local" value={startsAt} onChange={event => setStartsAt(event.target.value)} /><textarea maxLength="2000" rows="3" value={description} onChange={event => setDescription(event.target.value)} placeholder="Descrição" /><button className="btn" disabled={busy}>{busy ? "A criar..." : "Criar evento"}</button></form>
-      : <p className="muted">Entra na tua conta para criar eventos e confirmar presença.</p>}
-    {error && <p className="error">{error}</p>}
-    <div className="entity-list">{events.map(item => <article className="section-card card event-card" key={item.id}>
-      <div className="event-date"><strong>{new Date(item.starts_at).toLocaleDateString("pt-PT", { day: "2-digit" })}</strong><span>{new Date(item.starts_at).toLocaleDateString("pt-PT", { month: "short" })}</span></div>
-      <div className="event-info"><h2>{item.name}</h2><p>{new Date(item.starts_at).toLocaleString("pt-PT")} {item.location && `· ${item.location}`}</p><small>Organizado por {item.creator_name} · {item.attendee_count} participantes</small>{item.description && <p>{item.description}</p>}</div>
-      {user && <div className="event-actions">
-        <button className={`btn ${item.is_attending ? "secondary" : ""}`} disabled={busy} onClick={() => toggleRsvp(item.id)}>{item.is_attending ? "Vou participar" : "Participar"}</button>
-        {String(item.creator_id) === String(user.id) && <button className="btn secondary danger-text" disabled={busy} onClick={() => deleteEvent(item.id)}>Apagar</button>}
-      </div>}
-    </article>)}</div>
-    {!events.length && !error && <div className="empty card">Ainda não há eventos próximos.</div>}
-  </div>;
-}
+  // ----- Página individual -----
+  if (pageId) {
+    if (!pages && !error) return <div className="page narrow"><div className="empty card">A carregar página...</div></div>;
+    if (!page) return <div className="page narrow"><div className="empty card">Esta página não existe ou foi apagada. <Link to="/pages">Ver todas as páginas</Link></div></div>;
+    const tone = pageTone(page.category);
+    return <div className="pages-view page-detail">
+      <Link className="page-back" to="/pages"><Icon name="previous" size={18} /> Todas as páginas</Link>
+      <section className="page-hero card">
+        <div className={`page-hero-cover tone-page-${tone}`}><span className="page-hero-mark" aria-hidden="true">{pageMonogram(page.name)}</span></div>
+        <div className="page-hero-body">
+          <PageLogo page={page} size="large" />
+          <div className="page-hero-text">
+            <h1>{page.name}</h1>
+            <p><span className="page-category">{page.category}</span><span>{formatCount(page.follower_count)} {page.follower_count === 1 ? "seguidor" : "seguidores"}</span><span>{formatCount(page.post_count)} {page.post_count === 1 ? "publicação" : "publicações"}</span></p>
+          </div>
+          <div className="page-hero-actions">
+            {ownsPage
+              ? <button className="btn secondary danger-text" type="button" disabled={busy} onClick={deletePage}><Icon name="trash" size={15} /> Apagar página</button>
+              : <FollowPageButton page={page} user={user} busy={busy} onFollow={item => setFollowing(item, true)} onUnfollow={item => setFollowing(item, false)} />}
+          </div>
+        </div>
+      </section>
+      {error && <p className="error" role="alert">{error}</p>}
+      <div className="page-detail-grid">
+        <aside className="page-about card">
+          <h2>Sobre</h2>
+          <p>{page.description || "Esta página ainda não tem descrição."}</p>
+          <ul>
+            <li><Icon name="pages" size={16} /><span>{page.category}</span></li>
+            <li><Icon name="profile" size={16} /><span>Criada por <Link to={`/u/${page.owner_username}`}>{page.owner_name}</Link></span></li>
+            <li><Icon name="events" size={16} /><span>Desde {new Date(page.created_at).toLocaleDateString("pt-PT", { month: "long", year: "numeric" })}</span></li>
+          </ul>
+        </aside>
+        <section className="page-posts" aria-label="Publicações da página">
+          {ownsPage && <Composer target={{ type: "page", id: page.id }} onPosted={() => { reloadPosts(); loadPages(); }} />}
+          {!posts && <div className="empty card">A carregar publicações...</div>}
+          {posts?.map(post => <PostCard key={post.id} post={post} onChanged={reloadPosts} />)}
+          {posts && !posts.length && <div className="empty card page-empty">
+            <PageLogo page={page} />
+            <p>{ownsPage ? "A tua página ainda não tem publicações. Escreve a primeira acima — quem te segue vai vê-la no feed." : "Esta página ainda não publicou nada. Segue-a para veres as novidades no teu feed."}</p>
+          </div>}
+        </section>
+      </div>
+    </div>;
+  }
 
-function Notifications() {
-  const { user, refreshUser } = useContext(UserContext);
-  const [notifications, setNotifications] = useState([]);
-  const [error, setError] = useState("");
+  // ----- Lista de páginas -----
+  const all = pages || [];
+  const mine = all.filter(item => user && item.owner_username === user.username);
+  const followed = all.filter(item => item.is_following && !(user && item.owner_username === user.username));
+  const tabs = [["discover", "Descobrir", all.length], ...(user ? [["mine", "As tuas páginas", mine.length], ["following", "A seguir", followed.length]] : [])];
+  const source = tab === "mine" ? mine : tab === "following" ? followed : all;
+  const categories = [...new Set(all.map(item => item.category))].sort((a, b) => a.localeCompare(b, "pt"));
+  const term = query.trim().toLowerCase();
+  const visible = source.filter(item => (!category || item.category === category)
+    && (!term || `${item.name} ${item.description} ${item.category} ${item.owner_name}`.toLowerCase().includes(term)));
 
-  const load = async () => {
-    try {
-      const result = await api("/notifications");
-      setNotifications(result.notifications);
-      setError("");
-    } catch (loadError) {
-      setError(loadError.message);
-    }
-  };
-
-  useEffect(() => { if (user) load(); }, [user]);
-
-  const markRead = async id => {
-    try {
-      await api(`/notifications/${id}/read`, { method: "POST" });
-      await load();
-      await refreshUser();
-    } catch (readError) {
-      setError(readError.message);
-    }
-  };
-
-  const markAllRead = async () => {
-    try {
-      await api("/notifications/read-all", { method: "POST" });
-      await load();
-      await refreshUser();
-    } catch (readError) {
-      setError(readError.message);
-    }
-  };
-
-  if (!user) return <div className="page narrow"><div className="empty card">Entra na tua conta para ver as notificações. <Link to="/login">Entrar</Link></div></div>;
-  return <div className="page narrow">
-    <div className="feed-heading notification-heading"><div><h1>Notificações</h1><p>Atividade recente da tua conta.</p></div><button className="text-button" onClick={markAllRead}>Marcar todas como lidas</button></div>
-    {error && <p className="error">{error}</p>}
-    <div className="notification-list">{notifications.map(item => <button className={`notification-item ${item.read ? "" : "unread"}`} key={item.id} onClick={() => !item.read && markRead(item.id)}>
-      <span className="notification-dot">{item.read ? "○" : "●"}</span><span><strong>{item.actor_name || "Biva"}</strong> {item.text}<small>{new Date(item.created_at).toLocaleString("pt-PT")}</small></span>
-    </button>)}</div>
-    {!notifications.length && !error && <div className="empty card">Não tens notificações.</div>}
+  return <div className="pages-view">
+    <header className="pages-head">
+      <div><h1>Páginas</h1><p>Segue negócios, artistas e projetos da tua comunidade, ou cria a tua.</p></div>
+      {user ? <button className="btn" type="button" onClick={() => setCreating(true)}><Icon name="plus" size={16} /> Criar página</button>
+        : <Link className="btn" to="/login">Entrar para criar</Link>}
+    </header>
+    <div className="pages-toolbar">
+      <div className="pages-tabs" role="tablist" aria-label="Que páginas mostrar">
+        {tabs.map(([id, label, count]) => <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => setTab(id)}>{label}<span>{count}</span></button>)}
+      </div>
+      <label className="pages-search"><Icon name="search" size={17} /><input type="search" placeholder="Procurar páginas" aria-label="Procurar páginas" value={query} onChange={event => setQuery(event.target.value)} /></label>
+    </div>
+    {categories.length > 1 && <div className="province-chips pages-categories" role="group" aria-label="Categorias">
+      <button type="button" className="province-chip" aria-pressed={!category} onClick={() => setCategory("")}>Todas</button>
+      {categories.map(item => <button key={item} type="button" className="province-chip" aria-pressed={category === item} onClick={() => setCategory(category === item ? "" : item)}>{item}</button>)}
+    </div>}
+    {error && <p className="error" role="alert">{error}</p>}
+    {!pages && !error && <div className="empty card">A carregar páginas...</div>}
+    {pages && !visible.length && <div className="empty card pages-empty">
+      {tab === "mine" && !term && !category
+        ? <><p>Ainda não criaste nenhuma página. Uma página serve para o teu negócio, projeto ou arte ter o seu próprio espaço.</p><button className="btn" type="button" onClick={() => setCreating(true)}><Icon name="plus" size={16} /> Criar a primeira página</button></>
+        : tab === "following" && !term && !category
+          ? <><p>Ainda não segues nenhuma página.</p><button className="btn secondary" type="button" onClick={() => setTab("discover")}>Descobrir páginas</button></>
+          : <p>Nenhuma página corresponde à pesquisa.</p>}
+    </div>}
+    {visible.length > 0 && <div className="pages-grid">{visible.map(item => <PageCard key={item.id} page={item} user={user} busy={busy}
+      onFollow={target => setFollowing(target, true)} onUnfollow={target => setFollowing(target, false)} />)}</div>}
+    {creating && <CreatePageDialog onClose={() => setCreating(false)} onCreated={created => { setCreating(false); loadPages().then(() => navigate(`/pages/${created.id}`)); }} />}
   </div>;
 }
 
@@ -5108,6 +6299,8 @@ function App() {
     <Route path="/desafios/:challengeId" element={<ChallengesPage />} />
     <Route path="/convidar" element={<InvitePage />} />
     <Route path="/academia" element={<AcademyPage />} />
+    <Route path="/live" element={<LivePage />} />
+    <Route path="/live/:liveId" element={<LivePage />} />
     <Route path="/publicidade" element={<AdRules />} />
     <Route path="/admin" element={<AdminPage />} />
     <Route path="/admin/:tab" element={<AdminPage />} />

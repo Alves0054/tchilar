@@ -1,4 +1,4 @@
-require("dotenv").config();
+﻿require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const path = require("path");
@@ -10,14 +10,19 @@ const jwt = require("jsonwebtoken");
 const { Pool } = require("pg");
 const nodemailer = require("nodemailer");
 const { rateLimit } = require("express-rate-limit");
+const helmet = require("helmet");
 const Stripe = require("stripe");
 const { runMigrations } = require("./migrate");
 const { optimizeUpload } = require("./images");
 const { activatePaidAd, registerCreatorRoutes } = require("./creator-routes");
 const { registerGrowthRoutes } = require("./growth-routes");
+const { registerLiveRoutes } = require("./live-routes");
 const { createPayments } = require("./payments");
+const { createPaybyrd, createProxyPay } = require("./angola-payments");
 const { registerFinanceRoutes } = require("./finance-routes");
-const { loadKey } = require("./payouts");
+const { decrypt, encrypt, loadKey } = require("./payouts");
+const { generateSecret, otpauthUri, verifyCode } = require("./totp");
+const QRCode = require("qrcode");
 const { MODERATION_ACTIONS, REPORT_REASONS, blockedBetween, shouldAutoHide } = require("./moderation");
 const {
   ACTIVE_SUBSCRIPTION_SQL,
@@ -44,6 +49,9 @@ const allowedOrigins = (process.env.CLIENT_URL || "http://localhost:5173,http://
 // Só em NODE_ENV=development explícito; qualquer outro valor (ou nenhum) é tratado como produção.
 const isDevelopment = process.env.NODE_ENV === "development";
 const exposeDevAuthLinks = isDevelopment && process.env.DEV_EXPOSE_AUTH_LINKS === "true";
+// Pagamentos de demonstração (ativam sem cobrar) precisam de DUAS coisas: desenvolvimento E pedido explícito.
+// Assim, um servidor de desenvolvimento aberto por um túnel público não oferece estrelas nem promoções grátis.
+const demoPayments = isDevelopment && process.env.PAYMENTS_DEMO === "true";
 const appUrl = process.env.APP_URL || allowedOrigins[0] || "http://localhost:5173";
 const mailTransport = process.env.SMTP_HOST
   ? nodemailer.createTransport({
@@ -62,6 +70,15 @@ const authRateLimit = rateLimit({
   legacyHeaders: false,
   message: { error: "Demasiadas tentativas. Tenta novamente mais tarde." }
 });
+// Ações de segurança com sessão iniciada (mudar palavra-passe, 2FA): limite próprio, para não gastar
+// as tentativas de login. 20 em 15 min chega para uso normal e torna inútil adivinhar códigos de 6 dígitos.
+const accountSecurityRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 20,
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+  message: { error: "Demasiadas tentativas. Tenta novamente daqui a 15 minutos." }
+});
 const recoveryRateLimit = rateLimit({
   windowMs: 60 * 60 * 1000,
   limit: 5,
@@ -74,8 +91,51 @@ const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SEC
 const stripeWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET || "";
 const subscriptionCurrency = (process.env.SUBSCRIPTION_CURRENCY || "aoa").toLowerCase();
 // Pagamentos únicos (promoções, estrelas, campanhas): cada produto regista o que fazer quando o pagamento chega.
-const payments = createPayments({ stripe, isProduction: process.env.NODE_ENV === "production", appUrl, currency: subscriptionCurrency });
+// Falha fechada: os pagamentos de demonstração (sem cobrança) só existem com NODE_ENV=development.
+// Qualquer outro ambiente sem Stripe (produção, staging, NODE_ENV esquecido) recusa os pagamentos.
+// Métodos angolanos (opcionais): Pagamento por Referência (ProxyPay) e Multicaixa Express (Paybyrd).
+const proxypay = process.env.PROXYPAY_API_KEY && process.env.PROXYPAY_ENTITY_ID
+  ? createProxyPay({ apiKey: process.env.PROXYPAY_API_KEY, entityId: process.env.PROXYPAY_ENTITY_ID, environment: process.env.PROXYPAY_ENV === "production" ? "production" : "sandbox" })
+  : null;
+const paybyrd = process.env.PAYBYRD_API_KEY ? createPaybyrd({ apiKey: process.env.PAYBYRD_API_KEY, currency: subscriptionCurrency.toUpperCase() }) : null;
+const payments = createPayments({ stripe, isProduction: !demoPayments, appUrl, currency: subscriptionCurrency, pool, proxypay, paybyrd });
 payments.register("ad", (adId, details) => activatePaidAd(pool, adId, details));
+
+// Atrás do nginx (ou outro proxy), o IP real vem em X-Forwarded-For. Sem isto, os limites de tentativas
+// contariam todas as pessoas como uma só (o IP do proxy). TRUST_PROXY = número de proxies à frente.
+if (Number(process.env.TRUST_PROXY) > 0) app.set("trust proxy", Number(process.env.TRUST_PROXY));
+
+// Cabeçalhos de segurança. A CSP só deixa correr scripts do próprio site: mesmo que alguém consiga
+// injetar HTML, o browser recusa executar código vindo de outro lado.
+const apiOrigin = (() => {
+  try { return process.env.VITE_API_URL ? new URL(process.env.VITE_API_URL).origin : null; } catch { return null; }
+})();
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", "data:", "blob:", "https:"],
+      mediaSrc: ["'self'", "blob:"],
+      fontSrc: ["'self'", "data:"],
+      connectSrc: ["'self'", ...(apiOrigin ? [apiOrigin] : [])],
+      objectSrc: ["'none'"],
+      frameAncestors: ["'none'"],
+      formAction: ["'self'"],
+      upgradeInsecureRequests: isDevelopment ? null : []
+    }
+  },
+  crossOriginEmbedderPolicy: false,
+  crossOriginResourcePolicy: { policy: "same-site" },
+  hsts: isDevelopment ? false : { maxAge: 31536000, includeSubDomains: true },
+  referrerPolicy: { policy: "strict-origin-when-cross-origin" }
+}));
+// A câmara e o microfone só podem ser usados pelo próprio site (diretos); a localização por ninguém.
+app.use((_req, res, next) => {
+  res.set("Permissions-Policy", "camera=(self), microphone=(self), geolocation=(), payment=()");
+  next();
+});
 
 app.use(cors({ origin: allowedOrigins }));
 
@@ -101,6 +161,39 @@ app.post("/api/webhooks/stripe", express.raw({ type: "application/json", limit: 
     await payments.handleCheckoutSession(event.data.object);
   } else if (event.type.startsWith("customer.subscription.")) {
     await applyStripeSubscription(event.data.object);
+  }
+  res.json({ received: true });
+});
+
+// ProxyPay: pagamentos por referência. Só aceita notificações com assinatura HMAC válida.
+app.post("/api/webhooks/proxypay", express.raw({ type: "*/*", limit: "100kb" }), async (req, res) => {
+  if (!proxypay) return res.status(503).json({ error: "Pagamentos por referência não configurados." });
+  const raw = Buffer.isBuffer(req.body) ? req.body : Buffer.from("");
+  if (!proxypay.verifySignature(raw, req.headers["x-signature"])) return res.status(401).json({ error: "Assinatura inválida." });
+  let payment;
+  try {
+    payment = JSON.parse(raw.toString("utf8"));
+  } catch {
+    return res.status(400).json({ error: "Corpo inválido." });
+  }
+  try {
+    await payments.handleProxyPayPayment(payment);
+    res.json({ received: true });
+  } catch (error) {
+    console.error("ProxyPay webhook:", error.message);
+    res.status(500).json({ error: "Erro ao processar." });
+  }
+});
+
+// Paybyrd: Multicaixa Express. O conteúdo da notificação não é usado como prova: o estado
+// é sempre confirmado com a Paybyrd antes de se dar o pagamento por feito.
+app.post("/api/webhooks/paybyrd", express.json({ limit: "100kb" }), async (req, res) => {
+  const body = req.body || {};
+  const transactionId = body.transactionId || body.content?.transactionId || body.data?.transactionId || body.transaction?.transactionId;
+  try {
+    await payments.refreshExpressByTransaction(transactionId);
+  } catch (error) {
+    console.error("Paybyrd webhook:", error.message);
   }
   res.json({ received: true });
 });
@@ -258,9 +351,16 @@ async function isBlocked(userId, otherId) {
 
 const BLOCKED_ERROR = "Não é possível interagir com esta conta.";
 
+// Administradores só entram no painel com a verificação em dois passos ativa: uma palavra-passe roubada
+// não chega para suspender contas, aprovar levantamentos ou ver denúncias.
 function requireAdmin(req, res, next) {
   if (!req.user?.isAdmin) return res.status(403).json({ error: "Só a equipa de moderação pode aceder." });
-  next();
+  pool.query("SELECT totp_enabled_at FROM users WHERE id=$1", [req.user.id]).then(result => {
+    if (!result.rows[0]?.totp_enabled_at) {
+      return res.status(403).json({ error: "Ativa a verificação em dois passos nas Definições para usar o painel de administração.", twoFactorSetupRequired: true });
+    }
+    next();
+  }).catch(next);
 }
 
 function sign(user) {
@@ -268,6 +368,21 @@ function sign(user) {
     { id: user.id, username: user.username, version: Number(user.auth_version || 0) },
     JWT_SECRET,
     { expiresIn: "12h" });
+}
+
+// Regras para palavras-passe NOVAS (registo, recuperação, mudança). As já existentes continuam a funcionar.
+// O bcrypt só lê os primeiros 72 bytes, por isso recusamos mais do que isso em vez de cortar em silêncio.
+const COMMON_PASSWORDS = new Set([
+  "12345678", "123456789", "1234567890", "12341234", "87654321", "11111111", "00000000",
+  "password", "password1", "palavrapasse", "qwertyuiop", "abcdefgh", "iloveyou", "angola123", "biva1234"
+]);
+function passwordProblem(password) {
+  if (typeof password !== "string" || password.length < 8) return "A palavra-passe deve ter pelo menos 8 caracteres.";
+  if (Buffer.byteLength(password, "utf8") > 72) return "A palavra-passe é demasiado longa (máximo 72 bytes).";
+  if (/^(.)\1+$/.test(password) || COMMON_PASSWORDS.has(password.toLowerCase())) {
+    return "Essa palavra-passe é muito fácil de adivinhar. Escolhe outra.";
+  }
+  return null;
 }
 
 function hashToken(token) {
@@ -481,9 +596,8 @@ app.post("/api/auth/register", authRateLimit, async (req, res) => {
     }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: "Indica um email válido." });
     if (!displayName) return res.status(400).json({ error: "O nome público é obrigatório." });
-    if (typeof body.password !== "string" || password.length < 6 || Buffer.byteLength(password, "utf8") > 72) {
-      return res.status(400).json({ error: "A palavra-passe deve ter pelo menos 6 caracteres e no máximo 72 bytes." });
-    }
+    const passwordError = passwordProblem(body.password);
+    if (passwordError) return res.status(400).json({ error: passwordError });
     if (body.isCreator !== undefined && typeof body.isCreator !== "boolean") {
       return res.status(400).json({ error: "O valor de conta de criador é inválido." });
     }
@@ -540,7 +654,7 @@ app.post("/api/auth/login", authRateLimit, async (req, res) => {
   const password = typeof body.password === "string" ? body.password : "";
   if (!email || !password) return res.status(400).json({ error: "Email e palavra-passe são obrigatórios." });
   const result = await pool.query(`
-    SELECT ${OWN_ACCOUNT_FIELDS},auth_version,password_hash,suspended_at
+    SELECT ${OWN_ACCOUNT_FIELDS},auth_version,password_hash,suspended_at,totp_secret,totp_enabled_at,totp_last_step
     FROM users WHERE email=$1`, [email]);
   const user = result.rows[0];
   if (!user || !(await bcrypt.compare(password, user.password_hash))) {
@@ -553,6 +667,19 @@ app.post("/api/auth/login", authRateLimit, async (req, res) => {
   delete user.suspended_at;
   if (!user.email_verified) {
     return res.status(403).json({ error: "Confirma o teu email antes de iniciar sessão." });
+  }
+  const { totp_secret: totpSecret, totp_enabled_at: totpEnabled, totp_last_step: lastStep } = user;
+  delete user.totp_secret;
+  delete user.totp_enabled_at;
+  delete user.totp_last_step;
+  // Segundo passo: a palavra-passe está certa, agora falta o código da app de autenticação.
+  if (totpEnabled) {
+    if (!body.code) return res.status(401).json({ error: "Escreve o código de 6 dígitos da tua app de autenticação.", twoFactorRequired: true });
+    const step = verifyCode(decrypt(payoutKey, totpSecret), body.code, { lastStep });
+    // O UPDATE condicional garante que dois pedidos com o mesmo código não passam os dois.
+    const accepted = step !== null && (await pool.query(
+      "UPDATE users SET totp_last_step=$1 WHERE id=$2 AND (totp_last_step IS NULL OR totp_last_step < $1)", [step, user.id])).rowCount === 1;
+    if (!accepted) return res.status(401).json({ error: "Código inválido ou já usado. Espera pelo próximo.", twoFactorRequired: true });
   }
   res.json({ user, token: sign(user) });
 });
@@ -616,9 +743,8 @@ app.post("/api/auth/reset-password", recoveryRateLimit, async (req, res) => {
   const token = typeof body.token === "string" ? body.token : "";
   const password = typeof body.password === "string" ? body.password : "";
   if (!/^[a-f0-9]{64}$/i.test(token)) return res.status(400).json({ error: "Ligação inválida ou expirada." });
-  if (password.length < 6 || Buffer.byteLength(password, "utf8") > 72) {
-    return res.status(400).json({ error: "A palavra-passe deve ter pelo menos 6 caracteres e no máximo 72 bytes." });
-  }
+  const passwordError = passwordProblem(password);
+  if (passwordError) return res.status(400).json({ error: passwordError });
   const passwordHash = await bcrypt.hash(password, 12);
   const reset = await transaction(async client => {
     const result = await client.query(`
@@ -638,6 +764,73 @@ app.get("/api/auth/me", auth, async (req, res) => {
   const r = await pool.query(`SELECT ${OWN_ACCOUNT_FIELDS} FROM users WHERE id=$1`, [req.user.id]);
   if (!r.rowCount) return res.status(404).json({ error: "Conta não encontrada." });
   res.json({ user: r.rows[0] });
+});
+
+// Mudar a palavra-passe com sessão iniciada. Aumentar auth_version invalida todas as sessões abertas;
+// este dispositivo recebe logo um token novo para não ser posto fora.
+app.post("/api/auth/password", accountSecurityRateLimit, auth, async (req, res) => {
+  const body = isRecord(req.body) ? req.body : {};
+  const current = typeof body.currentPassword === "string" ? body.currentPassword : "";
+  const next = typeof body.newPassword === "string" ? body.newPassword : "";
+  const invalid = passwordProblem(next);
+  if (invalid) return res.status(400).json({ error: invalid });
+  const found = await pool.query("SELECT password_hash FROM users WHERE id=$1", [req.user.id]);
+  if (!found.rowCount || !(await bcrypt.compare(current, found.rows[0].password_hash))) {
+    return res.status(401).json({ error: "A palavra-passe atual está errada." });
+  }
+  const hash = await bcrypt.hash(next, 12);
+  const updated = await pool.query(
+    "UPDATE users SET password_hash=$1,auth_version=auth_version+1 WHERE id=$2 RETURNING id,username,auth_version",
+    [hash, req.user.id]);
+  res.json({ token: sign(updated.rows[0]), message: "Palavra-passe alterada. As outras sessões foram terminadas." });
+});
+
+// ----- Verificação em dois passos -----
+app.get("/api/auth/2fa", auth, async (req, res) => {
+  const result = await pool.query("SELECT totp_enabled_at,is_admin FROM users WHERE id=$1", [req.user.id]);
+  res.json({ enabled: Boolean(result.rows[0]?.totp_enabled_at), required: result.rows[0]?.is_admin === true });
+});
+
+// 1.º passo: gera um segredo novo (ainda inativo) e devolve o código QR para a app ler.
+app.post("/api/auth/2fa/setup", accountSecurityRateLimit, auth, async (req, res) => {
+  const found = await pool.query("SELECT username,totp_enabled_at FROM users WHERE id=$1", [req.user.id]);
+  if (found.rows[0]?.totp_enabled_at) return res.status(409).json({ error: "A verificação em dois passos já está ativa." });
+  const secret = generateSecret();
+  await pool.query("UPDATE users SET totp_secret=$1,totp_last_step=NULL WHERE id=$2", [encrypt(payoutKey, secret), req.user.id]);
+  const uri = otpauthUri({ secret, account: found.rows[0].username });
+  res.json({ secret, uri, qr: await QRCode.toDataURL(uri, { margin: 1, width: 220 }) });
+});
+
+// 2.º passo: a pessoa escreve o código que a app mostra; só então fica ativo (prova que a app ficou bem configurada).
+app.post("/api/auth/2fa/enable", accountSecurityRateLimit, auth, async (req, res) => {
+  const body = isRecord(req.body) ? req.body : {};
+  const found = await pool.query("SELECT totp_secret,totp_enabled_at FROM users WHERE id=$1", [req.user.id]);
+  const row = found.rows[0];
+  if (!row?.totp_secret || row.totp_enabled_at) return res.status(409).json({ error: "Começa a configuração outra vez." });
+  const step = verifyCode(decrypt(payoutKey, row.totp_secret), body.code);
+  if (step === null) return res.status(400).json({ error: "Código errado. Confirma que a hora do telemóvel está certa." });
+  await pool.query("UPDATE users SET totp_enabled_at=NOW(),totp_last_step=$1 WHERE id=$2", [step, req.user.id]);
+  res.json({ enabled: true, message: "Verificação em dois passos ativa. Vais precisar do código sempre que entrares." });
+});
+
+// Desligar pede a palavra-passe E um código: quem roubou só uma das duas coisas não consegue.
+app.post("/api/auth/2fa/disable", accountSecurityRateLimit, auth, async (req, res) => {
+  const body = isRecord(req.body) ? req.body : {};
+  const found = await pool.query("SELECT password_hash,totp_secret,totp_enabled_at,totp_last_step FROM users WHERE id=$1", [req.user.id]);
+  const row = found.rows[0];
+  if (!row?.totp_enabled_at) return res.status(409).json({ error: "A verificação em dois passos não está ativa." });
+  const passwordOk = typeof body.password === "string" && await bcrypt.compare(body.password, row.password_hash);
+  const step = verifyCode(decrypt(payoutKey, row.totp_secret), body.code, { lastStep: row.totp_last_step });
+  if (!passwordOk || step === null) return res.status(401).json({ error: "Palavra-passe ou código errado." });
+  await pool.query("UPDATE users SET totp_secret=NULL,totp_enabled_at=NULL,totp_last_step=NULL WHERE id=$1", [req.user.id]);
+  res.json({ enabled: false, message: "Verificação em dois passos desligada." });
+});
+
+// Terminar sessão em todos os outros dispositivos (telemóvel perdido, computador partilhado...).
+app.post("/api/auth/logout-all", auth, async (req, res) => {
+  const updated = await pool.query(
+    "UPDATE users SET auth_version=auth_version+1 WHERE id=$1 RETURNING id,username,auth_version", [req.user.id]);
+  res.json({ token: sign(updated.rows[0]), message: "Sessão terminada em todos os outros dispositivos." });
 });
 
 // Valida um campo de texto opcional do perfil. Devolve undefined (não enviado), o texto limpo, ou um erro.
@@ -1240,7 +1433,7 @@ app.post("/api/subscriptions/:creatorId", auth, async (req, res) => {
   const creatorId = parseId(req.params.creatorId);
   if (!creatorId || creatorId === req.user.id) return res.status(400).json({ error: "Criador inválido." });
   if (await isBlocked(req.user.id, creatorId)) return res.status(403).json({ error: BLOCKED_ERROR });
-  if (!stripe && process.env.NODE_ENV === "production") {
+  if (!stripe && !demoPayments) {
     return res.status(503).json({ error: "Os pagamentos ainda não estão disponíveis." });
   }
   const [creatorResult, subscriberResult, existingResult] = await Promise.all([
@@ -1329,8 +1522,12 @@ app.delete("/api/subscriptions/:creatorId", auth, async (req, res) => {
 app.get("/api/groups", optionalAuth, async (req, res) => {
   const result = await pool.query(`
     SELECT g.id,g.name,g.description,g.created_at,u.username AS owner_username,
-      u.display_name AS owner_name,
+      u.display_name AS owner_name,u.avatar_url AS owner_avatar,
       (SELECT COUNT(*) FROM group_members m WHERE m.group_id=g.id)::int AS member_count,
+      (SELECT COUNT(*) FROM posts po WHERE po.group_id=g.id AND po.hidden_at IS NULL)::int AS post_count,
+      (SELECT COALESCE(json_agg(x), '[]'::json) FROM (
+        SELECT mu.username, mu.display_name, mu.avatar_url FROM group_members m JOIN users mu ON mu.id=m.user_id
+        WHERE m.group_id=g.id ORDER BY m.joined_at LIMIT 5) x) AS member_preview,
       EXISTS(SELECT 1 FROM group_members m WHERE m.group_id=g.id AND m.user_id=$1) AS is_member
     FROM social_groups g JOIN users u ON u.id=g.owner_id
     ORDER BY g.created_at DESC LIMIT 100`, [req.user?.id || 0]);
@@ -1376,8 +1573,9 @@ app.post("/api/groups/:groupId/join", auth, async (req, res) => {
 app.get("/api/pages", optionalAuth, async (req, res) => {
   const result = await pool.query(`
     SELECT p.id,p.name,p.category,p.description,p.created_at,u.username AS owner_username,
-      u.display_name AS owner_name,
+      u.display_name AS owner_name,u.avatar_url AS owner_avatar,
       (SELECT COUNT(*) FROM page_followers f WHERE f.page_id=p.id)::int AS follower_count,
+      (SELECT COUNT(*) FROM posts po WHERE po.page_id=p.id AND po.hidden_at IS NULL)::int AS post_count,
       (p.owner_id=$1 OR EXISTS(SELECT 1 FROM page_followers f WHERE f.page_id=p.id AND f.user_id=$1)) AS is_following
     FROM pages p JOIN users u ON u.id=p.owner_id
     ORDER BY p.created_at DESC LIMIT 100`, [req.user?.id || 0]);
@@ -1488,7 +1686,7 @@ app.get("/api/notifications", auth, async (req, res) => {
   const [notifications, unread] = await Promise.all([
     pool.query(`
       SELECT n.id,n.type,n.text,n.read,n.created_at,
-        u.username AS actor_username,u.display_name AS actor_name
+        u.username AS actor_username,u.display_name AS actor_name,u.avatar_url AS actor_avatar
       FROM notifications n LEFT JOIN users u ON u.id=n.actor_id
       WHERE n.user_id=$1 ORDER BY n.created_at DESC LIMIT 50`, [req.user.id]),
     pool.query("SELECT COUNT(*)::int AS count FROM notifications WHERE user_id=$1 AND read=FALSE", [req.user.id])
@@ -1871,7 +2069,7 @@ app.get("/api/auth/me/export", auth, async (req, res) => {
 });
 
 // Apagar a conta: exige a palavra-passe, cancela subscrições pagas e remove os ficheiros.
-app.delete("/api/auth/me", authRateLimit, auth, async (req, res) => {
+app.delete("/api/auth/me", accountSecurityRateLimit, auth, async (req, res) => {
   const body = isRecord(req.body) ? req.body : {};
   if (typeof body.password !== "string" || !body.password) {
     return res.status(400).json({ error: "Confirma com a tua palavra-passe." });
@@ -1925,6 +2123,21 @@ if (process.env.NODE_ENV === "production" || process.env.SERVE_CLIENT === "true"
   });
 }
 
+// Métodos disponíveis e estado de um pagamento por Express/Referência (o ecrã de pagamento vai perguntando).
+app.get("/api/payments/methods", (_req, res) => res.json({ methods: payments.methods, mode: payments.mode }));
+app.get("/api/payments/:id", auth, async (req, res) => {
+  const id = parseId(req.params.id);
+  if (!id) return res.status(400).json({ error: "Pagamento inválido." });
+  const result = await payments.status(id, req.user.id);
+  if (!result) return res.status(404).json({ error: "Pagamento não encontrado." });
+  res.json(result);
+});
+app.post("/api/payments/:id/simulate", auth, async (req, res) => {
+  const id = parseId(req.params.id);
+  if (!id || !(await payments.simulateReference(id, req.user.id))) return res.status(404).json({ error: "Simulação indisponível." });
+  res.json(await payments.status(id, req.user.id));
+});
+
 registerCreatorRoutes(app, {
   pool, auth, optionalAuth, imageUpload, optimizeUpload, removeUpload, parseId,
   isRecord, cleanText, transaction, serializePost, blockedBetween, ACTIVE_SUBSCRIPTION_SQL, payments
@@ -1933,7 +2146,8 @@ const growth = registerGrowthRoutes(app, {
   pool, auth, optionalAuth, requireAdmin, parseId, isRecord, cleanText, transaction, blockedBetween, canAccessPost, payments
 });
 // Chave para cifrar os IBAN dos criadores (obrigatória em produção; ver README).
-const payoutKey = loadKey({ payoutKey: process.env.PAYOUT_ENCRYPTION_KEY, jwtSecret: JWT_SECRET, isProduction: process.env.NODE_ENV === "production" });
+const payoutKey = loadKey({ payoutKey: process.env.PAYOUT_ENCRYPTION_KEY, jwtSecret: JWT_SECRET, isProduction: !isDevelopment });
+registerLiveRoutes(app, { pool, auth, optionalAuth, parseId, isRecord, cleanText, transaction, blockedBetween });
 registerFinanceRoutes(app, { pool, auth, requireAdmin, parseId, isRecord, cleanText, transaction, payments, payoutKey });
 
 app.use((req, res) => {
@@ -1975,8 +2189,8 @@ async function startServer() {
   if (!isDevelopment && (!mailTransport || !process.env.SMTP_FROM || !process.env.APP_URL)) {
     throw new Error("Fora de NODE_ENV=development, configura SMTP_HOST, SMTP_FROM e APP_URL para confirmação e recuperação de conta.");
   }
-  if (process.env.NODE_ENV === "production" && !process.env.PAYOUT_ENCRYPTION_KEY) {
-    throw new Error("Em produção, define PAYOUT_ENCRYPTION_KEY (32 bytes) para cifrar os dados bancários dos criadores.");
+  if (!isDevelopment && !process.env.PAYOUT_ENCRYPTION_KEY) {
+    throw new Error("Fora de NODE_ENV=development, define PAYOUT_ENCRYPTION_KEY (32 bytes) para cifrar os dados bancários dos criadores.");
   }
   if (stripe && !stripeWebhookSecret) {
     throw new Error("STRIPE_WEBHOOK_SECRET é obrigatório quando STRIPE_SECRET_KEY está configurado.");
@@ -1990,6 +2204,10 @@ async function startServer() {
     throw new Error("APP_URL deve ser um URL absoluto válido.");
   }
   await initDb();
+  if (proxypay) {
+    const timer = setInterval(() => payments.pollProxyPay().catch(error => console.error("ProxyPay poll:", error.message)), 60_000);
+    timer.unref();
+  }
   return app.listen(PORT, () => console.log(`API: http://localhost:${PORT}`));
 }
 

@@ -282,7 +282,8 @@ function registerCreatorRoutes(app, deps) {
     "UPDATE ads SET status='ended' WHERE status IN ('active','paused') AND (ends_at < NOW() OR spent >= budget)");
 
   // Abre o pagamento (Stripe, ou demonstração sem Stripe em desenvolvimento). Ver payments.js.
-  const startAdPayment = (ad, ownerEmail) => payments.start({
+  const startAdPayment = (ad, ownerEmail, choice = {}) => payments.start({
+    method: choice.method, phone: choice.phone,
     purpose: "ad", refId: ad.id, amountKz: ad.budget, userId: ad.owner_id, email: ownerEmail,
     name: ad.post_id ? `Impulsionar publicação no Biva (${ad.days} dias)` : `Anúncio no Biva: ${ad.title} (${ad.days} dias)`,
     successPath: "/creator/anuncios?pagamento=sucesso", cancelPath: "/creator/anuncios?pagamento=cancelado",
@@ -344,7 +345,7 @@ function registerCreatorRoutes(app, deps) {
       VALUES($1,$2,$3,$4,$5,$6,$7,$8,'pending_payment',NOW() + ($8::int * INTERVAL '1 day'),$9,$10,$11)
       RETURNING id,owner_id,post_id,title,budget,days`,
     [req.user.id, postId, title, body, linkUrl, imageUrl, budget, days, provinces, minAge, maxAge]);
-    const payment = await startAdPayment(result.rows[0], owner.email);
+    const payment = await startAdPayment(result.rows[0], owner.email, { method: input.method, phone: input.phone });
     if (payment.error) return res.status(503).json({ id: result.rows[0].id, error: payment.error });
     res.status(201).json({ id: result.rows[0].id, ...payment });
   });
@@ -357,7 +358,7 @@ function registerCreatorRoutes(app, deps) {
       `SELECT a.id,a.owner_id,a.post_id,a.title,a.budget,a.days,u.email FROM ads a JOIN users u ON u.id=a.owner_id
        WHERE a.id=$1 AND a.owner_id=$2 AND a.status='pending_payment'`, [id, req.user.id]);
     if (!result.rowCount) return res.status(409).json({ error: "Este anúncio já foi pago ou não existe." });
-    const payment = await startAdPayment(result.rows[0], result.rows[0].email);
+    const payment = await startAdPayment(result.rows[0], result.rows[0].email, { method: req.body?.method, phone: req.body?.phone });
     if (payment.error) return res.status(503).json({ error: payment.error });
     res.json(payment);
   });

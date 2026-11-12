@@ -1,6 +1,7 @@
 process.env.JWT_SECRET = "test-only-secret-with-at-least-thirty-two-characters";
 process.env.STRIPE_SECRET_KEY = "sk_test_only_dummy_key";
 process.env.STRIPE_WEBHOOK_SECRET = "whsec_test_only_secret";
+process.env.PAYOUT_ENCRYPTION_KEY = "0".repeat(64);
 
 const { after, before, test } = require("node:test");
 const assert = require("node:assert/strict");
@@ -468,4 +469,91 @@ test("promotion review, payouts admin and finance are admin-only", async () => {
     const response = await fetch(`${baseUrl}${url}`, { method, ...options });
     assert.equal(response.status, 403, `${method} ${url}`);
   }
+});
+
+test("lives: starting, chatting, gifting and signalling require a session", async () => {
+  for (const [method, url] of [["POST", "/api/lives"], ["POST", "/api/lives/1/heartbeat"], ["POST", "/api/lives/1/comments"],
+    ["POST", "/api/lives/1/stars"], ["POST", "/api/lives/1/signals"], ["GET", "/api/lives/1/signals"], ["POST", "/api/lives/1/end"]]) {
+    const response = await fetch(`${baseUrl}${url}`, { method });
+    assert.equal(response.status, 401, `${method} ${url}`);
+  }
+});
+
+test("lives validate title, gift amount and signal shape before database access", async () => {
+  const cases = [
+    ["/api/lives", { title: "" }, /título/],
+    ["/api/lives", { title: "x".repeat(121) }, /título/],
+    ["/api/lives/1/stars", { amount: 7 }, /estrelas inválida/],
+    ["/api/lives/1/signals", { to: 2, kind: "hack", payload: "" }, /Sinal inválido/],
+    ["/api/lives/1/signals", { to: 2, kind: "offer", payload: "x".repeat(20001) }, /Sinal inválido/]
+  ];
+  for (const [url, payload, message] of cases) {
+    const response = await fetch(`${baseUrl}${url}`, { method: "POST", ...authJson(payload) });
+    assert.equal(response.status, 400, url);
+    assert.match((await response.json()).error, message);
+  }
+});
+
+test("live config exposes STUN servers and the video viewer limit", async () => {
+  const response = await fetch(`${baseUrl}/api/lives/config`);
+  const body = await response.json();
+  assert.ok(body.iceServers.some(server => String(server.urls).startsWith("stun:")));
+  assert.equal(body.maxVideoViewers, 8);
+});
+
+test("security headers are sent on every response", async () => {
+  const response = await fetch(`${baseUrl}/api/health`);
+  const csp = response.headers.get("content-security-policy") || "";
+  assert.match(csp, /default-src 'self'/);
+  assert.match(csp, /frame-ancestors 'none'/);
+  assert.match(csp, /script-src 'self'/);
+  assert.equal(response.headers.get("x-content-type-options"), "nosniff");
+  assert.match(response.headers.get("permissions-policy") || "", /camera=\(self\)/);
+  assert.equal(response.headers.get("x-powered-by"), null);
+});
+
+test("new passwords need at least 8 characters and cannot be trivial", async () => {
+  for (const password of ["abc1234", "12345678", "aaaaaaaaaa"]) {
+    const response = await fetch(`${baseUrl}/api/auth/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: "valid_name", email: "ok@example.com", password, displayName: "Ok" })
+    });
+    assert.equal(response.status, 400, password);
+    assert.match((await response.json()).error, /palavra-passe/i);
+  }
+});
+
+test("account security endpoints require a session", async () => {
+  for (const [method, path] of [["POST", "/api/auth/logout-all"], ["POST", "/api/auth/password"], ["GET", "/api/auth/2fa"], ["POST", "/api/auth/2fa/setup"]]) {
+    const response = await fetch(`${baseUrl}${path}`, { method });
+    assert.equal(response.status, 401, path);
+  }
+});
+
+test("changing the password validates the new password before checking the old one", async () => {
+  const token = jwt.sign({ id: 1, username: "ana", version: 0 }, process.env.JWT_SECRET);
+  const response = await fetch(`${baseUrl}/api/auth/password`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ currentPassword: "whatever", newPassword: "short" })
+  });
+  assert.equal(response.status, 400);
+});
+
+test("TURN config hides IPs with relay-only and short-lived credentials", () => {
+  const { turnServer } = require("./live-routes");
+  const crypto = require("crypto");
+  assert.deepEqual(turnServer(7, {}).iceTransportPolicy, "all");
+  const now = 1_700_000_000_000;
+  const config = turnServer(7, { LIVE_TURN_URL: "turn:turn.example.com:3478, turns:turn.example.com:5349", LIVE_TURN_SECRET: "s3cret" }, now);
+  assert.equal(config.iceTransportPolicy, "relay");
+  assert.equal(config.iceServers.length, 1);
+  const [server] = config.iceServers;
+  assert.deepEqual(server.urls, ["turn:turn.example.com:3478", "turns:turn.example.com:5349"]);
+  assert.equal(server.username, `${1_700_000_000 + 12 * 3600}:7`);
+  assert.equal(server.credential, crypto.createHmac("sha1", "s3cret").update(server.username).digest("base64"));
+  const open = turnServer(7, { LIVE_TURN_URL: "turn:t.example.com", LIVE_TURN_RELAY_ONLY: "false" }, now);
+  assert.equal(open.iceTransportPolicy, "all");
+  assert.equal(open.iceServers.length, 2);
 });

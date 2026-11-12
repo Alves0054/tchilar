@@ -86,6 +86,8 @@ function registerFinanceRoutes(app, deps) {
 
   app.post("/api/payouts/requests", auth, async (req, res) => {
     if (!payoutKey) return needKey(res);
+    // Em demonstração as estrelas e campanhas não foram pagas a sério: não há dinheiro real para levantar.
+    if (payments.mode !== "stripe") return res.status(409).json({ error: "Os levantamentos só estão disponíveis quando os pagamentos reais estão ativos." });
     const outcome = await transaction(async client => {
       // Um pedido de cada vez por pessoa: o saldo não pode ser levantado duas vezes.
       await client.query("SELECT pg_advisory_xact_lock(43, $1)", [req.user.id]);
