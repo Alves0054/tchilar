@@ -3,6 +3,14 @@ import { createPortal, flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Link, Navigate, NavLink, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
+  Maximize,
+  Minimize,
+  Scissors,
+  Gauge,
+  Wand2,
+  Type,
+  Music2,
+  RotateCcw,
   Lock,
   Mail,
   MonitorSmartphone,
@@ -107,6 +115,204 @@ async function api(path, options = {}) {
   return data;
 }
 
+// ---------------------------------------------------------------------------------------------
+// Vídeos: efeitos e leitor próprio (Reels e feed)
+// As edições (corte, velocidade, efeito, texto, som) vêm do servidor em post.video_edit e são
+// aplicadas aqui, no leitor; o ficheiro original não é alterado.
+// ---------------------------------------------------------------------------------------------
+const VIDEO_FILTERS = [
+  ["none", "Original", "none"],
+  ["vivo", "Vivo", "saturate(1.45) contrast(1.08)"],
+  ["quente", "Quente", "sepia(.22) saturate(1.3) hue-rotate(-8deg) brightness(1.04)"],
+  ["frio", "Frio", "saturate(1.1) hue-rotate(12deg) brightness(1.03) contrast(1.05)"],
+  ["pb", "P&B", "grayscale(1) contrast(1.15)"],
+  ["retro", "Retro", "sepia(.55) contrast(.92) brightness(1.06) saturate(.85)"],
+  ["sonho", "Sonho", "brightness(1.1) saturate(1.2) contrast(.9) blur(.4px)"],
+  ["noite", "Noite", "brightness(.85) contrast(1.25) saturate(1.2) hue-rotate(195deg)"]
+];
+const VIDEO_FILTER_CSS = Object.fromEntries(VIDEO_FILTERS.map(([id, , css]) => [id, css]));
+const VIDEO_SPEEDS = [[0.5, "0,5×"], [1, "1×"], [1.5, "1,5×"], [2, "2×"]];
+const DEFAULT_VIDEO_EDIT = { start: 0, end: null, speed: 1, filter: "none", muted: false, text: "", textPosition: "bottom", textStyle: "clean" };
+
+const formatClock = seconds => {
+  const total = Math.max(0, Math.floor(seconds || 0));
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
+};
+
+// O som é uma preferência partilhada: quem ativa o som num reel ouve os seguintes também.
+// Os browsers só deixam tocar com som depois de um toque, por isso começa sempre sem som.
+let reelSoundOn = false;
+const reelSoundListeners = new Set();
+const setReelSound = value => { reelSoundOn = value; reelSoundListeners.forEach(listener => listener(value)); };
+
+// Leitor de vídeo próprio: toque no vídeo para pausar/continuar, botão de som, ecrã cheio,
+// barra de progresso que se pode arrastar. Começa sozinho quando aparece no ecrã e pára quando sai.
+function VideoPlayer({ src, edit, className = "", autoPlay = true, label = "Vídeo" }) {
+  const settings = { ...DEFAULT_VIDEO_EDIT, ...(edit || {}) };
+  const wrapRef = useRef(null);
+  const videoRef = useRef(null);
+  const [playing, setPlaying] = useState(false);
+  const [soundOn, setSoundOn] = useState(reelSoundOn);
+  const [progress, setProgress] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [flash, setFlash] = useState(null);        // ícone grande que aparece ao tocar
+  const [fullscreen, setFullscreen] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const userPaused = useRef(false);
+
+  const clipStart = settings.start || 0;
+  const clipEnd = () => settings.end ?? videoRef.current?.duration ?? 0;
+  const clipLength = ((settings.end ?? duration) - clipStart) / settings.speed;
+
+  // No editor, mudar o corte leva logo o vídeo para o novo início.
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !duration) return;
+    if (video.currentTime < clipStart || video.currentTime > clipEnd()) video.currentTime = clipStart;
+  }, [clipStart, settings.end, duration]);
+
+  useEffect(() => {
+    reelSoundListeners.add(setSoundOn);
+    return () => reelSoundListeners.delete(setSoundOn);
+  }, []);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    video.muted = settings.muted || !soundOn;
+    video.playbackRate = settings.speed;
+  }, [soundOn, settings.muted, settings.speed]);
+
+  // Começa quando pelo menos 60% do vídeo está visível; pára quando sai do ecrã.
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!autoPlay || !video) return undefined;
+    const observer = new IntersectionObserver(([entry]) => {
+      // Entrar/sair do ecrã cheio muda o layout por instantes: nesse momento não se mexe no vídeo.
+      if (document.fullscreenElement) return;
+      if (entry.isIntersecting && entry.intersectionRatio >= 0.6) {
+        if (!userPaused.current) video.play().catch(() => {});
+      } else {
+        video.pause();
+      }
+    }, { threshold: [0, 0.6, 1] });
+    observer.observe(video);
+    return () => observer.disconnect();
+  }, [autoPlay, src]);
+
+  useEffect(() => {
+    const onChange = () => {
+      const isFull = document.fullscreenElement === wrapRef.current;
+      setFullscreen(isFull);
+      // Ao entrar em ecrã cheio, o vídeo continua (ou começa) a tocar.
+      if (isFull && !userPaused.current) videoRef.current?.play().catch(() => {});
+    };
+    document.addEventListener("fullscreenchange", onChange);
+    return () => document.removeEventListener("fullscreenchange", onChange);
+  }, []);
+
+  const showFlash = icon => {
+    setFlash({ icon, key: Date.now() });
+  };
+
+  const togglePlay = () => {
+    const video = videoRef.current;
+    if (!video) return;
+    if (video.paused) {
+      userPaused.current = false;
+      if (video.currentTime >= clipEnd() - 0.05) video.currentTime = clipStart;
+      video.play().catch(() => {});
+      showFlash("play");
+    } else {
+      userPaused.current = true;
+      video.pause();
+      showFlash("pause");
+    }
+  };
+
+  const toggleSound = event => {
+    event.stopPropagation();
+    if (settings.muted) return;
+    setReelSound(!soundOn);
+  };
+
+  const toggleFullscreen = event => {
+    event.stopPropagation();
+    const wrap = wrapRef.current;
+    const video = videoRef.current;
+    if (document.fullscreenElement) return document.exitFullscreen().catch(() => {});
+    if (wrap?.requestFullscreen) return wrap.requestFullscreen().catch(() => {});
+    video?.webkitEnterFullscreen?.(); // iPhone: só o próprio vídeo pode ir para ecrã cheio
+  };
+
+  const seek = event => {
+    event.stopPropagation();
+    const video = videoRef.current;
+    const bar = event.currentTarget.getBoundingClientRect();
+    const ratio = Math.min(1, Math.max(0, (event.clientX - bar.left) / bar.width));
+    if (video) video.currentTime = clipStart + ratio * (clipEnd() - clipStart);
+  };
+
+  const onKey = event => {
+    if (event.target !== wrapRef.current) return;
+    const key = event.key.toLowerCase();
+    if (key === " " || key === "k" || key === "enter") { event.preventDefault(); togglePlay(); }
+    else if (key === "m") toggleSound(event);
+    else if (key === "f") toggleFullscreen(event);
+  };
+
+  // Mantém o vídeo dentro do corte: começa no início escolhido e volta ao início no fim.
+  const onLoaded = () => {
+    const video = videoRef.current;
+    video.playbackRate = settings.speed;
+    if (clipStart && video.currentTime < clipStart) video.currentTime = clipStart;
+    setDuration(video.duration || 0);
+    setLoading(false);
+  };
+  const onTime = () => {
+    const video = videoRef.current;
+    const end = clipEnd();
+    if (end && video.currentTime >= end - 0.03) {
+      video.currentTime = clipStart;
+      if (!video.paused) video.play().catch(() => {});
+    } else if (video.currentTime < clipStart - 0.2) {
+      video.currentTime = clipStart;
+    }
+    const length = end - clipStart;
+    setProgress(length > 0 ? Math.min(1, Math.max(0, (video.currentTime - clipStart) / length)) : 0);
+  };
+
+  const remaining = clipLength * (1 - progress);
+  return <div ref={wrapRef} className={`video-player ${fullscreen ? "is-fullscreen" : ""} ${playing ? "is-playing" : "is-paused"} ${className}`}
+    role="button" tabIndex={0} aria-label={`${label}. ${playing ? "Toca para pausar" : "Toca para ver"}`}
+    onClick={togglePlay} onKeyDown={onKey}>
+    <video ref={videoRef} src={src} playsInline loop={false} preload="metadata"
+      style={{ filter: VIDEO_FILTER_CSS[settings.filter] || "none" }}
+      onLoadedMetadata={onLoaded} onTimeUpdate={onTime} onWaiting={() => setLoading(true)} onPlaying={() => { setLoading(false); setPlaying(true); }}
+      onPause={() => setPlaying(false)} onEnded={() => { const video = videoRef.current; video.currentTime = clipStart; video.play().catch(() => {}); }} />
+    {settings.text && <span className={`video-text pos-${settings.textPosition} style-${settings.textStyle}`}>{settings.text}</span>}
+    {loading && <span className="video-spinner" aria-hidden="true" />}
+    {!playing && !loading && <span className="video-big-play" aria-hidden="true"><Icon name="play" size={34} /></span>}
+    {flash && <span key={flash.key} className="video-flash" aria-hidden="true" onAnimationEnd={() => setFlash(null)}><Icon name={flash.icon} size={30} /></span>}
+    <div className="video-top-controls">
+      {settings.speed !== 1 && <span className="video-chip">{VIDEO_SPEEDS.find(([value]) => value === settings.speed)?.[1]}</span>}
+      <button type="button" className="video-control" aria-label={fullscreen ? "Sair do ecrã cheio" : "Ecrã cheio"} onClick={toggleFullscreen}>
+        <Icon name={fullscreen ? "exitFullscreen" : "fullscreen"} size={18} />
+      </button>
+    </div>
+    <div className="video-bottom-controls" onClick={event => event.stopPropagation()}>
+      <span className="video-time">{formatClock(Math.ceil(playing || progress ? remaining : clipLength))}</span>
+      <button type="button" className={`video-control ${soundOn && !settings.muted ? "is-on" : ""}`} disabled={settings.muted}
+        aria-label={settings.muted ? "Vídeo sem som" : soundOn ? "Tirar o som" : "Ativar o som"} aria-pressed={soundOn && !settings.muted} onClick={toggleSound}>
+        <Icon name={soundOn && !settings.muted ? "volumeOn" : "volumeOff"} size={18} />
+        {!soundOn && !settings.muted && <span className="video-sound-hint">Ativar som</span>}
+      </button>
+    </div>
+    <div className="video-progress" role="slider" aria-label="Posição no vídeo" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progress * 100)}
+      onClick={seek}><span style={{ transform: `scaleX(${progress})` }} /></div>
+  </div>;
+}
+
 function Avatar({ user, size = "" }) {
   const initial = (user?.display_name || user?.username || "?").trim().charAt(0).toUpperCase();
   return user?.avatar_url
@@ -150,6 +356,14 @@ const ICONS = {
   eye: Eye,
   pause: Pause,
   play: Play,
+  fullscreen: Maximize,
+  exitFullscreen: Minimize,
+  trim: Scissors,
+  speed: Gauge,
+  effects: Wand2,
+  text: Type,
+  sound: Music2,
+  reset: RotateCcw,
   move: Move,
   report: Flag,
   shield: ShieldCheck,
@@ -1405,7 +1619,7 @@ function PostCard({ post, onChanged }) {
       : body && <p className="post-body">{body}</p>}
     {post.shared && <SharedPostPreview post={post.shared} />}
     {post.media_url && (post.media_type === "video"
-      ? <video className="media" controls src={`${API_BASE}${post.media_url}`} />
+      ? <VideoPlayer className="media" src={`${API_BASE}${post.media_url}`} edit={post.video_edit} label={`Vídeo de ${post.display_name}`} />
       : <img className="media" src={`${API_BASE}${post.media_url}`} alt="Publicação" />)}
     <div className="post-counts">
       <span><span className="post-count-mark" aria-hidden="true"><Icon name="heart" size={11} /></span>{formatCount(likes)} {likes === 1 ? "gosto" : "gostos"}</span>
@@ -1862,7 +2076,244 @@ function Feed() {
   </div>;
 }
 
+// Partilhar um vídeo sem sair da página Reels: escolher, editar (cortar, velocidade, efeitos, texto,
+// som), escrever a legenda e publicar. As edições seguem como instruções (videoEdit) e o leitor aplica-as.
+const MAX_VIDEO_BYTES = 100 * 1024 * 1024;
+const MAX_CLIP_SECONDS = 180;
+const FILMSTRIP_FRAMES = 8;
+
+// Tira fotogramas do vídeo escolhido para a tira do corte e para as miniaturas dos efeitos.
+function useVideoFrames(url) {
+  const [state, setState] = useState({ duration: 0, frames: [] });
+  useEffect(() => {
+    if (!url) { setState({ duration: 0, frames: [] }); return undefined; }
+    let cancelled = false;
+    const video = document.createElement("video");
+    video.muted = true;
+    video.playsInline = true;
+    video.preload = "auto";
+    video.src = url;
+    const seekTo = time => new Promise(resolve => {
+      const done = () => { video.removeEventListener("seeked", done); resolve(); };
+      video.addEventListener("seeked", done);
+      video.currentTime = time;
+    });
+    video.addEventListener("loadedmetadata", async () => {
+      const duration = Number.isFinite(video.duration) ? video.duration : 0;
+      if (cancelled) return;
+      setState({ duration, frames: [] });
+      const canvas = document.createElement("canvas");
+      const ratio = video.videoWidth && video.videoHeight ? video.videoWidth / video.videoHeight : 9 / 16;
+      canvas.height = 112;
+      canvas.width = Math.round(112 * ratio);
+      const context = canvas.getContext("2d");
+      const frames = [];
+      for (let index = 0; index < FILMSTRIP_FRAMES && !cancelled; index += 1) {
+        try {
+          await seekTo(Math.min(duration - 0.05, (duration * (index + 0.5)) / FILMSTRIP_FRAMES));
+          context.drawImage(video, 0, 0, canvas.width, canvas.height);
+          frames.push(canvas.toDataURL("image/jpeg", 0.7));
+          if (!cancelled) setState({ duration, frames: [...frames] });
+        } catch {
+          break;
+        }
+      }
+    }, { once: true });
+    return () => { cancelled = true; video.removeAttribute("src"); video.load(); };
+  }, [url]);
+  return state;
+}
+
+const REEL_TOOLS = [
+  ["trim", "trim", "Cortar"],
+  ["speed", "speed", "Velocidade"],
+  ["effects", "effects", "Efeitos"],
+  ["text", "text", "Texto"],
+  ["sound", "sound", "Som"]
+];
+
+function ShareReelDialog({ onClose, onPosted }) {
+  const { user } = useContext(UserContext);
+  const [file, setFile] = useState(null);
+  const [caption, setCaption] = useState("");
+  const [exclusive, setExclusive] = useState(false);
+  const [edit, setEdit] = useState(DEFAULT_VIDEO_EDIT);
+  const [tool, setTool] = useState("trim");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const fileInput = useRef(null);
+  const preview = useMemo(() => (file ? URL.createObjectURL(file) : ""), [file]);
+  useEffect(() => () => { if (preview) URL.revokeObjectURL(preview); }, [preview]);
+  const { duration, frames } = useVideoFrames(preview);
+  useEffect(() => {
+    const onKey = event => { if (event.key === "Escape" && !busy) onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose, busy]);
+  // Vídeo novo: edição do zero; vídeos com mais de 3 minutos ficam logo cortados nos primeiros 3.
+  useEffect(() => {
+    setEdit({ ...DEFAULT_VIDEO_EDIT, end: duration > MAX_CLIP_SECONDS ? MAX_CLIP_SECONDS : null });
+  }, [duration]);
+
+  const update = changes => setEdit(current => ({ ...current, ...changes }));
+  const end = edit.end ?? duration;
+  const clipSeconds = Math.max(0, end - edit.start);
+  const edited = edit.start > 0 || (edit.end !== null && edit.end < duration - 0.05) || edit.speed !== 1 || edit.filter !== "none" || edit.muted || edit.text.trim();
+
+  const choose = picked => {
+    setError("");
+    if (!picked) return;
+    if (!picked.type.startsWith("video/")) return setError("Escolhe um ficheiro de vídeo.");
+    if (picked.size > MAX_VIDEO_BYTES) return setError("O vídeo tem mais de 100 MB. Escolhe um mais curto.");
+    setFile(picked);
+    setTool("trim");
+  };
+
+  // Os dois puxadores do corte: o início não passa o fim (e vice-versa) e o reel não passa de 3 minutos.
+  const setStart = value => {
+    const start = Math.min(Number(value), end - 0.5);
+    update({ start: Math.max(0, Math.round(start * 10) / 10), end: end - start > MAX_CLIP_SECONDS ? start + MAX_CLIP_SECONDS : edit.end });
+  };
+  const setEnd = value => {
+    const next = Math.max(Number(value), edit.start + 0.5);
+    const clamped = Math.min(next, edit.start + MAX_CLIP_SECONDS);
+    update({ end: clamped >= duration - 0.05 ? null : Math.round(clamped * 10) / 10 });
+  };
+
+  const submit = async event => {
+    event.preventDefault();
+    if (!file) return setError("Escolhe primeiro um vídeo.");
+    setBusy(true);
+    setError("");
+    const formData = new FormData();
+    formData.append("body", caption);
+    formData.append("media", file);
+    if (exclusive) formData.append("isExclusive", "true");
+    if (edited) {
+      const { text, textPosition, textStyle, ...rest } = edit;
+      formData.append("videoEdit", JSON.stringify({ ...rest, ...(text.trim() && { text: text.trim(), textPosition, textStyle }) }));
+    }
+    try {
+      const result = await api("/posts", { method: "POST", body: formData });
+      onPosted(result.post);
+    } catch (submitError) {
+      setError(submitError.message);
+      setBusy(false);
+    }
+  };
+
+  const percent = value => (duration ? `${(value / duration) * 100}%` : "0%");
+  const thumb = frames[Math.min(frames.length - 1, 2)] || frames[0];
+
+  return createPortal(<div className="modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget && !busy) onClose(); }}>
+    <form className="modal card share-reel-dialog" role="dialog" aria-modal="true" aria-labelledby="share-reel-title" onSubmit={submit}>
+      <div className="share-dialog-head">
+        <h2 id="share-reel-title">{file ? "Editar e partilhar" : "Partilhar vídeo"}</h2>
+        <button className="round-button" type="button" aria-label="Fechar" onClick={onClose} disabled={busy}><Icon name="close" size={18} /></button>
+      </div>
+      <input ref={fileInput} className="sr-only" type="file" accept="video/*" tabIndex={-1} aria-hidden="true"
+        onChange={event => { choose(event.target.files?.[0]); event.target.value = ""; }} />
+      <div className="share-reel-grid">
+        {file
+          ? <div className="share-reel-preview">
+            <VideoPlayer key={preview} src={preview} edit={edit} label="Pré-visualização do teu vídeo" />
+            <button type="button" className="share-reel-change" onClick={() => fileInput.current.click()} disabled={busy}><Icon name="video" size={15} />Trocar</button>
+          </div>
+          : <button type="button" className="share-reel-pick" onClick={() => fileInput.current.click()}
+            onDragOver={event => event.preventDefault()} onDrop={event => { event.preventDefault(); choose(event.dataTransfer.files?.[0]); }}>
+            <span className="share-reel-pick-icon"><Icon name="video" size={28} /></span>
+            <strong>Escolher vídeo</strong>
+            <small>Do telemóvel ou do computador, até 100 MB. Vídeos ao alto ficam melhor.</small>
+          </button>}
+
+        <div className="share-reel-fields">
+          {file && <section className="reel-editor" aria-label="Editar o vídeo">
+            <div className="reel-tools" role="tablist" aria-label="Ferramentas">
+              {REEL_TOOLS.map(([id, icon, label]) => <button key={id} type="button" role="tab" aria-selected={tool === id}
+                className={tool === id ? "active" : ""} onClick={() => setTool(id)}><Icon name={icon} size={18} /><span>{label}</span></button>)}
+            </div>
+
+            <div className="reel-tool-panel" role="tabpanel">
+              {tool === "trim" && <>
+                <div className="reel-trim">
+                  <div className="reel-filmstrip" aria-hidden="true">
+                    {frames.length ? frames.map((src, index) => <img key={index} src={src} alt="" />) : <span className="reel-filmstrip-loading">A preparar o vídeo...</span>}
+                  </div>
+                  <span className="reel-trim-shade" style={{ left: 0, width: percent(edit.start) }} />
+                  <span className="reel-trim-shade" style={{ left: percent(end), right: 0 }} />
+                  <span className="reel-trim-window" style={{ left: percent(edit.start), width: percent(clipSeconds) }} />
+                  <input type="range" className="reel-trim-handle" min="0" max={duration || 0} step="0.1" value={edit.start}
+                    aria-label="Início do vídeo" aria-valuetext={formatClock(edit.start)} onChange={event => setStart(event.target.value)} disabled={!duration} />
+                  <input type="range" className="reel-trim-handle" min="0" max={duration || 0} step="0.1" value={end}
+                    aria-label="Fim do vídeo" aria-valuetext={formatClock(end)} onChange={event => setEnd(event.target.value)} disabled={!duration} />
+                </div>
+                <p className="reel-trim-info">
+                  <span>Início <strong>{formatClock(edit.start)}</strong></span>
+                  <span>Fim <strong>{formatClock(end)}</strong></span>
+                  <span>Duração <strong>{formatClock(clipSeconds / edit.speed)}</strong></span>
+                </p>
+                {duration > MAX_CLIP_SECONDS && <p className="reel-hint">Os reels podem ter até 3 minutos. Arrasta para escolher a melhor parte.</p>}
+              </>}
+
+              {tool === "speed" && <div className="reel-chips" role="radiogroup" aria-label="Velocidade">
+                {VIDEO_SPEEDS.map(([value, label]) => <button key={value} type="button" role="radio" aria-checked={edit.speed === value}
+                  className={edit.speed === value ? "active" : ""} onClick={() => update({ speed: value })}>{label}</button>)}
+                <p className="reel-hint">{edit.speed < 1 ? "Câmara lenta: ótimo para danças e momentos especiais." : edit.speed > 1 ? "Acelerado: bom para receitas, viagens e tutoriais." : "Velocidade normal."}</p>
+              </div>}
+
+              {tool === "effects" && <div className="reel-effects" role="radiogroup" aria-label="Efeitos">
+                {VIDEO_FILTERS.map(([id, label, css]) => <button key={id} type="button" role="radio" aria-checked={edit.filter === id}
+                  className={edit.filter === id ? "active" : ""} onClick={() => update({ filter: id })}>
+                  <span className="reel-effect-thumb">{thumb ? <img src={thumb} alt="" style={{ filter: css }} /> : <i style={{ filter: css }} />}</span>
+                  <small>{label}</small>
+                </button>)}
+              </div>}
+
+              {tool === "text" && <div className="reel-text-tool">
+                <label>Texto no vídeo <small>{edit.text.length}/80</small>
+                  <input maxLength={80} value={edit.text} onChange={event => update({ text: event.target.value })} placeholder="Ex.: Sábado na Ilha de Luanda" />
+                </label>
+                <div className="reel-chips" role="radiogroup" aria-label="Posição do texto">
+                  {[["top", "Em cima"], ["center", "Ao meio"], ["bottom", "Em baixo"]].map(([value, label]) => <button key={value} type="button" role="radio"
+                    aria-checked={edit.textPosition === value} className={edit.textPosition === value ? "active" : ""} onClick={() => update({ textPosition: value })}>{label}</button>)}
+                </div>
+                <div className="reel-chips reel-text-styles" role="radiogroup" aria-label="Estilo do texto">
+                  {[["clean", "Simples"], ["box", "Caixa"], ["coral", "Coral"]].map(([value, label]) => <button key={value} type="button" role="radio"
+                    aria-checked={edit.textStyle === value} className={`${edit.textStyle === value ? "active" : ""} sample-${value}`} onClick={() => update({ textStyle: value })}><span>{label}</span></button>)}
+                </div>
+              </div>}
+
+              {tool === "sound" && <label className="reel-sound-toggle">
+                <input type="checkbox" checked={!edit.muted} onChange={event => update({ muted: !event.target.checked })} />
+                <span className="entry-switch-track" aria-hidden="true"><i /></span>
+                <span><strong>Som original</strong><small>{edit.muted ? "O vídeo vai ser publicado sem som." : "Quem vê ouve o som do vídeo quando ativa o som."}</small></span>
+              </label>}
+            </div>
+            {edited && <button type="button" className="reel-reset" onClick={() => setEdit({ ...DEFAULT_VIDEO_EDIT, end: duration > MAX_CLIP_SECONDS ? MAX_CLIP_SECONDS : null })}>
+              <Icon name="reset" size={14} />Repor o original</button>}
+          </section>}
+
+          <div className="share-reel-author"><Avatar user={user} size="tiny" /><strong>{user?.display_name}</strong></div>
+          <label>Legenda <small>{caption.length}/5000</small>
+            <textarea rows={file ? 3 : 5} maxLength={5000} value={caption} onChange={event => setCaption(event.target.value)} placeholder="Conta o que se passa no vídeo..." />
+          </label>
+          <ExclusiveToggle user={user} checked={exclusive} onChange={setExclusive} />
+        </div>
+      </div>
+      {error && <p className="error" role="alert">{error}</p>}
+      <div className="modal-actions">
+        <button className="btn secondary" type="button" onClick={onClose} disabled={busy}>Cancelar</button>
+        <button className="btn" type="submit" disabled={busy || !file}>{busy ? "A publicar o vídeo..." : "Publicar"}</button>
+      </div>
+    </form>
+  </div>, document.body);
+}
+
 function Reels() {
+  const { user } = useContext(UserContext);
+  const navigate = useNavigate();
+  const [sharing, setSharing] = useState(false);
+  const [notice, setNotice] = useState("");
   const [posts, setPosts] = useState([]);
   const [sponsoredReels, setSponsoredReels] = useState([]);
   useEffect(() => { api("/ads/feed?placement=reels").then(result => setSponsoredReels(result.posts)).catch(() => {}); }, []);
@@ -1891,15 +2342,27 @@ function Reels() {
 
   useEffect(() => { load(); }, []);
 
+  // Sem sessão iniciada é preciso entrar primeiro; com sessão, tudo acontece aqui mesmo.
+  const startSharing = () => (user ? setSharing(true) : navigate("/login"));
+  const onPosted = post => {
+    setSharing(false);
+    if (post) setPosts(current => [{ ...post, username: user.username, display_name: user.display_name, avatar_url: user.avatar_url, likes: 0, comments: 0 }, ...current]);
+    setNotice("O teu vídeo foi publicado.");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    load();
+  };
+
   return <section className="page narrow reels-page">
     <header className="reels-heading">
       <span className="reels-heading-icon"><Icon name="reels" size={22} /></span>
       <div><p className="feed-section-kicker">Vídeos da comunidade</p><h1>Reels</h1><p>Momentos em vídeo partilhados por quem está no Biva.</p></div>
-      <Link className="reels-create-link" to="/create"><Icon name="camera" size={16} />Partilhar vídeo</Link>
+      <button className="reels-create-link" type="button" onClick={startSharing}><Icon name="camera" size={16} />Partilhar vídeo</button>
     </header>
+    {notice && <p className="settings-form-success reels-notice" role="status"><Icon name="check" size={14} />{notice}</p>}
     {loading && <div className="empty card">A carregar vídeos...</div>}
     {error && <div className="empty card error">{error}</div>}
-    {!loading && !error && !posts.length && <div className="reels-empty card"><span className="reels-empty-icon"><Icon name="video" size={25} /></span><h2>Ainda não há Reels</h2><p>Quando alguém partilhar um vídeo, vais encontrá-lo aqui. Também podes ser a primeira pessoa a publicar.</p><Link className="btn" to="/create">Criar publicação</Link></div>}
+    {!loading && !error && !posts.length && <div className="reels-empty card"><span className="reels-empty-icon"><Icon name="video" size={25} /></span><h2>Ainda não há Reels</h2><p>Quando alguém partilhar um vídeo, vais encontrá-lo aqui. Também podes ser a primeira pessoa a publicar.</p><button className="btn" type="button" onClick={startSharing}>Partilhar vídeo</button></div>}
+    {sharing && <ShareReelDialog onClose={() => setSharing(false)} onPosted={onPosted} />}
     {!loading && !error && <div className="reels-list">{reelItems.map(item => <PostCard key={item.key} post={item.post} onChanged={load} />)}</div>}
   </section>;
 }

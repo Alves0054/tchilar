@@ -8,7 +8,10 @@ const { normalizeAngolanPhone } = require("./angola-payments");
 
 const REFERENCE_VALID_DAYS = 3;
 
-function createPayments({ stripe, isProduction, appUrl, currency, pool, proxypay = null, paybyrd = null }) {
+// allowSimulation: só true com pagamentos de demonstração ligados (NODE_ENV=development + PAYMENTS_DEMO=true).
+// Simular uma referência paga cria estrelas sem dinheiro real, e as estrelas podem ser levantadas pelos
+// criadores: nunca pode estar disponível num servidor público.
+function createPayments({ stripe, isProduction, appUrl, currency, pool, proxypay = null, paybyrd = null, allowSimulation = false }) {
   const fulfillers = new Map();
   const register = (purpose, fulfill) => fulfillers.set(purpose, fulfill);
 
@@ -82,7 +85,7 @@ function createPayments({ stripe, isProduction, appUrl, currency, pool, proxypay
       [purpose, refId, userId, amountKz, reference, proxypay.entityId, endDate]);
       return {
         method: "reference", paymentId: created.rows[0].id, entity: proxypay.entityId, reference,
-        amount: Number(amountKz), expiresAt: created.rows[0].expires_at, sandbox: proxypay.environment !== "production"
+        amount: Number(amountKz), expiresAt: created.rows[0].expires_at, sandbox: allowSimulation && proxypay.environment !== "production"
       };
     } catch (error) {
       console.error("ProxyPay:", error.message);
@@ -165,7 +168,7 @@ function createPayments({ stripe, isProduction, appUrl, currency, pool, proxypay
 
   // Só no sandbox da ProxyPay: simula o pagamento de uma referência (para testar sem dinheiro).
   async function simulateReference(paymentId, userId) {
-    if (!proxypay || proxypay.environment === "production") return false;
+    if (!allowSimulation || !proxypay || proxypay.environment === "production") return false;
     const found = await pool.query("SELECT provider_ref, amount_kz FROM local_payments WHERE id=$1 AND user_id=$2 AND method='reference'", [paymentId, userId]);
     if (!found.rowCount) return false;
     await proxypay.mockPayment(found.rows[0].provider_ref, found.rows[0].amount_kz);

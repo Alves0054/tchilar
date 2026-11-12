@@ -32,3 +32,16 @@ test("only paid Stripe checkouts fulfil, with the payment intent for refunds", a
   assert.equal(await payments.handleCheckoutSession({ mode: "payment", payment_status: "paid", metadata: { purpose: "desconhecido", ref_id: "3" } }), false);
   assert.deepEqual(seen, [[3, "pi_123"]]);
 });
+
+test("reference payments can only be simulated with demo payments enabled", async () => {
+  let mocked = 0;
+  const pool = { query: async () => ({ rowCount: 1, rows: [{ provider_ref: "123", amount_kz: 500 }] }) };
+  const proxypay = { environment: "sandbox", entityId: "411", mockPayment: async () => { mocked += 1; } };
+  const locked = createPayments({ stripe: null, isProduction: true, appUrl: "http://x", currency: "aoa", pool, proxypay });
+  assert.equal(await locked.simulateReference(1, 1), false);
+  assert.equal(mocked, 0);
+  const demo = createPayments({ stripe: null, isProduction: false, appUrl: "http://x", currency: "aoa", pool, proxypay, allowSimulation: true });
+  demo.pollProxyPay = async () => {};
+  assert.equal(await demo.simulateReference(1, 1), true);
+  assert.equal(mocked, 1);
+});

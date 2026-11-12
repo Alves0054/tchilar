@@ -22,6 +22,7 @@ const { createPaybyrd, createProxyPay } = require("./angola-payments");
 const { registerFinanceRoutes } = require("./finance-routes");
 const { decrypt, encrypt, loadKey } = require("./payouts");
 const { generateSecret, otpauthUri, verifyCode } = require("./totp");
+const { parseVideoEdit } = require("./video-edit");
 const QRCode = require("qrcode");
 const { MODERATION_ACTIONS, REPORT_REASONS, blockedBetween, shouldAutoHide } = require("./moderation");
 const {
@@ -98,7 +99,7 @@ const proxypay = process.env.PROXYPAY_API_KEY && process.env.PROXYPAY_ENTITY_ID
   ? createProxyPay({ apiKey: process.env.PROXYPAY_API_KEY, entityId: process.env.PROXYPAY_ENTITY_ID, environment: process.env.PROXYPAY_ENV === "production" ? "production" : "sandbox" })
   : null;
 const paybyrd = process.env.PAYBYRD_API_KEY ? createPaybyrd({ apiKey: process.env.PAYBYRD_API_KEY, currency: subscriptionCurrency.toUpperCase() }) : null;
-const payments = createPayments({ stripe, isProduction: !demoPayments, appUrl, currency: subscriptionCurrency, pool, proxypay, paybyrd });
+const payments = createPayments({ stripe, isProduction: !demoPayments, appUrl, currency: subscriptionCurrency, pool, proxypay, paybyrd, allowSimulation: demoPayments });
 payments.register("ad", (adId, details) => activatePaidAd(pool, adId, details));
 
 // Atrás do nginx (ou outro proxy), o IP real vem em X-Forwarded-For. Sem isto, os limites de tentativas
@@ -1110,10 +1111,16 @@ app.post("/api/posts", auth, upload.single("media"), optimizeUpload("post"), asy
   }
   const mediaUrl = req.file ? `/uploads/${req.file.filename}` : "";
   const mediaType = req.file?.mimetype?.startsWith("video") ? "video" : req.file ? "image" : "";
+  // Edições do editor de Reels: só fazem sentido num vídeo.
+  const videoEdit = mediaType === "video" ? parseVideoEdit(bodyData.videoEdit) : { edit: null };
+  if (videoEdit.error) {
+    if (req.file) await removeUpload(mediaUrl);
+    return res.status(400).json({ error: videoEdit.error });
+  }
   const r = await pool.query(
-    `INSERT INTO posts(user_id,body,media_url,media_type,is_exclusive,group_id,page_id)
-     VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
-    [req.user.id, body, mediaUrl, mediaType, isExclusive, groupId, pageId]
+    `INSERT INTO posts(user_id,body,media_url,media_type,is_exclusive,group_id,page_id,video_edit)
+     VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+    [req.user.id, body, mediaUrl, mediaType, isExclusive, groupId, pageId, videoEdit.edit ? JSON.stringify(videoEdit.edit) : null]
   );
   growth.rewardReferral(req.user.id).catch(error => console.error("Referral reward failed:", error.message));
   res.status(201).json({ post: serializePost(r.rows[0]) });
@@ -2191,6 +2198,14 @@ async function startServer() {
   }
   if (!isDevelopment && !process.env.PAYOUT_ENCRYPTION_KEY) {
     throw new Error("Fora de NODE_ENV=development, define PAYOUT_ENCRYPTION_KEY (32 bytes) para cifrar os dados bancários dos criadores.");
+  }
+  // Uma ProxyPay em sandbox aceita pagamentos falsos: fora de desenvolvimento, isso daria estrelas
+  // (levantáveis) sem dinheiro real. O mesmo vale para chaves de teste da Stripe.
+  if (!isDevelopment && proxypay && proxypay.environment !== "production") {
+    throw new Error("Fora de NODE_ENV=development, PROXYPAY_ENV tem de ser production (o sandbox aceita pagamentos falsos).");
+  }
+  if (!isDevelopment && /^sk_test_/.test(process.env.STRIPE_SECRET_KEY || "")) {
+    throw new Error("Fora de NODE_ENV=development, STRIPE_SECRET_KEY não pode ser uma chave de teste (sk_test_).");
   }
   if (stripe && !stripeWebhookSecret) {
     throw new Error("STRIPE_WEBHOOK_SECRET é obrigatório quando STRIPE_SECRET_KEY está configurado.");
