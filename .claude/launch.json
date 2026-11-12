@@ -1,0 +1,19 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "biva-api",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["server/index.js"],
+      "port": 4000,
+      "autoPort": false
+    },
+    {
+      "name": "biva-web",
+      "runtimeExecutable": "npx.cmd",
+      "runtimeArgs": ["vite", "--port", "5173", "--strictPort"],
+      "port": 5173,
+      "autoPort": false
+    }
+  ]
+}

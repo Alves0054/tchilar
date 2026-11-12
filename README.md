@@ -1,4 +1,8 @@
-# Creator Social
+# Biva
+
+<img src="public/biva-logo-full.png" alt="Biva" width="220">
+
+_Conecta · Partilha · Vive_
 
 Rede social de criadores com feed, perfis, amizades, grupos, páginas, eventos e mensagens.
 
@@ -30,7 +34,7 @@ Para criar uma base de dados e um utilizador locais, executa o script. Introduz 
 npm run db:setup
 ```
 
-O script cria `.env` apenas se ainda não existir, gera segredos locais, cria/verifica `creator_social` e testa a ligação. Se já tiveres `.env`, preserva-o e configura a base de dados manualmente.
+O script cria `.env` apenas se ainda não existir, gera segredos locais, cria/verifica `biva` e testa a ligação. Se já tiveres `.env`, preserva-o e configura a base de dados manualmente.
 
 Inicia frontend e backend:
 
@@ -46,7 +50,7 @@ npm run db:migrate
 
 O endpoint `/api/health/ready` verifica a ligação PostgreSQL.
 
-Para preparar uma demonstração local sem palavra-passe de administrador PostgreSQL, usa no VS Code a tarefa **Preparar NOVA+ (base de dados + perfil demo)**. Ela cria uma instância PostgreSQL isolada em `%LOCALAPPDATA%\NOVAPlus\PostgreSQL17`, numa porta própria, e preserva qualquer instância/base de dados PostgreSQL existente. Depois executa **Iniciar NOVA+ (frontend + API)**.
+Para preparar uma demonstração local sem palavra-passe de administrador PostgreSQL, usa no VS Code a tarefa **Preparar Biva (base de dados + perfil demo)**. Ela cria uma instância PostgreSQL isolada em `%LOCALAPPDATA%\Biva\PostgreSQL17`, numa porta própria, e preserva qualquer instância/base de dados PostgreSQL existente. Depois executa **Iniciar Biva (frontend + API)**.
 
 ### Perfil de demonstração
 
@@ -58,10 +62,10 @@ npm run db:seed-demo
 
 Inicia sessão em <http://localhost:5173/login> com:
 
-- Email: `demo@nova-plus.test`
-- Palavra-passe: `NOVA+Demo2026`
+- Email: `demo@biva.test`
+- Palavra-passe: `Biva+Demo2026`
 
-O perfil `@nova_demo` e as publicações também ficam disponíveis em <http://localhost:5173/u/nova_demo>. O comando recusa ambientes de produção e bases de dados que não sejam locais; voltar a executá-lo repõe a palavra-passe de demonstração e não duplica as publicações de exemplo.
+O perfil `@biva_demo` e as publicações também ficam disponíveis em <http://localhost:5173/u/biva_demo>. O comando recusa ambientes de produção e bases de dados que não sejam locais; voltar a executá-lo repõe a palavra-passe de demonstração e não duplica as publicações de exemplo.
 
 ## Docker
 
@@ -85,18 +89,18 @@ SMTP_PORT=587
 SMTP_SECURE=false
 SMTP_USER=utilizador-smtp
 SMTP_PASSWORD=palavra-passe-smtp
-SMTP_FROM="Creator Social <no-reply@example.com>"
+SMTP_FROM="Biva <no-reply@example.com>"
 APP_URL=https://social.example.com
 CLIENT_URL=https://social.example.com
 ```
 
-Em desenvolvimento, sem SMTP, os endpoints de registo/recuperação devolvem um link de teste. Em produção, SMTP, `SMTP_FROM`, `APP_URL` e `CLIENT_URL` são obrigatórios. Tokens de email e recuperação expiram após uma hora; redefinir a palavra-passe invalida sessões existentes. Tokens de sessão expiram após 12 horas.
+Com `NODE_ENV=development` e sem SMTP, os links de confirmação e recuperação aparecem no terminal do servidor. Para os receber também na resposta da API (e no botão do ecrã), define `DEV_EXPOSE_AUTH_LINKS=true` — só numa máquina local, porque permite a qualquer pessoa com acesso à API redefinir a palavra-passe de qualquer conta. Com qualquer outro `NODE_ENV` (incluindo nenhum), SMTP, `SMTP_FROM`, `APP_URL` e `CLIENT_URL` são obrigatórios. O `docker-compose.yml` usa `production` por omissão. Tokens de email e recuperação expiram após uma hora; redefinir a palavra-passe invalida sessões existentes. Tokens de sessão expiram após 12 horas.
 
 As migrações ficam em `server/migrations`. Uma migração já aplicada é protegida por checksum: não edites ficheiros aplicados; cria uma nova migração numerada.
 
 ## Subscrições pagas (Stripe)
 
-Os criadores definem o preço mensal (1 € a 1000 €) em **Definições → Editar perfil** e podem marcar publicações como **Só para subscritores**. O acesso ao conteúdo exclusivo depende de uma subscrição com `status='active'` e um período pago ainda válido (`current_period_end`).
+Os criadores definem o preço mensal em kwanzas (500 Kz a 500 000 Kz) em **Definições → Editar perfil** e podem marcar publicações como **Só para subscritores**. O acesso ao conteúdo exclusivo depende de uma subscrição com `status='active'` e um período pago ainda válido (`current_period_end`).
 
 - **Sem `STRIPE_SECRET_KEY`, em desenvolvimento:** subscrever cria uma subscrição de demonstração de 30 dias, sem pagamento.
 - **Sem `STRIPE_SECRET_KEY`, em produção:** subscrever devolve 503. Ninguém obtém acesso sem pagar.
@@ -108,11 +112,51 @@ Para testar localmente com chaves de teste da Stripe:
 stripe listen --forward-to localhost:4000/api/webhooks/stripe
 ```
 
-Copia o `whsec_...` mostrado para `STRIPE_WEBHOOK_SECRET`. Em produção, cria o endpoint `https://<domínio>/api/webhooks/stripe` no painel da Stripe com os eventos `checkout.session.completed` e `customer.subscription.created/updated/deleted`.
+Copia o `whsec_...` mostrado para `STRIPE_WEBHOOK_SECRET`.
 
 `DELETE /api/subscriptions/:creatorId` cancela a renovação; o acesso mantém-se até ao fim do período pago. Voltar a subscrever antes desse fim retoma a renovação.
 
-**Limitação atual:** os pagamentos entram na conta Stripe da plataforma. Para pagar automaticamente aos criadores é preciso Stripe Connect.
+### Stripe em produção — lista de verificação
+
+1. **Conta:** a Stripe não abre contas para empresas sediadas em Angola. É preciso uma empresa num país suportado (por exemplo Portugal) ou usar um agregador local (ver abaixo).
+2. **Moeda:** `SUBSCRIPTION_CURRENCY=aoa` é usada em todos os pagamentos. Confirma no painel da Stripe que o kwanza (AOA) está disponível para a tua conta. Se não estiver, usa a moeda da conta (por exemplo `eur`) e ajusta os preços. A Stripe exige um valor mínimo por pagamento equivalente a cerca de 0,50 € na moeda de liquidação.
+3. **Webhook:** cria o endpoint `https://<domínio>/api/webhooks/stripe` com os eventos:
+   - `checkout.session.completed` e `checkout.session.async_payment_succeeded` (promoções, estrelas, campanhas e subscrições);
+   - `customer.subscription.created`, `customer.subscription.updated` e `customer.subscription.deleted`.
+4. **Reembolsos:** quando um administrador recusa uma promoção paga, o Biva pede o reembolso à Stripe automaticamente. Se falhar (ou se o pagamento não tiver identificador), aparece em **Administração → Finanças → Reembolsos a fazer à mão**.
+5. **Faturação:** a Stripe não emite faturas certificadas pela AGT. Para cumprir a lei angolana é preciso um programa de faturação certificado (integração por API) — isto ainda não está feito.
+
+### Outros meios de pagamento
+
+Todos os pagamentos únicos passam por `server/payments.js` (`start`, `refund` e `handleCheckoutSession`). Para ligar Multicaixa Express ou Unitel Money através de um agregador, basta implementar aí o início do pagamento e chamar `fulfill(purpose, refId, { paymentIntent })` quando o agregador confirmar.
+
+## Ganhos e levantamentos dos criadores
+
+Os criadores veem em **Painel do criador → Ganhos** o que ganharam com o Programa de Parceiros (meses fechados), as estrelas recebidas (70%) e as campanhas concluídas (85%). Podem pedir levantamentos a partir de 5 000 Kz para um IBAN angolano (validado pelo módulo 97).
+
+- O IBAN é guardado **cifrado (AES-256-GCM)** com a chave `PAYOUT_ENCRYPTION_KEY`. Em produção o servidor não arranca sem ela. Gera uma com:
+
+  ```powershell
+  node -e "console.log(require(crypto).randomBytes(32).toString(hex))"
+  ```
+
+  Guarda esta chave num cofre: sem ela não é possível ler os IBAN guardados.
+- Os pedidos aparecem em **Administração → Levantamentos** com o IBAN completo. A equipa faz a transferência no banco e marca o pedido como pago, com a referência. Recusar devolve o valor ao saldo do criador.
+- Os pedidos ficam guardados mesmo que a conta seja apagada (registo contabilístico).
+
+## Revisão das promoções
+
+Depois de pagas, as promoções ficam **em revisão** e só vão para o ar quando um administrador as aprova em **Administração → Promoções**. O prazo começa a contar na aprovação. Recusar pede o reembolso automaticamente. As regras públicas estão em `/publicidade`.
+
+## Moderação
+
+Qualquer pessoa pode bloquear contas e denunciar publicações, comentários e perfis. Para dar acesso ao painel de moderação (`/moderation`) a uma conta existente:
+
+```powershell
+npm run admin:grant -- email@exemplo.com
+```
+
+Para retirar o acesso, acrescenta `--revoke`. A moderação pode esconder publicações, apagar comentários e suspender contas (a suspensão termina as sessões abertas). A regra de ocultação automática por número de denúncias está em `server/moderation.js` (`shouldAutoHide`); por omissão nunca esconde sozinha.
 
 ## Verificação
 

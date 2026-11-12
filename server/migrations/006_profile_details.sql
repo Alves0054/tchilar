@@ -1,0 +1,7 @@
+-- Perfil completo: capa e campos públicos do "Sobre".
+ALTER TABLE users ADD COLUMN IF NOT EXISTS cover_url TEXT NOT NULL DEFAULT '';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS location VARCHAR(100) NOT NULL DEFAULT '';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS website VARCHAR(200) NOT NULL DEFAULT '';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS profession VARCHAR(100) NOT NULL DEFAULT '';
+
+UPDATE users SET avatar_url = '' WHERE avatar_url IS NULL;

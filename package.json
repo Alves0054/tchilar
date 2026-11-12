@@ -1,5 +1,5 @@
 {
-  "name": "creator-social",
+  "name": "biva",
   "version": "1.0.0",
   "private": true,
   "scripts": {
@@ -7,12 +7,14 @@
     "server": "node server/index.js",
     "client": "vite --host 0.0.0.0",
     "build": "vite build",
-    "test": "node --test server/index.test.js server/migrate.test.js server/subscriptions.test.js",
+    "test": "node --test server/index.test.js server/migrate.test.js server/subscriptions.test.js server/moderation.test.js server/images.test.js server/ads.test.js server/promotions.test.js server/growth.test.js server/payouts.test.js",
     "db:setup": "powershell -ExecutionPolicy Bypass -File scripts/setup-database.ps1",
     "db:migrate": "node server/migrate-cli.js",
-    "db:seed-demo": "node server/seed-demo.js"
+    "db:seed-demo": "node server/seed-demo.js",
+    "admin:grant": "node server/grant-admin.js"
   },
   "dependencies": {
+    "@fontsource-variable/nunito": "^5.3.0",
     "bcryptjs": "^3.0.2",
     "cors": "^2.8.5",
     "dotenv": "^16.6.1",
@@ -26,6 +28,7 @@
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "react-router-dom": "^7.8.0",
+    "sharp": "^0.34.5",
     "stripe": "^23.1.0"
   },
   "devDependencies": {

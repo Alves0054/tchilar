@@ -19,8 +19,8 @@ before(async () => {
       const mocked = queryMock(sql, values);
       if (mocked) return Promise.resolve(mocked);
     }
-    if (sql === "SELECT auth_version FROM users WHERE id=$1" && Number(values[0]) === 1) {
-      return Promise.resolve({ rowCount: 1, rows: [{ auth_version: 0 }] });
+    if (sql === "SELECT auth_version,suspended_at,is_admin FROM users WHERE id=$1" && Number(values[0]) === 1) {
+      return Promise.resolve({ rowCount: 1, rows: [{ auth_version: 0, suspended_at: null, is_admin: false }] });
     }
     if (sql === "DELETE FROM posts WHERE id=$1 AND user_id=$2 RETURNING id,media_url" && postDeleteMock) {
       return Promise.resolve(postDeleteMock(values));
@@ -40,7 +40,7 @@ after(async () => {
 test("health endpoint reports the API service", async () => {
   const response = await fetch(`${baseUrl}/api/health`);
   assert.equal(response.status, 200);
-  assert.deepEqual(await response.json(), { ok: true, service: "creator-social" });
+  assert.deepEqual(await response.json(), { ok: true, service: "biva" });
 });
 
 test("CORS accepts the development loopback address", async () => {
@@ -262,7 +262,7 @@ test("stripe subscription events store status and paid period", async () => {
   }
 });
 
-test("stripe events without NOVA+ metadata are ignored", async () => {
+test("stripe events without Biva metadata are ignored", async () => {
   let wrote = false;
   queryMock = sql => {
     if (sql.includes("INSERT INTO subscriptions")) wrote = true;
@@ -293,12 +293,179 @@ test("users cannot subscribe to themselves", async () => {
 
 test("subscription price updates are validated before database access", async () => {
   const token = jwt.sign({ id: 1, username: "tester" }, process.env.JWT_SECRET);
-  for (const subscriptionPrice of [0, -5, 1500, 4.999, "abc"]) {
+  for (const subscriptionPrice of [0, -5, 4.99, 600000, 2500.999, "abc"]) {
     const response = await fetch(`${baseUrl}/api/auth/me`, {
       method: "PATCH",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
       body: JSON.stringify({ subscriptionPrice })
     });
     assert.equal(response.status, 400, `price ${subscriptionPrice}`);
+  }
+});
+
+const userToken = () => jwt.sign({ id: 1, username: "tester" }, process.env.JWT_SECRET);
+const authJson = body => ({
+  headers: { Authorization: `Bearer ${userToken()}`, "Content-Type": "application/json" },
+  body: JSON.stringify(body)
+});
+
+test("password reset links are never returned outside explicit development mode", async () => {
+  queryMock = sql => {
+    if (sql.startsWith("SELECT id,email FROM users WHERE email=$1")) return { rowCount: 1, rows: [{ id: 7, email: "a@b.co" }] };
+    if (sql.includes("auth_tokens")) return { rowCount: 1, rows: [] };
+    return null;
+  };
+  try {
+    const response = await fetch(`${baseUrl}/api/auth/forgot-password`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: "a@b.co" })
+    });
+    const text = await response.text();
+    assert.doesNotMatch(text, /reset-password\?token=|resetUrl/);
+  } finally {
+    queryMock = null;
+  }
+});
+
+test("profile website must be an http(s) address", async () => {
+  for (const website of ["javascript:alert(1)", "not a url", "ftp://exemplo.ao"]) {
+    const response = await fetch(`${baseUrl}/api/auth/me`, { method: "PATCH", ...authJson({ website }) });
+    assert.equal(response.status, 400, website);
+  }
+});
+
+test("feed rejects unknown scopes and requires login for the following feed", async () => {
+  assert.equal((await fetch(`${baseUrl}/api/posts?feed=trending`)).status, 400);
+  assert.equal((await fetch(`${baseUrl}/api/posts?before=abc`)).status, 400);
+  assert.equal((await fetch(`${baseUrl}/api/posts?feed=following`)).status, 401);
+});
+
+test("reports are validated before touching the database", async () => {
+  const badType = await fetch(`${baseUrl}/api/reports`, { method: "POST", ...authJson({ targetType: "group", targetId: 1, reason: "spam" }) });
+  assert.equal(badType.status, 400);
+  const badReason = await fetch(`${baseUrl}/api/reports`, { method: "POST", ...authJson({ targetType: "post", targetId: 1, reason: "boring" }) });
+  assert.equal(badReason.status, 400);
+});
+
+test("moderation endpoints are only for admins", async () => {
+  const response = await fetch(`${baseUrl}/api/admin/reports`, { headers: { Authorization: `Bearer ${userToken()}` } });
+  assert.equal(response.status, 403);
+});
+
+test("unread message count is not swallowed by the conversation route", async () => {
+  queryMock = (sql, values) => {
+    if (sql.startsWith("SELECT COUNT(*)::int AS count FROM messages WHERE receiver_id=$1 AND read_at IS NULL")) {
+      assert.deepEqual(values, [1]);
+      return { rowCount: 1, rows: [{ count: 3 }] };
+    }
+    return null;
+  };
+  try {
+    const response = await fetch(`${baseUrl}/api/messages/unread-count`, { headers: { Authorization: `Bearer ${userToken()}` } });
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { unread: 3 });
+  } finally {
+    queryMock = null;
+  }
+});
+
+test("deleting the account requires the password", async () => {
+  const response = await fetch(`${baseUrl}/api/auth/me`, { method: "DELETE", ...authJson({}) });
+  assert.equal(response.status, 400);
+});
+
+test("users cannot block themselves", async () => {
+  const response = await fetch(`${baseUrl}/api/users/1/block`, { method: "POST", headers: { Authorization: `Bearer ${userToken()}` } });
+  assert.equal(response.status, 400);
+});
+
+test("sharing requires a destination and at most five groups", async () => {
+  const cases = [
+    [{ body: "olá" }, /Escolhe onde/],
+    [{ profile: false, groupIds: [] }, /Escolhe onde/],
+    [{ groupIds: [1, 2, 3, 4, 5, 6] }, /até 5 grupos/],
+    [{ profile: true, groupIds: ["abc"] }, /Destino inválido/],
+    [{ profile: true, body: "x".repeat(5001) }, /5000/]
+  ];
+  for (const [payload, message] of cases) {
+    const response = await fetch(`${baseUrl}/api/posts/1/share`, { method: "POST", ...authJson(payload) });
+    assert.equal(response.status, 400, JSON.stringify(payload).slice(0, 60));
+    assert.match((await response.json()).error, message);
+  }
+});
+
+test("creator endpoints and ad management require a session", async () => {
+  for (const [method, url] of [["GET", "/api/creator/overview"], ["GET", "/api/creator/content"], ["GET", "/api/creator/monetization"], ["GET", "/api/ads/mine"], ["POST", "/api/ads"], ["POST", "/api/posts/views"]]) {
+    const response = await fetch(`${baseUrl}${url}`, { method });
+    assert.equal(response.status, 401, `${method} ${url}`);
+  }
+});
+
+test("ad status changes only accept active or paused", async () => {
+  const response = await fetch(`${baseUrl}/api/ads/1`, { method: "PATCH", ...authJson({ status: "ended" }) });
+  assert.equal(response.status, 400);
+});
+
+test("partner programme and promotion payments require a session", async () => {
+  for (const [method, url] of [["GET", "/api/creator/partner"], ["POST", "/api/creator/partner/join"], ["POST", "/api/ads/1/impression"], ["POST", "/api/ads/1/checkout"]]) {
+    const response = await fetch(`${baseUrl}${url}`, { method });
+    assert.equal(response.status, 401, `${method} ${url}`);
+  }
+});
+
+test("stars, invites, campaigns and audience require a session", async () => {
+  for (const [method, url] of [["GET", "/api/stars"], ["POST", "/api/stars/purchase"], ["POST", "/api/posts/1/stars"], ["GET", "/api/referrals"],
+    ["GET", "/api/campaigns"], ["POST", "/api/campaigns"], ["PATCH", "/api/auth/me/audience"], ["POST", "/api/challenges/1/entries"]]) {
+    const response = await fetch(`${baseUrl}${url}`, { method });
+    assert.equal(response.status, 401, `${method} ${url}`);
+  }
+});
+
+test("star gifts, packs, campaigns and audience data are validated before database access", async () => {
+  const cases = [
+    ["/api/posts/1/stars", "POST", { amount: 7 }, /estrelas inválida/],
+    ["/api/stars/purchase", "POST", { pack: 99 }, /Pacote/],
+    ["/api/campaigns", "POST", { creatorId: 1, title: "x", brief: "y", budget: 5000 }, /Criador inválido/],
+    ["/api/campaigns", "POST", { creatorId: 2, title: "Campanha", brief: "Brief", budget: 100 }, /orçamento/],
+    ["/api/auth/me/audience", "PATCH", { province: "Lisboa" }, /Província/],
+    ["/api/auth/me/audience", "PATCH", { province: "Luanda", birthDate: "2020-01-01" }, /13 anos/]
+  ];
+  for (const [url, method, payload, message] of cases) {
+    const response = await fetch(`${baseUrl}${url}`, { method, ...authJson(payload) });
+    assert.equal(response.status, 400, `${method} ${url}`);
+    assert.match((await response.json()).error, message);
+  }
+});
+
+test("only admins can create or close challenges", async () => {
+  for (const url of ["/api/challenges", "/api/challenges/1/close"]) {
+    const response = await fetch(`${baseUrl}${url}`, { method: "POST", ...authJson({ title: "Desafio", days: 7 }) });
+    assert.equal(response.status, 403, url);
+  }
+});
+
+test("the province list has the 21 Angolan provinces", async () => {
+  const response = await fetch(`${baseUrl}/api/provinces`);
+  assert.equal((await response.json()).provinces.length, 21);
+});
+
+test("payouts require a session and validate the Angolan IBAN", async () => {
+  for (const [method, url] of [["GET", "/api/payouts"], ["PUT", "/api/payouts/account"], ["POST", "/api/payouts/requests"]]) {
+    const response = await fetch(`${baseUrl}${url}`, { method });
+    assert.equal(response.status, 401, `${method} ${url}`);
+  }
+  for (const payload of [{ holderName: "Rita", bankName: "BAI", iban: "PT50000000000000000000000" }, { holderName: "Rita", bankName: "BAI", iban: "AO06123" }, { holderName: "", bankName: "BAI", iban: "x" }]) {
+    const response = await fetch(`${baseUrl}/api/payouts/account`, { method: "PUT", ...authJson(payload) });
+    assert.equal(response.status, 400, JSON.stringify(payload));
+  }
+});
+
+test("promotion review, payouts admin and finance are admin-only", async () => {
+  for (const [method, url] of [["GET", "/api/admin/ads"], ["POST", "/api/admin/ads/1/approve"], ["POST", "/api/admin/ads/1/reject"],
+    ["GET", "/api/admin/payouts"], ["POST", "/api/admin/payouts/1/paid"], ["GET", "/api/admin/finance"]]) {
+    const options = method === "GET" ? { headers: { Authorization: `Bearer ${userToken()}` } } : authJson({});
+    const response = await fetch(`${baseUrl}${url}`, { method, ...options });
+    assert.equal(response.status, 403, `${method} ${url}`);
   }
 });

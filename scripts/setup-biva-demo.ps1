@@ -6,7 +6,7 @@ $initdb = Join-Path $bin "initdb.exe"
 $pgCtl = Join-Path $bin "pg_ctl.exe"
 $psql = Join-Path $bin "psql.exe"
 $pgIsReady = Join-Path $bin "pg_isready.exe"
-$dataRoot = Join-Path $env:LOCALAPPDATA "NOVAPlus\PostgreSQL17"
+$dataRoot = Join-Path $env:LOCALAPPDATA "Biva\PostgreSQL17"
 $dataPath = Join-Path $dataRoot "data"
 $logPath = Join-Path $dataRoot "postgres.log"
 $passwordFile = Join-Path $dataRoot "init-password.tmp"
@@ -44,7 +44,7 @@ $sqlPassword = $databasePassword
 
 try {
   Set-Content -LiteralPath $passwordFile -Value $adminPassword -NoNewline -Encoding Ascii
-  & $initdb -D $dataPath -U nova_local_admin --pwfile=$passwordFile --auth=scram-sha-256 --encoding=UTF8 --no-locale
+  & $initdb -D $dataPath -U biva_local_admin --pwfile=$passwordFile --auth=scram-sha-256 --encoding=UTF8 --no-locale
   if ($LASTEXITCODE -ne 0) {
     throw "Nao foi possivel inicializar a base de dados local isolada."
   }
@@ -55,17 +55,17 @@ try {
   }
 
   $env:PGPASSWORD = $adminPassword
-  & $psql -X -w -v ON_ERROR_STOP=1 -h 127.0.0.1 -p $port -U nova_local_admin -d postgres -c "CREATE ROLE creator_social LOGIN PASSWORD '$sqlPassword'"
+  & $psql -X -w -v ON_ERROR_STOP=1 -h 127.0.0.1 -p $port -U biva_local_admin -d postgres -c "CREATE ROLE biva LOGIN PASSWORD '$sqlPassword'"
   if ($LASTEXITCODE -ne 0) {
     throw "Nao foi possivel criar o utilizador local da aplicacao."
   }
-  & $psql -X -w -v ON_ERROR_STOP=1 -h 127.0.0.1 -p $port -U nova_local_admin -d postgres -c "CREATE DATABASE creator_social OWNER creator_social"
+  & $psql -X -w -v ON_ERROR_STOP=1 -h 127.0.0.1 -p $port -U biva_local_admin -d postgres -c "CREATE DATABASE biva OWNER biva"
   if ($LASTEXITCODE -ne 0) {
     throw "Nao foi possivel criar a base de dados local da aplicacao."
   }
 
   $env:PGPASSWORD = $databasePassword
-  $connection = & $psql -X -w -v ON_ERROR_STOP=1 -h 127.0.0.1 -p $port -U creator_social -d creator_social -tAc "SELECT 1"
+  $connection = & $psql -X -w -v ON_ERROR_STOP=1 -h 127.0.0.1 -p $port -U biva -d biva -tAc "SELECT 1"
   if ($LASTEXITCODE -ne 0 -or ($connection -join "").Trim() -ne "1") {
     throw "Nao foi possivel verificar a ligacao a base de dados local."
   }
@@ -77,7 +77,7 @@ try {
   $content = Get-Content -LiteralPath $examplePath -Raw
   $content = $content.Replace("replace_with_a_random_secret_at_least_32_characters", $jwtSecret.Trim())
   $content = $content.Replace("replace_with_a_random_password", $databasePassword)
-  $databaseUrl = "postgresql://creator_social:$databasePassword@127.0.0.1:$port/creator_social"
+  $databaseUrl = "postgresql://biva:$databasePassword@127.0.0.1:$port/biva"
   $content = [regex]::Replace($content, "^DATABASE_URL=.*$", "DATABASE_URL=$databaseUrl", [Text.RegularExpressions.RegexOptions]::Multiline)
   [IO.File]::WriteAllText($envPath, $content, [Text.UTF8Encoding]::new($false))
 
@@ -91,8 +91,8 @@ try {
     Pop-Location
   }
 
-  Write-Host "Base de dados NOVA+ pronta. A instancia anterior do PostgreSQL nao foi alterada."
-  Write-Host "Podes iniciar os servicos com a tarefa 'Iniciar NOVA+ (frontend + API)'."
+  Write-Host "Base de dados Biva pronta. A instancia anterior do PostgreSQL nao foi alterada."
+  Write-Host "Podes iniciar os servicos com a tarefa 'Iniciar Biva (frontend + API)'."
 } finally {
   if (Test-Path -LiteralPath $passwordFile) {
     Remove-Item -LiteralPath $passwordFile -Force

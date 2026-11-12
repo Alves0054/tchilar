@@ -2,12 +2,12 @@ const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const { mapStripeStatus, parseSubscriptionPrice, periodEndFromStripe } = require("./subscriptions");
 
-test("subscription prices accept euros with up to two decimals", () => {
-  assert.equal(parseSubscriptionPrice(4.99), 4.99);
-  assert.equal(parseSubscriptionPrice("9.99"), 9.99);
-  assert.equal(parseSubscriptionPrice(1), 1);
-  assert.equal(parseSubscriptionPrice(1000), 1000);
-  for (const invalid of [0, 0.5, 1000.01, 4.999, NaN, Infinity, "", "abc", null, undefined, true]) {
+test("subscription prices accept kwanzas with up to two decimals", () => {
+  assert.equal(parseSubscriptionPrice(2500), 2500);
+  assert.equal(parseSubscriptionPrice("1999.50"), 1999.5);
+  assert.equal(parseSubscriptionPrice(500), 500);
+  assert.equal(parseSubscriptionPrice(500000), 500000);
+  for (const invalid of [0, 4.99, 499.99, 500000.01, 2500.999, NaN, Infinity, "", "abc", null, undefined, true]) {
     assert.equal(parseSubscriptionPrice(invalid), null, String(invalid));
   }
 });

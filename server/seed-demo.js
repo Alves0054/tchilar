@@ -5,15 +5,15 @@ const { Pool } = require("pg");
 const { runMigrations } = require("./migrate");
 
 const demoAccount = {
-  username: "nova_demo",
-  email: "demo@nova-plus.test",
-  password: "NOVA+Demo2026",
+  username: "biva_demo",
+  email: "demo@biva.test",
+  password: "Biva+Demo2026",
   displayName: "Rita Martins",
-  bio: "A descobrir pessoas, ideias e momentos na comunidade NOVA+."
+  bio: "A descobrir pessoas, ideias e momentos na comunidade Biva."
 };
 
 const demoPosts = [
-  "Olá, comunidade NOVA+! Estou aqui para partilhar ideias, descobrir novos projetos e conhecer pessoas.",
+  "Olá, comunidade Biva! Estou aqui para partilhar ideias, descobrir novos projetos e conhecer pessoas.",
   "Pequenos momentos também contam. Hoje reservei um tempo para criar algo novo e gostei do resultado.",
   "Que projeto ou ideia vos tem inspirado esta semana? Adorava descobrir o que andam a criar."
 ];
@@ -95,7 +95,7 @@ async function main() {
       client.release();
     }
 
-    console.log("Perfil de demonstração NOVA+ pronto.");
+    console.log("Perfil de demonstração Biva pronto.");
     console.log(`Email: ${demoAccount.email}`);
     console.log(`Palavra-passe: ${demoAccount.password}`);
     console.log(`Perfil: http://localhost:5173/u/${demoAccount.username}`);

@@ -4,11 +4,12 @@
 // ao conteúdo exclusivo. É a única fonte de verdade usada pelo feed, pelos ficheiros e pelos comentários.
 const ACTIVE_SUBSCRIPTION_SQL = "s.status='active' AND s.current_period_end > NOW()";
 
-const MIN_PRICE = 1;
-const MAX_PRICE = 1000;
+// Valores em kwanzas (Kz). O mínimo cobre o valor mínimo de cobrança da Stripe.
+const MIN_PRICE = 500;
+const MAX_PRICE = 500000;
 const DEMO_PERIOD_DAYS = 30;
 
-// Preço mensal em euros, com no máximo 2 casas decimais.
+// Preço mensal em kwanzas, com no máximo 2 casas decimais.
 function parseSubscriptionPrice(value) {
   const price = typeof value === "string" && value.trim() !== "" ? Number(value) : value;
   if (typeof price !== "number" || !Number.isFinite(price)) return null;
@@ -24,12 +25,12 @@ function periodEndFromStripe(stripeSubscription) {
   return Number.isFinite(seconds) ? new Date(seconds * 1000) : null;
 }
 
-// Converte o estado de uma subscrição Stripe no estado guardado na NOVA+.
+// Converte o estado de uma subscrição Stripe no estado guardado no Biva.
 // Só "active" dá acesso ao conteúdo exclusivo (ver ACTIVE_SUBSCRIPTION_SQL).
 // Estados possíveis na Stripe: active, trialing, past_due, unpaid, canceled,
 // incomplete, incomplete_expired, paused.
 function mapStripeStatus(stripeStatus) {
-  // TODO(tu): decide quais estados da Stripe contam como "active" na NOVA+.
+  // TODO(tu): decide quais estados da Stripe contam como "active" no Biva.
   // Ponto de partida conservador: só pagamentos confirmados dão acesso.
   return stripeStatus === "active" ? "active" : "canceled";
 }

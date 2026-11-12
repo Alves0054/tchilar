@@ -47,35 +47,35 @@ try {
   $sqlPassword = $databasePassword.Replace("'", "''")
 
   $env:PGPASSWORD = $plainAdminPassword
-  $roleSql = "DO `$setup`$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='creator_social') THEN CREATE ROLE creator_social LOGIN PASSWORD '$sqlPassword'; ELSE ALTER ROLE creator_social WITH LOGIN PASSWORD '$sqlPassword'; END IF; END `$setup`$;"
+  $roleSql = "DO `$setup`$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='biva') THEN CREATE ROLE biva LOGIN PASSWORD '$sqlPassword'; ELSE ALTER ROLE biva WITH LOGIN PASSWORD '$sqlPassword'; END IF; END `$setup`$;"
   & $psqlPath -X -w -v ON_ERROR_STOP=1 -h $hostName -p $port -U $adminUser -d postgres -c $roleSql
   if ($LASTEXITCODE -ne 0) { throw "Não foi possível criar o utilizador da aplicação. Confirma os dados de administrador." }
 
-  $databaseExists = & $psqlPath -X -w -v ON_ERROR_STOP=1 -h $hostName -p $port -U $adminUser -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='creator_social'"
+  $databaseExists = & $psqlPath -X -w -v ON_ERROR_STOP=1 -h $hostName -p $port -U $adminUser -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='biva'"
   if ($LASTEXITCODE -ne 0) { throw "Não foi possível verificar a base de dados." }
   if (($databaseExists -join "").Trim() -ne "1") {
-    & $psqlPath -X -w -v ON_ERROR_STOP=1 -h $hostName -p $port -U $adminUser -d postgres -c "CREATE DATABASE creator_social OWNER creator_social"
-    if ($LASTEXITCODE -ne 0) { throw "Não foi possível criar a base de dados creator_social." }
+    & $psqlPath -X -w -v ON_ERROR_STOP=1 -h $hostName -p $port -U $adminUser -d postgres -c "CREATE DATABASE biva OWNER biva"
+    if ($LASTEXITCODE -ne 0) { throw "Não foi possível criar a base de dados biva." }
   } else {
-    & $psqlPath -X -w -v ON_ERROR_STOP=1 -h $hostName -p $port -U $adminUser -d postgres -c "ALTER DATABASE creator_social OWNER TO creator_social"
+    & $psqlPath -X -w -v ON_ERROR_STOP=1 -h $hostName -p $port -U $adminUser -d postgres -c "ALTER DATABASE biva OWNER TO biva"
     if ($LASTEXITCODE -ne 0) { throw "Não foi possível atualizar o proprietário da base de dados." }
   }
 
   $env:PGPASSWORD = $databasePassword
-  $connectionTest = & $psqlPath -X -w -v ON_ERROR_STOP=1 -h $hostName -p $port -U creator_social -d creator_social -tAc "SELECT 1"
+  $connectionTest = & $psqlPath -X -w -v ON_ERROR_STOP=1 -h $hostName -p $port -U biva -d biva -tAc "SELECT 1"
   if ($LASTEXITCODE -ne 0 -or ($connectionTest -join "").Trim() -ne "1") {
     throw "A conta da aplicação não conseguiu ligar à base de dados."
   }
 
   $databaseHost = $hostName
   if ($databaseHost -eq "localhost") { $databaseHost = "127.0.0.1" }
-  $databaseUrl = "postgresql://creator_social:$databasePassword@$databaseHost`:$port/creator_social"
+  $databaseUrl = "postgresql://biva:$databasePassword@$databaseHost`:$port/biva"
   $content = Get-Content -LiteralPath $examplePath -Raw
   $content = $content.Replace("replace_with_a_random_secret_at_least_32_characters", $jwtSecret)
   $content = $content.Replace("replace_with_a_random_password", $databasePassword)
   $content = [regex]::Replace($content, "^DATABASE_URL=.*$", "DATABASE_URL=$databaseUrl", [Text.RegularExpressions.RegexOptions]::Multiline)
   [IO.File]::WriteAllText($envPath, $content, [Text.UTF8Encoding]::new($false))
-  Write-Host "Base de dados creator_social criada e ligação verificada."
+  Write-Host "Base de dados biva criada e ligação verificada."
   Write-Host "Configuração local criada em .env. Não partilhes esse ficheiro."
   Write-Host "Arranca a aplicação com: npm run dev"
 } finally {
