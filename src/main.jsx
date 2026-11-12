@@ -11,6 +11,7 @@ import {
   Type,
   Music2,
   RotateCcw,
+  SlidersHorizontal,
   Lock,
   Mail,
   MonitorSmartphone,
@@ -117,8 +118,8 @@ async function api(path, options = {}) {
 
 // ---------------------------------------------------------------------------------------------
 // Vídeos: efeitos e leitor próprio (Reels e feed)
-// As edições (corte, velocidade, efeito, texto, som) vêm do servidor em post.video_edit e são
-// aplicadas aqui, no leitor; o ficheiro original não é alterado.
+// As edições (corte, velocidade, efeito, ajustes, texto, som e música) vêm do servidor em
+// post.video_edit e são aplicadas aqui, no leitor; o ficheiro original não é alterado.
 // ---------------------------------------------------------------------------------------------
 const VIDEO_FILTERS = [
   ["none", "Original", "none"],
@@ -132,7 +133,23 @@ const VIDEO_FILTERS = [
 ];
 const VIDEO_FILTER_CSS = Object.fromEntries(VIDEO_FILTERS.map(([id, , css]) => [id, css]));
 const VIDEO_SPEEDS = [[0.5, "0,5×"], [1, "1×"], [1.5, "1,5×"], [2, "2×"]];
-const DEFAULT_VIDEO_EDIT = { start: 0, end: null, speed: 1, filter: "none", muted: false, text: "", textPosition: "bottom", textStyle: "clean" };
+const DEFAULT_VIDEO_EDIT = {
+  start: 0, end: null, speed: 1, filter: "none", muted: false, originalVolume: 1,
+  brightness: 100, contrast: 100, saturation: 100, mirror: false, music: null,
+  text: "", textPosition: "bottom", textStyle: "clean"
+};
+const MUSIC_FADE_SECONDS = 1.2;
+
+// Efeito + ajustes de brilho, contraste e saturação, num só filtro CSS.
+function videoFilterCss(settings) {
+  const parts = [];
+  const effect = VIDEO_FILTER_CSS[settings.filter];
+  if (effect && effect !== "none") parts.push(effect);
+  if (settings.brightness && settings.brightness !== 100) parts.push(`brightness(${settings.brightness / 100})`);
+  if (settings.contrast && settings.contrast !== 100) parts.push(`contrast(${settings.contrast / 100})`);
+  if (settings.saturation && settings.saturation !== 100) parts.push(`saturate(${settings.saturation / 100})`);
+  return parts.join(" ") || "none";
+}
 
 const formatClock = seconds => {
   const total = Math.max(0, Math.floor(seconds || 0));
@@ -146,11 +163,13 @@ const reelSoundListeners = new Set();
 const setReelSound = value => { reelSoundOn = value; reelSoundListeners.forEach(listener => listener(value)); };
 
 // Leitor de vídeo próprio: toque no vídeo para pausar/continuar, botão de som, ecrã cheio,
-// barra de progresso que se pode arrastar. Começa sozinho quando aparece no ecrã e pára quando sai.
-function VideoPlayer({ src, edit, className = "", autoPlay = true, label = "Vídeo" }) {
+// barra de progresso, música por cima do vídeo. Começa sozinho quando aparece no ecrã e pára quando sai.
+// music: { title, artist, src } — a faixa escolhida (o início, volume e entrada suave vêm de edit.music).
+function VideoPlayer({ src, edit, music = null, className = "", autoPlay = true, label = "Vídeo" }) {
   const settings = { ...DEFAULT_VIDEO_EDIT, ...(edit || {}) };
   const wrapRef = useRef(null);
   const videoRef = useRef(null);
+  const audioRef = useRef(null);
   const [playing, setPlaying] = useState(false);
   const [soundOn, setSoundOn] = useState(reelSoundOn);
   const [progress, setProgress] = useState(0);
@@ -163,13 +182,49 @@ function VideoPlayer({ src, edit, className = "", autoPlay = true, label = "Víd
   const clipStart = settings.start || 0;
   const clipEnd = () => settings.end ?? videoRef.current?.duration ?? 0;
   const clipLength = ((settings.end ?? duration) - clipStart) / settings.speed;
+  const originalVolume = settings.muted ? 0 : Math.min(1, Math.max(0, settings.originalVolume ?? 1));
+  const musicSrc = settings.music && music?.src ? music.src : "";
+  const musicOffset = settings.music?.offset || 0;
+  const musicVolume = settings.music?.volume ?? 1;
+  const musicFade = settings.music?.fade !== false;
+  const hasSound = originalVolume > 0 || Boolean(musicSrc);
+
+  // ----- Música: segue o vídeo (mesmo com velocidade diferente, a música toca à velocidade normal) -----
+  const expectedMusicTime = () => {
+    const video = videoRef.current;
+    const audio = audioRef.current;
+    if (!video || !audio) return 0;
+    const elapsed = Math.max(0, video.currentTime - clipStart) / settings.speed;
+    const position = musicOffset + elapsed;
+    return Number.isFinite(audio.duration) && audio.duration > 0 ? position % audio.duration : position;
+  };
+  const syncMusic = (force = false) => {
+    const audio = audioRef.current;
+    const video = videoRef.current;
+    if (!audio || !video || !musicSrc) return;
+    const expected = expectedMusicTime();
+    if (force || Math.abs(audio.currentTime - expected) > 0.3) {
+      try { audio.currentTime = expected; } catch { /* ainda sem dados: volta a tentar no próximo tique */ }
+    }
+    // Entrada e saída suaves no início e no fim do corte.
+    const elapsed = Math.max(0, video.currentTime - clipStart) / settings.speed;
+    const left = Math.max(0, clipLength - elapsed);
+    const fade = musicFade ? Math.min(1, elapsed / MUSIC_FADE_SECONDS, left / MUSIC_FADE_SECONDS) : 1;
+    audio.volume = Math.min(1, Math.max(0, musicVolume * fade));
+    if (video.paused) audio.pause();
+    else if (audio.paused) audio.play().catch(() => {});
+  };
 
   // No editor, mudar o corte leva logo o vídeo para o novo início.
   useEffect(() => {
     const video = videoRef.current;
     if (!video || !duration) return;
     if (video.currentTime < clipStart || video.currentTime > clipEnd()) video.currentTime = clipStart;
+    syncMusic(true);
   }, [clipStart, settings.end, duration]);
+
+  // No editor, trocar de música ou mudar o início da música salta logo para o sítio certo.
+  useEffect(() => { syncMusic(true); }, [musicSrc, musicOffset, musicVolume, musicFade]);
 
   useEffect(() => {
     reelSoundListeners.add(setSoundOn);
@@ -179,9 +234,11 @@ function VideoPlayer({ src, edit, className = "", autoPlay = true, label = "Víd
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
-    video.muted = settings.muted || !soundOn;
+    video.muted = originalVolume === 0 || !soundOn;
+    video.volume = originalVolume || 1;
     video.playbackRate = settings.speed;
-  }, [soundOn, settings.muted, settings.speed]);
+    if (audioRef.current) audioRef.current.muted = !soundOn;
+  }, [soundOn, originalVolume, settings.speed, musicSrc]);
 
   // Começa quando pelo menos 60% do vídeo está visível; pára quando sai do ecrã.
   useEffect(() => {
@@ -232,7 +289,7 @@ function VideoPlayer({ src, edit, className = "", autoPlay = true, label = "Víd
 
   const toggleSound = event => {
     event.stopPropagation();
-    if (settings.muted) return;
+    if (!hasSound) return;
     setReelSound(!soundOn);
   };
 
@@ -251,6 +308,7 @@ function VideoPlayer({ src, edit, className = "", autoPlay = true, label = "Víd
     const bar = event.currentTarget.getBoundingClientRect();
     const ratio = Math.min(1, Math.max(0, (event.clientX - bar.left) / bar.width));
     if (video) video.currentTime = clipStart + ratio * (clipEnd() - clipStart);
+    syncMusic(true);
   };
 
   const onKey = event => {
@@ -275,8 +333,12 @@ function VideoPlayer({ src, edit, className = "", autoPlay = true, label = "Víd
     if (end && video.currentTime >= end - 0.03) {
       video.currentTime = clipStart;
       if (!video.paused) video.play().catch(() => {});
+      syncMusic(true);
     } else if (video.currentTime < clipStart - 0.2) {
       video.currentTime = clipStart;
+      syncMusic(true);
+    } else {
+      syncMusic();
     }
     const length = end - clipStart;
     setProgress(length > 0 ? Math.min(1, Math.max(0, (video.currentTime - clipStart) / length)) : 0);
@@ -287,9 +349,12 @@ function VideoPlayer({ src, edit, className = "", autoPlay = true, label = "Víd
     role="button" tabIndex={0} aria-label={`${label}. ${playing ? "Toca para pausar" : "Toca para ver"}`}
     onClick={togglePlay} onKeyDown={onKey}>
     <video ref={videoRef} src={src} playsInline loop={false} preload="metadata"
-      style={{ filter: VIDEO_FILTER_CSS[settings.filter] || "none" }}
-      onLoadedMetadata={onLoaded} onTimeUpdate={onTime} onWaiting={() => setLoading(true)} onPlaying={() => { setLoading(false); setPlaying(true); }}
-      onPause={() => setPlaying(false)} onEnded={() => { const video = videoRef.current; video.currentTime = clipStart; video.play().catch(() => {}); }} />
+      style={{ filter: videoFilterCss(settings), transform: settings.mirror ? "scaleX(-1)" : undefined }}
+      onLoadedMetadata={onLoaded} onTimeUpdate={onTime} onWaiting={() => setLoading(true)}
+      onPlaying={() => { setLoading(false); setPlaying(true); syncMusic(true); }}
+      onPause={() => { setPlaying(false); audioRef.current?.pause(); }}
+      onEnded={() => { const video = videoRef.current; video.currentTime = clipStart; video.play().catch(() => {}); }} />
+    {musicSrc && <audio ref={audioRef} src={musicSrc} preload="auto" loop muted={!soundOn} onLoadedMetadata={() => syncMusic(true)} />}
     {settings.text && <span className={`video-text pos-${settings.textPosition} style-${settings.textStyle}`}>{settings.text}</span>}
     {loading && <span className="video-spinner" aria-hidden="true" />}
     {!playing && !loading && <span className="video-big-play" aria-hidden="true"><Icon name="play" size={34} /></span>}
@@ -301,11 +366,16 @@ function VideoPlayer({ src, edit, className = "", autoPlay = true, label = "Víd
       </button>
     </div>
     <div className="video-bottom-controls" onClick={event => event.stopPropagation()}>
-      <span className="video-time">{formatClock(Math.ceil(playing || progress ? remaining : clipLength))}</span>
-      <button type="button" className={`video-control ${soundOn && !settings.muted ? "is-on" : ""}`} disabled={settings.muted}
-        aria-label={settings.muted ? "Vídeo sem som" : soundOn ? "Tirar o som" : "Ativar o som"} aria-pressed={soundOn && !settings.muted} onClick={toggleSound}>
-        <Icon name={soundOn && !settings.muted ? "volumeOn" : "volumeOff"} size={18} />
-        {!soundOn && !settings.muted && <span className="video-sound-hint">Ativar som</span>}
+      <span className="video-bottom-left">
+        <span className="video-time">{formatClock(Math.ceil(playing || progress ? remaining : clipLength))}</span>
+        {musicSrc && <span className={`video-music ${playing ? "is-playing" : ""}`} title={`${music.title}${music.artist ? ` · ${music.artist}` : ""}`}>
+          <Icon name="sound" size={13} /><span>{music.title}{music.artist ? ` · ${music.artist}` : ""}</span>
+        </span>}
+      </span>
+      <button type="button" className={`video-control ${soundOn && hasSound ? "is-on" : ""}`} disabled={!hasSound}
+        aria-label={!hasSound ? "Vídeo sem som" : soundOn ? "Tirar o som" : "Ativar o som"} aria-pressed={soundOn && hasSound} onClick={toggleSound}>
+        <Icon name={soundOn && hasSound ? "volumeOn" : "volumeOff"} size={18} />
+        {!soundOn && hasSound && <span className="video-sound-hint">Ativar som</span>}
       </button>
     </div>
     <div className="video-progress" role="slider" aria-label="Posição no vídeo" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progress * 100)}
@@ -364,6 +434,7 @@ const ICONS = {
   text: Type,
   sound: Music2,
   reset: RotateCcw,
+  adjust: SlidersHorizontal,
   move: Move,
   report: Flag,
   shield: ShieldCheck,
@@ -1619,7 +1690,8 @@ function PostCard({ post, onChanged }) {
       : body && <p className="post-body">{body}</p>}
     {post.shared && <SharedPostPreview post={post.shared} />}
     {post.media_url && (post.media_type === "video"
-      ? <VideoPlayer className="media" src={`${API_BASE}${post.media_url}`} edit={post.video_edit} label={`Vídeo de ${post.display_name}`} />
+      ? <VideoPlayer className="media" src={`${API_BASE}${post.media_url}`} edit={post.video_edit} label={`Vídeo de ${post.display_name}`}
+        music={post.music ? { title: post.music.title, artist: post.music.artist, src: `${API_BASE}${post.music.audio_url}` } : null} />
       : <img className="media" src={`${API_BASE}${post.media_url}`} alt="Publicação" />)}
     <div className="post-counts">
       <span><span className="post-count-mark" aria-hidden="true"><Icon name="heart" size={11} /></span>{formatCount(likes)} {likes === 1 ? "gosto" : "gostos"}</span>
@@ -2126,11 +2198,149 @@ function useVideoFrames(url) {
 
 const REEL_TOOLS = [
   ["trim", "trim", "Cortar"],
-  ["speed", "speed", "Velocidade"],
+  ["music", "sound", "Música"],
   ["effects", "effects", "Efeitos"],
+  ["adjust", "adjust", "Ajustes"],
   ["text", "text", "Texto"],
-  ["sound", "sound", "Som"]
+  ["speed", "speed", "Velocidade"]
 ];
+const MUSIC_GENRE_LABELS = {
+  afrobeat: "Afrobeat", kizomba: "Kizomba", semba: "Semba", kuduro: "Kuduro", amapiano: "Amapiano",
+  hiphop: "Hip-hop", pop: "Pop", gospel: "Gospel", calmo: "Calmo", outro: "Outros"
+};
+const MAX_AUDIO_BYTES = 15 * 1024 * 1024;
+const ADJUSTMENTS = [["brightness", "Brilho"], ["contrast", "Contraste"], ["saturation", "Saturação"]];
+
+// Lê a duração de um ficheiro de áudio no próprio browser (para o servidor e para o início da música).
+const audioDuration = file => new Promise((resolve, reject) => {
+  const url = URL.createObjectURL(file);
+  const audio = new Audio();
+  audio.preload = "metadata";
+  audio.onloadedmetadata = () => { const value = audio.duration; URL.revokeObjectURL(url); Number.isFinite(value) ? resolve(value) : reject(new Error("duration")); };
+  audio.onerror = () => { URL.revokeObjectURL(url); reject(new Error("audio")); };
+  audio.src = url;
+});
+
+// Escolher música: biblioteca da Biva, as tuas músicas, pesquisa, géneros, ouvir antes e carregar a tua.
+function MusicPicker({ onSelect, onCancel }) {
+  const [query, setQuery] = useState("");
+  const [genre, setGenre] = useState("");
+  const [data, setData] = useState(null);
+  const [error, setError] = useState("");
+  const [previewId, setPreviewId] = useState(null);
+  const [uploading, setUploading] = useState(null);    // { file, title, artist, rights, busy, error }
+  const previewAudio = useRef(null);
+  const fileInput = useRef(null);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const params = new URLSearchParams();
+      if (query.trim()) params.set("q", query.trim());
+      if (genre) params.set("genre", genre);
+      api(`/music?${params}`).then(result => { setData(result); setError(""); }).catch(loadError => setError(loadError.message));
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [query, genre]);
+  useEffect(() => () => previewAudio.current?.pause(), []);
+
+  const togglePreview = track => {
+    const audio = previewAudio.current;
+    if (!audio) return;
+    if (previewId === track.id) { audio.pause(); setPreviewId(null); return; }
+    audio.src = `${API_BASE}${track.audio_url}`;
+    audio.currentTime = 0;
+    audio.play().then(() => setPreviewId(track.id)).catch(() => setPreviewId(null));
+  };
+  const choose = track => { previewAudio.current?.pause(); setPreviewId(null); onSelect(track); };
+
+  const pickFile = file => {
+    if (!file) return;
+    if (!file.type.startsWith("audio/")) return setError("Escolhe um ficheiro de áudio (MP3, M4A, AAC, WAV ou OGG).");
+    if (file.size > MAX_AUDIO_BYTES) return setError("A música tem mais de 15 MB.");
+    setError("");
+    setUploading({ file, title: file.name.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").slice(0, 100), artist: "", rights: false, busy: false, error: "" });
+  };
+  const upload = async () => {
+    setUploading(current => ({ ...current, busy: true, error: "" }));
+    try {
+      const duration = await audioDuration(uploading.file).catch(() => { throw new Error("Não foi possível ler esta música. Experimenta outro ficheiro."); });
+      const form = new FormData();
+      form.append("audio", uploading.file);
+      form.append("title", uploading.title);
+      form.append("artist", uploading.artist);
+      form.append("duration", String(duration));
+      form.append("rightsConfirmed", String(uploading.rights));
+      const result = await api("/music", { method: "POST", body: form });
+      setUploading(null);
+      choose(result.track);
+    } catch (uploadError) {
+      setUploading(current => ({ ...current, busy: false, error: uploadError.message }));
+    }
+  };
+  const remove = async track => {
+    if (!window.confirm(`Apagar "${track.title}" das tuas músicas?`)) return;
+    try {
+      await api(`/music/${track.id}`, { method: "DELETE" });
+      setData(current => ({ ...current, mine: current.mine.filter(item => item.id !== track.id) }));
+    } catch (removeError) {
+      setError(removeError.message);
+    }
+  };
+
+  const trackRow = (track, own) => <li key={track.id} className={`music-row ${previewId === track.id ? "is-previewing" : ""}`}>
+    <button type="button" className="music-preview" aria-label={previewId === track.id ? `Parar ${track.title}` : `Ouvir ${track.title}`} onClick={() => togglePreview(track)}>
+      <Icon name={previewId === track.id ? "pause" : "play"} size={16} />
+    </button>
+    <span className="music-info">
+      <strong>{track.title}</strong>
+      <small>{[track.artist, formatClock(track.duration), track.uses ? `${track.uses} ${track.uses === 1 ? "vídeo" : "vídeos"}` : null].filter(Boolean).join(" · ")}</small>
+    </span>
+    {own && !track.uses && <button type="button" className="music-delete" aria-label={`Apagar ${track.title}`} onClick={() => remove(track)}><Icon name="trash" size={15} /></button>}
+    <button type="button" className="music-use" onClick={() => choose(track)}>Usar</button>
+  </li>;
+
+  return <div className="music-picker">
+    <audio ref={previewAudio} onEnded={() => setPreviewId(null)} />
+    <div className="music-search">
+      <Icon name="search" size={16} />
+      <input type="search" value={query} onChange={event => setQuery(event.target.value)} placeholder="Procurar música ou artista" aria-label="Procurar música" />
+    </div>
+    <div className="music-genres" role="radiogroup" aria-label="Género">
+      <button type="button" role="radio" aria-checked={!genre} className={!genre ? "active" : ""} onClick={() => setGenre("")}>Todas</button>
+      {(data?.genres || Object.keys(MUSIC_GENRE_LABELS)).map(id => <button key={id} type="button" role="radio" aria-checked={genre === id}
+        className={genre === id ? "active" : ""} onClick={() => setGenre(genre === id ? "" : id)}>{MUSIC_GENRE_LABELS[id] || id}</button>)}
+    </div>
+    {error && <p className="error" role="alert">{error}</p>}
+
+    {uploading
+      ? <div className="music-upload">
+        <strong>Carregar música</strong>
+        <label>Nome da música<input maxLength={100} value={uploading.title} onChange={event => setUploading({ ...uploading, title: event.target.value })} /></label>
+        <label>Artista <small>opcional</small><input maxLength={100} value={uploading.artist} onChange={event => setUploading({ ...uploading, artist: event.target.value })} /></label>
+        <label className="music-rights">
+          <input type="checkbox" checked={uploading.rights} onChange={event => setUploading({ ...uploading, rights: event.target.checked })} />
+          <span>Tenho direitos para usar esta música: é minha, tenho autorização do artista ou tem licença livre. Músicas com direitos de autor de outras pessoas podem ser removidas.</span>
+        </label>
+        {uploading.error && <p className="error" role="alert">{uploading.error}</p>}
+        <div className="music-upload-actions">
+          <button type="button" className="btn secondary" disabled={uploading.busy} onClick={() => setUploading(null)}>Cancelar</button>
+          <button type="button" className="btn" disabled={uploading.busy || !uploading.rights || !uploading.title.trim()} onClick={upload}>{uploading.busy ? "A carregar..." : "Carregar e usar"}</button>
+        </div>
+      </div>
+      : <button type="button" className="music-upload-button" onClick={() => fileInput.current.click()}><Icon name="plus" size={16} />Carregar música do telemóvel ou computador</button>}
+    <input ref={fileInput} className="sr-only" type="file" accept="audio/*" tabIndex={-1} aria-hidden="true" onChange={event => { pickFile(event.target.files?.[0]); event.target.value = ""; }} />
+
+    {!data && !error && <p className="reel-hint">A carregar músicas...</p>}
+    {!!data?.mine?.length && <section><h3 className="music-heading">As tuas músicas</h3><ul className="music-list">{data.mine.map(track => trackRow(track, true))}</ul></section>}
+    {data && <section>
+      <h3 className="music-heading">Biblioteca da Biva</h3>
+      {data.library.length
+        ? <ul className="music-list">{data.library.map(track => trackRow(track, false))}</ul>
+        : <p className="reel-hint">{query || genre ? "Nenhuma música encontrada. Experimenta outra pesquisa." : "A biblioteca ainda está vazia. Carrega uma música tua para usar já."}</p>}
+    </section>}
+    {onCancel && <button type="button" className="reel-reset" onClick={onCancel}>Voltar</button>}
+  </div>;
+}
 
 function ShareReelDialog({ onClose, onPosted }) {
   const { user } = useContext(UserContext);
@@ -2138,6 +2348,8 @@ function ShareReelDialog({ onClose, onPosted }) {
   const [caption, setCaption] = useState("");
   const [exclusive, setExclusive] = useState(false);
   const [edit, setEdit] = useState(DEFAULT_VIDEO_EDIT);
+  const [track, setTrack] = useState(null);           // música escolhida (dados para o leitor)
+  const [pickingMusic, setPickingMusic] = useState(false);
   const [tool, setTool] = useState("trim");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -2150,15 +2362,19 @@ function ShareReelDialog({ onClose, onPosted }) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose, busy]);
-  // Vídeo novo: edição do zero; vídeos com mais de 3 minutos ficam logo cortados nos primeiros 3.
+  // Vídeo novo: edição do zero (mantém a música escolhida); vídeos com mais de 3 minutos ficam nos primeiros 3.
   useEffect(() => {
-    setEdit({ ...DEFAULT_VIDEO_EDIT, end: duration > MAX_CLIP_SECONDS ? MAX_CLIP_SECONDS : null });
+    setEdit(current => ({ ...DEFAULT_VIDEO_EDIT, music: current.music, end: duration > MAX_CLIP_SECONDS ? MAX_CLIP_SECONDS : null }));
   }, [duration]);
 
   const update = changes => setEdit(current => ({ ...current, ...changes }));
   const end = edit.end ?? duration;
   const clipSeconds = Math.max(0, end - edit.start);
-  const edited = edit.start > 0 || (edit.end !== null && edit.end < duration - 0.05) || edit.speed !== 1 || edit.filter !== "none" || edit.muted || edit.text.trim();
+  const finalSeconds = clipSeconds / edit.speed;
+  const edited = edit.start > 0 || (edit.end !== null && edit.end < duration - 0.05) || edit.speed !== 1 || edit.filter !== "none"
+    || edit.originalVolume !== 1 || edit.brightness !== 100 || edit.contrast !== 100 || edit.saturation !== 100 || edit.mirror
+    || edit.music || edit.text.trim();
+  const maxMusicOffset = track ? Math.max(0, track.duration - Math.min(finalSeconds, track.duration)) : 0;
 
   const choose = picked => {
     setError("");
@@ -2168,6 +2384,18 @@ function ShareReelDialog({ onClose, onPosted }) {
     setFile(picked);
     setTool("trim");
   };
+
+  const selectTrack = picked => {
+    setTrack(picked);
+    setPickingMusic(false);
+    // Com música, o som do vídeo baixa para 30% (a música fica em destaque); ajusta-se nos controlos.
+    update({ music: { trackId: picked.id, offset: 0, volume: 1, fade: true }, originalVolume: edit.music ? edit.originalVolume : Math.min(edit.originalVolume, 0.3) });
+  };
+  const removeTrack = () => {
+    setTrack(null);
+    update({ music: null, originalVolume: 1 });
+  };
+  const updateMusic = changes => update({ music: { ...edit.music, ...changes } });
 
   // Os dois puxadores do corte: o início não passa o fim (e vice-versa) e o reel não passa de 3 minutos.
   const setStart = value => {
@@ -2180,6 +2408,11 @@ function ShareReelDialog({ onClose, onPosted }) {
     update({ end: clamped >= duration - 0.05 ? null : Math.round(clamped * 10) / 10 });
   };
 
+  const resetAll = () => {
+    setTrack(null);
+    setEdit({ ...DEFAULT_VIDEO_EDIT, end: duration > MAX_CLIP_SECONDS ? MAX_CLIP_SECONDS : null });
+  };
+
   const submit = async event => {
     event.preventDefault();
     if (!file) return setError("Escolhe primeiro um vídeo.");
@@ -2190,8 +2423,12 @@ function ShareReelDialog({ onClose, onPosted }) {
     formData.append("media", file);
     if (exclusive) formData.append("isExclusive", "true");
     if (edited) {
-      const { text, textPosition, textStyle, ...rest } = edit;
-      formData.append("videoEdit", JSON.stringify({ ...rest, ...(text.trim() && { text: text.trim(), textPosition, textStyle }) }));
+      const { text, textPosition, textStyle, muted, music, ...rest } = edit;
+      formData.append("videoEdit", JSON.stringify({
+        ...rest,
+        ...(music && { music }),
+        ...(text.trim() && { text: text.trim(), textPosition, textStyle })
+      }));
     }
     try {
       const result = await api("/posts", { method: "POST", body: formData });
@@ -2204,6 +2441,15 @@ function ShareReelDialog({ onClose, onPosted }) {
 
   const percent = value => (duration ? `${(value / duration) * 100}%` : "0%");
   const thumb = frames[Math.min(frames.length - 1, 2)] || frames[0];
+  const playerMusic = track ? { title: track.title, artist: track.artist, src: `${API_BASE}${track.audio_url}` } : null;
+  const toolDot = id => ({
+    trim: edit.start > 0 || (edit.end !== null && edit.end < duration - 0.05),
+    music: Boolean(edit.music),
+    effects: edit.filter !== "none",
+    adjust: edit.brightness !== 100 || edit.contrast !== 100 || edit.saturation !== 100 || edit.mirror,
+    text: Boolean(edit.text.trim()),
+    speed: edit.speed !== 1
+  })[id];
 
   return createPortal(<div className="modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget && !busy) onClose(); }}>
     <form className="modal card share-reel-dialog" role="dialog" aria-modal="true" aria-labelledby="share-reel-title" onSubmit={submit}>
@@ -2216,7 +2462,7 @@ function ShareReelDialog({ onClose, onPosted }) {
       <div className="share-reel-grid">
         {file
           ? <div className="share-reel-preview">
-            <VideoPlayer key={preview} src={preview} edit={edit} label="Pré-visualização do teu vídeo" />
+            <VideoPlayer key={preview} src={preview} edit={edit} music={playerMusic} label="Pré-visualização do teu vídeo" />
             <button type="button" className="share-reel-change" onClick={() => fileInput.current.click()} disabled={busy}><Icon name="video" size={15} />Trocar</button>
           </div>
           : <button type="button" className="share-reel-pick" onClick={() => fileInput.current.click()}
@@ -2230,7 +2476,10 @@ function ShareReelDialog({ onClose, onPosted }) {
           {file && <section className="reel-editor" aria-label="Editar o vídeo">
             <div className="reel-tools" role="tablist" aria-label="Ferramentas">
               {REEL_TOOLS.map(([id, icon, label]) => <button key={id} type="button" role="tab" aria-selected={tool === id}
-                className={tool === id ? "active" : ""} onClick={() => setTool(id)}><Icon name={icon} size={18} /><span>{label}</span></button>)}
+                className={tool === id ? "active" : ""} onClick={() => setTool(id)}>
+                <span className="reel-tool-icon"><Icon name={icon} size={18} />{toolDot(id) && <i className="reel-tool-dot" aria-label="(alterado)" />}</span>
+                <span>{label}</span>
+              </button>)}
             </div>
 
             <div className="reel-tool-panel" role="tabpanel">
@@ -2250,16 +2499,41 @@ function ShareReelDialog({ onClose, onPosted }) {
                 <p className="reel-trim-info">
                   <span>Início <strong>{formatClock(edit.start)}</strong></span>
                   <span>Fim <strong>{formatClock(end)}</strong></span>
-                  <span>Duração <strong>{formatClock(clipSeconds / edit.speed)}</strong></span>
+                  <span>Duração final <strong>{formatClock(Math.ceil(finalSeconds))}</strong></span>
                 </p>
                 {duration > MAX_CLIP_SECONDS && <p className="reel-hint">Os reels podem ter até 3 minutos. Arrasta para escolher a melhor parte.</p>}
               </>}
 
-              {tool === "speed" && <div className="reel-chips" role="radiogroup" aria-label="Velocidade">
-                {VIDEO_SPEEDS.map(([value, label]) => <button key={value} type="button" role="radio" aria-checked={edit.speed === value}
-                  className={edit.speed === value ? "active" : ""} onClick={() => update({ speed: value })}>{label}</button>)}
-                <p className="reel-hint">{edit.speed < 1 ? "Câmara lenta: ótimo para danças e momentos especiais." : edit.speed > 1 ? "Acelerado: bom para receitas, viagens e tutoriais." : "Velocidade normal."}</p>
-              </div>}
+              {tool === "music" && (pickingMusic || !track
+                ? <MusicPicker onSelect={selectTrack} onCancel={track ? () => setPickingMusic(false) : null} />
+                : <div className="music-selected">
+                  <div className="music-selected-card">
+                    <span className="music-selected-icon"><Icon name="sound" size={20} /></span>
+                    <span className="music-info"><strong>{track.title}</strong><small>{[track.artist, formatClock(track.duration)].filter(Boolean).join(" · ")}</small></span>
+                    <button type="button" className="music-use" onClick={() => setPickingMusic(true)}>Trocar</button>
+                    <button type="button" className="music-delete" aria-label="Tirar a música" onClick={removeTrack}><Icon name="close" size={15} /></button>
+                  </div>
+                  {maxMusicOffset > 0 && <label className="reel-slider">
+                    <span>Começar a música em <strong>{formatClock(edit.music.offset)}</strong></span>
+                    <input type="range" min="0" max={maxMusicOffset} step="0.5" value={Math.min(edit.music.offset, maxMusicOffset)}
+                      onChange={event => updateMusic({ offset: Number(event.target.value) })} />
+                    <small>Escolhe a parte da música que fica melhor com o vídeo (o refrão, por exemplo).</small>
+                  </label>}
+                  <label className="reel-slider">
+                    <span>Volume da música <strong>{Math.round(edit.music.volume * 100)}%</strong></span>
+                    <input type="range" min="0" max="1" step="0.05" value={edit.music.volume} onChange={event => updateMusic({ volume: Number(event.target.value) })} />
+                  </label>
+                  <label className="reel-slider">
+                    <span>Som do vídeo <strong>{edit.originalVolume === 0 ? "sem som" : `${Math.round(edit.originalVolume * 100)}%`}</strong></span>
+                    <input type="range" min="0" max="1" step="0.05" value={edit.originalVolume} onChange={event => update({ originalVolume: Number(event.target.value) })} />
+                  </label>
+                  <label className="reel-sound-toggle">
+                    <input type="checkbox" checked={edit.music.fade} onChange={event => updateMusic({ fade: event.target.checked })} />
+                    <span className="entry-switch-track" aria-hidden="true"><i /></span>
+                    <span><strong>Entrada e saída suaves</strong><small>A música aumenta no início e baixa no fim do vídeo.</small></span>
+                  </label>
+                  <p className="reel-hint">Ativa o som na pré-visualização para ouvires a mistura.</p>
+                </div>)}
 
               {tool === "effects" && <div className="reel-effects" role="radiogroup" aria-label="Efeitos">
                 {VIDEO_FILTERS.map(([id, label, css]) => <button key={id} type="button" role="radio" aria-checked={edit.filter === id}
@@ -2267,6 +2541,21 @@ function ShareReelDialog({ onClose, onPosted }) {
                   <span className="reel-effect-thumb">{thumb ? <img src={thumb} alt="" style={{ filter: css }} /> : <i style={{ filter: css }} />}</span>
                   <small>{label}</small>
                 </button>)}
+              </div>}
+
+              {tool === "adjust" && <div className="reel-adjust">
+                {ADJUSTMENTS.map(([key, label]) => <label key={key} className="reel-slider">
+                  <span>{label} <strong>{edit[key] > 100 ? "+" : ""}{edit[key] - 100}</strong></span>
+                  <input type="range" min="50" max="150" step="1" value={edit[key]} onChange={event => update({ [key]: Number(event.target.value) })}
+                    onDoubleClick={() => update({ [key]: 100 })} />
+                </label>)}
+                <label className="reel-sound-toggle">
+                  <input type="checkbox" checked={edit.mirror} onChange={event => update({ mirror: event.target.checked })} />
+                  <span className="entry-switch-track" aria-hidden="true"><i /></span>
+                  <span><strong>Espelhar</strong><small>Vira o vídeo da esquerda para a direita (útil em vídeos da câmara da frente).</small></span>
+                </label>
+                {(edit.brightness !== 100 || edit.contrast !== 100 || edit.saturation !== 100) &&
+                  <button type="button" className="reel-reset" onClick={() => update({ brightness: 100, contrast: 100, saturation: 100 })}><Icon name="reset" size={14} />Repor ajustes</button>}
               </div>}
 
               {tool === "text" && <div className="reel-text-tool">
@@ -2283,14 +2572,13 @@ function ShareReelDialog({ onClose, onPosted }) {
                 </div>
               </div>}
 
-              {tool === "sound" && <label className="reel-sound-toggle">
-                <input type="checkbox" checked={!edit.muted} onChange={event => update({ muted: !event.target.checked })} />
-                <span className="entry-switch-track" aria-hidden="true"><i /></span>
-                <span><strong>Som original</strong><small>{edit.muted ? "O vídeo vai ser publicado sem som." : "Quem vê ouve o som do vídeo quando ativa o som."}</small></span>
-              </label>}
+              {tool === "speed" && <div className="reel-chips" role="radiogroup" aria-label="Velocidade">
+                {VIDEO_SPEEDS.map(([value, label]) => <button key={value} type="button" role="radio" aria-checked={edit.speed === value}
+                  className={edit.speed === value ? "active" : ""} onClick={() => update({ speed: value })}>{label}</button>)}
+                <p className="reel-hint">{edit.speed < 1 ? "Câmara lenta: ótimo para danças e momentos especiais." : edit.speed > 1 ? "Acelerado: bom para receitas, viagens e tutoriais." : "Velocidade normal."} A música toca sempre à velocidade normal.</p>
+              </div>}
             </div>
-            {edited && <button type="button" className="reel-reset" onClick={() => setEdit({ ...DEFAULT_VIDEO_EDIT, end: duration > MAX_CLIP_SECONDS ? MAX_CLIP_SECONDS : null })}>
-              <Icon name="reset" size={14} />Repor o original</button>}
+            {edited && <button type="button" className="reel-reset" onClick={resetAll}><Icon name="reset" size={14} />Repor o original</button>}
           </section>}
 
           <div className="share-reel-author"><Avatar user={user} size="tiny" /><strong>{user?.display_name}</strong></div>
@@ -3868,7 +4156,7 @@ function AdminPage() {
   const { tab = "promocoes" } = useParams();
   if (!authReady) return <div className="page narrow"><div className="empty card">A carregar...</div></div>;
   if (!user?.is_admin) return <div className="page narrow"><div className="empty card">Só a equipa do Biva tem acesso a esta área.</div></div>;
-  const tabs = [["promocoes", "Promoções"], ["levantamentos", "Levantamentos"], ["financas", "Finanças"]];
+  const tabs = [["promocoes", "Promoções"], ["levantamentos", "Levantamentos"], ["financas", "Finanças"], ["musicas", "Músicas"]];
   return <div className="page growth-page admin-page">
     <header className="admin-head"><h1>Administração</h1>
       <nav className="feed-tabs" aria-label="Áreas da administração">{tabs.map(([slug, label]) => <NavLink key={slug} to={`/admin/${slug}`} className={({ isActive }) => isActive || (tab === slug) ? "is-active" : ""}>{label}</NavLink>)}
@@ -3877,6 +4165,95 @@ function AdminPage() {
     {tab === "promocoes" && <AdminPromotions />}
     {tab === "levantamentos" && <AdminPayouts />}
     {tab === "financas" && <AdminFinance />}
+    {tab === "musicas" && <AdminMusic />}
+  </div>;
+}
+
+// Biblioteca de músicas: a equipa carrega faixas com licença (ou aprova músicas das pessoas),
+// esconde as que tenham problemas de direitos e organiza por género.
+function AdminMusic() {
+  const [data, setData] = useState(null);
+  const [error, setError] = useState("");
+  const [form, setForm] = useState({ file: null, title: "", artist: "", genre: "afrobeat", license: "", busy: false });
+  const fileInput = useRef(null);
+
+  const load = () => api("/admin/music").then(result => { setData(result); setError(""); }).catch(loadError => setError(loadError.message));
+  useEffect(() => { load(); }, []);
+
+  const pick = file => {
+    if (!file) return;
+    setForm(current => ({ ...current, file, title: current.title || file.name.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").slice(0, 100) }));
+  };
+  const upload = async event => {
+    event.preventDefault();
+    setForm(current => ({ ...current, busy: true }));
+    setError("");
+    try {
+      const duration = await audioDuration(form.file).catch(() => { throw new Error("Não foi possível ler este ficheiro de áudio."); });
+      const body = new FormData();
+      body.append("audio", form.file);
+      body.append("title", form.title);
+      body.append("artist", form.artist);
+      body.append("genre", form.genre);
+      body.append("license", form.license);
+      body.append("duration", String(duration));
+      body.append("library", "true");
+      body.append("rightsConfirmed", "true");
+      await api("/music", { method: "POST", body });
+      setForm({ file: null, title: "", artist: "", genre: form.genre, license: form.license, busy: false });
+      load();
+    } catch (uploadError) {
+      setError(uploadError.message);
+      setForm(current => ({ ...current, busy: false }));
+    }
+  };
+  const change = async (track, changes) => {
+    setError("");
+    try {
+      const result = await api(`/admin/music/${track.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(changes) });
+      setData(current => ({ ...current, tracks: current.tracks.map(item => item.id === track.id ? { ...item, ...result.track } : item) }));
+    } catch (changeError) {
+      setError(changeError.message);
+    }
+  };
+
+  return <div className="admin-music">
+    <form className="card admin-music-form" onSubmit={upload}>
+      <h2>Adicionar à biblioteca</h2>
+      <p className="muted">Só músicas que a Biva pode usar: compostas para a Biva, com autorização escrita do artista, ou com licença livre (por exemplo, Pixabay Music ou Creative Commons CC0). Regista sempre a licença.</p>
+      <input ref={fileInput} className="sr-only" type="file" accept="audio/*" tabIndex={-1} aria-hidden="true" onChange={event => { pick(event.target.files?.[0]); event.target.value = ""; }} />
+      <button type="button" className="music-upload-button" onClick={() => fileInput.current.click()}><Icon name="sound" size={16} />{form.file ? form.file.name : "Escolher ficheiro de áudio (até 15 MB)"}</button>
+      <div className="admin-music-fields">
+        <label>Nome<input required maxLength={100} value={form.title} onChange={event => setForm({ ...form, title: event.target.value })} /></label>
+        <label>Artista<input maxLength={100} value={form.artist} onChange={event => setForm({ ...form, artist: event.target.value })} /></label>
+        <label>Género<select value={form.genre} onChange={event => setForm({ ...form, genre: event.target.value })}>
+          {Object.entries(MUSIC_GENRE_LABELS).map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+        </select></label>
+        <label>Licença<input required maxLength={300} value={form.license} onChange={event => setForm({ ...form, license: event.target.value })} placeholder="Ex.: Pixabay Content License" /></label>
+      </div>
+      <button className="btn" type="submit" disabled={form.busy || !form.file || !form.title.trim() || !form.license.trim()}>{form.busy ? "A carregar..." : "Adicionar à biblioteca"}</button>
+    </form>
+    {error && <p className="error" role="alert">{error}</p>}
+    {!data && !error && <div className="empty card">A carregar músicas...</div>}
+    {data && <div className="card admin-music-list">
+      <h2>Todas as músicas <small>{data.tracks.length}</small></h2>
+      {!data.tracks.length && <p className="muted">Ainda não há músicas.</p>}
+      <ul>
+        {data.tracks.map(track => <li key={track.id} className={track.hidden_at ? "is-hidden" : ""}>
+          <span className="music-info">
+            <strong>{track.title}{track.artist ? ` · ${track.artist}` : ""}</strong>
+            <small>{[formatClock(track.duration), MUSIC_GENRE_LABELS[track.genre], `${track.uses} ${track.uses === 1 ? "vídeo" : "vídeos"}`, track.uploader ? `por @${track.uploader}` : null, track.license || "sem licença registada"].filter(Boolean).join(" · ")}</small>
+          </span>
+          <audio controls preload="none" src={`${API_BASE}${track.audio_url}`} />
+          <span className="admin-music-actions">
+            {track.is_library
+              ? <button type="button" className="btn secondary" onClick={() => change(track, { library: false })}>Tirar da biblioteca</button>
+              : <button type="button" className="btn secondary" disabled={!track.license} title={track.license ? "" : "Regista a licença primeiro"} onClick={() => change(track, { library: true })}>Pôr na biblioteca</button>}
+            <button type="button" className={`btn ${track.hidden_at ? "secondary" : "danger"}`} onClick={() => change(track, { hidden: !track.hidden_at })}>{track.hidden_at ? "Mostrar" : "Esconder"}</button>
+          </span>
+        </li>)}
+      </ul>
+    </div>}
   </div>;
 }
 

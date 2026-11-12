@@ -7,6 +7,8 @@ const TEXT_POSITIONS = ["top", "center", "bottom"];
 const TEXT_STYLES = ["clean", "box", "coral"];
 const MAX_CLIP_SECONDS = 180;
 const MAX_TEXT = 80;
+const ADJUST_MIN = 50;
+const ADJUST_MAX = 150;
 
 const round = value => Math.round(value * 100) / 100;
 
@@ -15,7 +17,7 @@ function parseVideoEdit(raw) {
   if (raw === undefined || raw === null || raw === "") return { edit: null };
   let input = raw;
   if (typeof raw === "string") {
-    if (raw.length > 2000) return { error: "A edição do vídeo é inválida." };
+    if (raw.length > 3000) return { error: "A edição do vídeo é inválida." };
     try { input = JSON.parse(raw); } catch { return { error: "A edição do vídeo é inválida." }; }
   }
   if (!input || typeof input !== "object" || Array.isArray(input)) return { error: "A edição do vídeo é inválida." };
@@ -39,15 +41,49 @@ function parseVideoEdit(raw) {
   const textStyle = input.textStyle === undefined ? "clean" : input.textStyle;
   if (!TEXT_POSITIONS.includes(textPosition) || !TEXT_STYLES.includes(textStyle)) return { error: "O estilo do texto é inválido." };
 
+  // Ajustes de imagem (percentagem: 100 = sem alteração) e espelhar.
+  const adjust = {};
+  for (const key of ["brightness", "contrast", "saturation"]) {
+    if (input[key] === undefined) continue;
+    const value = Number(input[key]);
+    if (!Number.isInteger(value) || value < ADJUST_MIN || value > ADJUST_MAX) return { error: "Os ajustes de imagem são inválidos." };
+    if (value !== 100) adjust[key] = value;
+  }
+  if (input.mirror !== undefined && typeof input.mirror !== "boolean") return { error: "A opção de espelhar é inválida." };
+
+  // Volume do som original (0 = sem som). "muted" é o formato antigo e continua a ser aceite.
+  const originalVolume = input.originalVolume === undefined ? (input.muted === true ? 0 : 1) : Number(input.originalVolume);
+  if (!Number.isFinite(originalVolume) || originalVolume < 0 || originalVolume > 1) return { error: "O volume do vídeo é inválido." };
+
+  // Música: { trackId, offset (onde começa a música, em segundos), volume, fade }.
+  let music = null;
+  if (input.music !== undefined && input.music !== null) {
+    const raw = input.music;
+    if (typeof raw !== "object" || Array.isArray(raw)) return { error: "A música escolhida é inválida." };
+    const trackId = Number(raw.trackId);
+    const offset = raw.offset === undefined ? 0 : Number(raw.offset);
+    const volume = raw.volume === undefined ? 1 : Number(raw.volume);
+    if (!Number.isSafeInteger(trackId) || trackId <= 0) return { error: "A música escolhida é inválida." };
+    if (!Number.isFinite(offset) || offset < 0 || offset > 900) return { error: "O início da música é inválido." };
+    if (!Number.isFinite(volume) || volume < 0 || volume > 1) return { error: "O volume da música é inválido." };
+    if (raw.fade !== undefined && typeof raw.fade !== "boolean") return { error: "A opção de entrada suave é inválida." };
+    music = { trackId, offset: round(offset), volume: round(volume), fade: raw.fade !== false };
+  }
+
   const edit = {
     start: round(start),
     end: end === null ? null : round(end),
     speed,
     filter,
-    muted: input.muted === true,
+    muted: originalVolume === 0,
+    ...(originalVolume !== 1 && originalVolume !== 0 && { originalVolume: round(originalVolume) }),
+    ...adjust,
+    ...(input.mirror === true && { mirror: true }),
+    ...(music && { music }),
     ...(text && { text, textPosition, textStyle })
   };
-  const isDefault = edit.start === 0 && edit.end === null && speed === 1 && filter === "none" && !edit.muted && !text;
+  const isDefault = edit.start === 0 && edit.end === null && speed === 1 && filter === "none" && !edit.muted
+    && edit.originalVolume === undefined && !Object.keys(adjust).length && !edit.mirror && !music && !text;
   return { edit: isDefault ? null : edit };
 }
 

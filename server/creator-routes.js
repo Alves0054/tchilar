@@ -2,6 +2,7 @@
 // visualizações de publicações e partilhas. Registadas a partir de index.js.
 const { impressionCost, parseAdInput } = require("./ads");
 const { TARGETING_SURCHARGE, parseTargeting } = require("./growth");
+const { POST_MUSIC_SQL } = require("./music-routes");
 const {
   MIN_PAYOUT_KZ, PARTNER_RPM_KZ, PARTNER_RULES, partnerEarnings, partnerEligibility, pickPromotions
 } = require("./promotions");
@@ -423,7 +424,8 @@ function registerCreatorRoutes(app, deps) {
         (SELECT COUNT(*) FROM likes l WHERE l.post_id=p.id) AS likes,
         EXISTS(SELECT 1 FROM likes l WHERE l.post_id=p.id AND l.user_id=$1) AS liked,
         (SELECT COUNT(*) FROM comments c WHERE c.post_id=p.id) AS comments,
-        (SELECT COUNT(*) FROM posts sh WHERE sh.shared_post_id=p.id) AS shares
+        (SELECT COUNT(*) FROM posts sh WHERE sh.shared_post_id=p.id) AS shares,
+        ${POST_MUSIC_SQL}
       FROM posts p JOIN users u ON u.id=p.user_id WHERE p.id = ANY($2::int[])`, [viewer, picked.map(ad => ad.post_id)]);
     const byId = new Map(posts.rows.map(post => [post.id, post]));
     res.json({

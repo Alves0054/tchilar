@@ -23,6 +23,7 @@ const { registerFinanceRoutes } = require("./finance-routes");
 const { decrypt, encrypt, loadKey } = require("./payouts");
 const { generateSecret, otpauthUri, verifyCode } = require("./totp");
 const { parseVideoEdit } = require("./video-edit");
+const { POST_MUSIC_SQL, registerMusicRoutes } = require("./music-routes");
 const QRCode = require("qrcode");
 const { MODERATION_ACTIONS, REPORT_REASONS, blockedBetween, shouldAutoHide } = require("./moderation");
 const {
@@ -531,7 +532,8 @@ app.get("/uploads/:filename", optionalAuth, async (req, res, next) => {
         // Fotos de perfil, capas e imagens de anúncios são públicas.
         const profileImage = await pool.query(
           `SELECT 1 FROM users WHERE avatar_url=$1 OR cover_url=$1
-           UNION ALL SELECT 1 FROM ads WHERE image_url=$1 LIMIT 1`,
+           UNION ALL SELECT 1 FROM ads WHERE image_url=$1
+           UNION ALL SELECT 1 FROM music_tracks WHERE audio_url=$1 AND hidden_at IS NULL LIMIT 1`,
           [`/uploads/${filename}`]);
         if (!profileImage.rowCount) return res.status(404).json({ error: "Ficheiro não encontrado." });
         res.set("X-Content-Type-Options", "nosniff");
@@ -995,7 +997,8 @@ app.get("/api/posts", optionalAuth, async (req, res) => {
       sp.id AS shared_id, sp.body AS shared_body, sp.media_url AS shared_media_url, sp.media_type AS shared_media_type,
       sp.created_at AS shared_created_at, su.username AS shared_username, su.display_name AS shared_display_name,
       su.avatar_url AS shared_avatar_url,
-      (sp.id IS NOT NULL AND sp.hidden_at IS NULL AND NOT ${blockedBetween("$1", "sp.user_id")}) AS shared_visible
+      (sp.id IS NOT NULL AND sp.hidden_at IS NULL AND NOT ${blockedBetween("$1", "sp.user_id")}) AS shared_visible,
+      ${POST_MUSIC_SQL}
     FROM posts p JOIN users u ON u.id=p.user_id
     LEFT JOIN social_groups g ON g.id=p.group_id
     LEFT JOIN pages pg ON pg.id=p.page_id
@@ -1116,6 +1119,10 @@ app.post("/api/posts", auth, upload.single("media"), optimizeUpload("post"), asy
   if (videoEdit.error) {
     if (req.file) await removeUpload(mediaUrl);
     return res.status(400).json({ error: videoEdit.error });
+  }
+  if (videoEdit.edit?.music && !(await music.canUseTrack(videoEdit.edit.music.trackId, req.user.id))) {
+    await removeUpload(mediaUrl);
+    return res.status(400).json({ error: "Essa música já não está disponível. Escolhe outra." });
   }
   const r = await pool.query(
     `INSERT INTO posts(user_id,body,media_url,media_type,is_exclusive,group_id,page_id,video_edit)
@@ -2155,6 +2162,7 @@ const growth = registerGrowthRoutes(app, {
 // Chave para cifrar os IBAN dos criadores (obrigatória em produção; ver README).
 const payoutKey = loadKey({ payoutKey: process.env.PAYOUT_ENCRYPTION_KEY, jwtSecret: JWT_SECRET, isProduction: !isDevelopment });
 registerLiveRoutes(app, { pool, auth, optionalAuth, parseId, isRecord, cleanText, transaction, blockedBetween });
+const music = registerMusicRoutes(app, { pool, auth, optionalAuth, requireAdmin, parseId, isRecord, uploadDir, removeUpload, rateLimit });
 registerFinanceRoutes(app, { pool, auth, requireAdmin, parseId, isRecord, cleanText, transaction, payments, payoutKey });
 
 app.use((req, res) => {
@@ -2167,7 +2175,7 @@ app.use((error, _req, res, next) => {
     const status = error.code === "LIMIT_FILE_SIZE" ? 413 : 400;
     return res.status(status).json({
       error: error.code === "LIMIT_FILE_SIZE"
-        ? "O ficheiro excede o limite de 100 MB."
+        ? `O ficheiro excede o limite de ${_req.path.startsWith("/api/music") ? "15" : "100"} MB.`
         : "Não foi possível processar o ficheiro enviado."
     });
   }
