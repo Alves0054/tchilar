@@ -117,6 +117,80 @@ Cada pessoa recebe credenciais que expiram em 12 horas, e o vídeo passa sempre 
 ninguém fica a conhecer o IP de ninguém. As linhas `denied-peer-ip` impedem que o TURN seja usado
 para chegar à rede interna do servidor.
 
+## 6. Diretos para milhares de pessoas (MediaMTX + CDN) e OBS
+
+Sem esta secção, o vídeo de um direto vai do browser de quem emite para cada espectador e chega
+a **8 pessoas** no máximo. Com ela:
+
+- quem emite envia o vídeo **uma vez** para o MediaMTX: pelo estúdio do browser (câmara, placa de
+  captura, ecrã) ou por um programa como **OBS, vMix ou Streamlabs** (RTMP ou WHIP, com chave);
+- o MediaMTX converte para **HLS** e uma **CDN** entrega-o a toda a gente. É a CDN que permite
+  100 mil espectadores: 100 000 × 2,5 Mbps ≈ 250 Gbps, que nenhum VPS consegue servir sozinho;
+  com a CDN, o VPS envia cada pedaço de vídeo poucas vezes e a CDN replica-o.
+
+### 6.1 Ligar o MediaMTX
+
+No `.env`:
+
+```
+MEDIA_HOOK_SECRET=<openssl rand -hex 32>
+MEDIA_API_URL=http://mediamtx:9997
+MEDIA_RTMP_URL=rtmp://live.biva.ao
+MEDIA_WHIP_URL=https://live.biva.ao
+MEDIA_HLS_URL=https://cdn-live.biva.ao
+MEDIA_PUBLIC_HOST=<IP público do VPS>
+```
+
+```bash
+docker compose --profile live up -d
+ufw allow 1935/tcp && ufw allow 8189
+```
+
+A porta 1935 recebe o OBS (RTMP). A 8189 é o WebRTC do WHIP. As portas 8888 (HLS) e 8889 (WHIP)
+ficam só em 127.0.0.1 e passam pelo nginx com HTTPS (bloco `live.biva.ao` em `nginx-biva.conf`):
+
+```bash
+certbot --nginx -d live.biva.ao
+```
+
+### 6.2 CDN à frente do HLS
+
+Cria na tua CDN (Cloudflare, Bunny, CloudFront, Akamai...) uma «pull zone» com:
+
+- **origem**: `https://live.biva.ao`
+- **domínio**: `cdn-live.biva.ao` (o mesmo de `MEDIA_HLS_URL`)
+- **cache**: respeitar os cabeçalhos da origem (o nginx já marca os segmentos `.mp4`/`.m4s` para
+  ficarem 60 s e as listas `.m3u8` 1 s)
+- **CORS**: deixar passar `Access-Control-Allow-Origin`.
+
+Opcional: se a CDN puder enviar `Authorization: Bearer <segredo>`, põe o mesmo segredo em
+`hlsCDNSecret` no `deploy/mediamtx.yml`.
+
+O chat também aguenta a escala: o endereço `/api/lives/<id>/feed` é igual para toda a gente e
+pode ficar 2 s na CDN (cabeçalho `s-maxage=2`). Se puseres a Biva inteira atrás da mesma CDN, 100 mil
+pessoas a ler o chat custam à base de dados cerca de um pedido por segundo por direto.
+
+### 6.3 Limites conhecidos
+
+- **Uma só qualidade**: quem vê recebe a mesma qualidade que quem emite envia. Para Angola,
+  recomenda-se 720p a 2500 kbps. Várias qualidades automáticas (480p/720p/1080p) exigem
+  transcodificação (ffmpeg num servidor com bastante CPU ou um serviço como Mux/Cloudflare Stream).
+- **Contagem de espectadores em memória**: certa com uma instância da API. Com várias instâncias
+  (balanceador), é preciso partilhar a presença por Redis.
+- **Atraso**: 6–10 s (HLS padrão, compatível com todas as CDNs).
+- Só quem tem sessão iniciada conta como espectador e pode escrever no chat; ver o vídeo é aberto.
+- **Capacidade medida da API** (uma instância, portátil de desenvolvimento): ~750 sinais de vida/s
+  e ~1100 leituras do feed/s sem CDN. Com 100 mil pessoas, os sinais de vida passam a 120 s
+  (~830/s) e o chat entra em modo lento (5 s entre mensagens da mesma pessoa). Num VPS de 4 vCPU
+  em produção há folga; acima disso, várias instâncias + Redis para a presença.
+
+### 6.4 OBS
+
+No Biva: **Diretos → Começar um direto → OBS ou programa → Gerar chave**. No OBS:
+**Definições → Transmissão → Personalizado**, cola o servidor e a chave; H.264, CBR 2500–4500 kbps,
+keyframes a cada 2 s. Cria o direto no Biva e depois carrega em «Iniciar transmissão» no OBS.
+A chave só é mostrada uma vez e é guardada apenas como hash; terminar o direto corta a emissão.
+
 ## Opção: base de dados na Supabase
 
 Em vez do PostgreSQL do docker compose:

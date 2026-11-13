@@ -557,3 +557,42 @@ test("TURN config hides IPs with relay-only and short-lived credentials", () => 
   assert.equal(open.iceTransportPolicy, "all");
   assert.equal(open.iceServers.length, 2);
 });
+
+test("tokens signed with another algorithm are refused", async () => {
+  const token = jwt.sign({ id: 1, username: "tester" }, process.env.JWT_SECRET, { algorithm: "HS512" });
+  const response = await fetch(`${baseUrl}/api/friends`, { headers: { Authorization: `Bearer ${token}` } });
+  assert.equal(response.status, 401);
+});
+
+test("registration refuses a display name over 100 characters", async () => {
+  const response = await fetch(`${baseUrl}/api/auth/register`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username: "nome_longo", email: "nome@example.com", password: "uma-palavra-boa", displayName: "a".repeat(101) })
+  });
+  assert.equal(response.status, 400);
+  assert.match((await response.json()).error, /100 caracteres/);
+});
+
+test("internal errors return a reference and log the stack without the query string", async () => {
+  const token = jwt.sign({ id: 1, username: "tester" }, process.env.JWT_SECRET);
+  queryMock = sql => (sql.includes("email_verified") && sql.includes("FROM users WHERE id=$1") ? Promise.reject(new Error("base de dados em baixo")) : null);
+  const logged = [];
+  const original = console.error;
+  console.error = message => logged.push(message);
+  try {
+    const response = await fetch(`${baseUrl}/api/auth/me?access=segredo`, { headers: { Authorization: `Bearer ${token}` } });
+    assert.equal(response.status, 500);
+    const body = await response.json();
+    assert.match(body.reference, /^[0-9a-f]{8}$/);
+    assert.ok(body.error.includes(body.reference));
+    const entry = JSON.parse(logged.find(line => typeof line === "string" && line.includes(body.reference)));
+    assert.equal(entry.path, "/api/auth/me");
+    assert.equal(entry.userId, 1);
+    assert.match(entry.stack, /base de dados em baixo/);
+    assert.ok(!JSON.stringify(entry).includes("segredo"));
+  } finally {
+    console.error = original;
+    queryMock = null;
+  }
+});

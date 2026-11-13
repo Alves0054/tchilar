@@ -50,4 +50,19 @@ function formatKz(value) {
   return `${Number(value).toLocaleString("pt-PT")} Kz`;
 }
 
-module.exports = { AD_CPM_KZ, MAX_AD_BUDGET, MAX_AD_DAYS, MIN_AD_BUDGET, formatKz, impressionCost, parseAdInput };
+// Quem anuncia vê o público por província, mas um grupo pequeno podia identificar alguém.
+// As províncias com menos de AUDIENCE_MIN_GROUP pessoas (e quem não indicou) juntam-se em «Outras».
+const AUDIENCE_MIN_GROUP = 5;
+function groupAudience(rows, min = AUDIENCE_MIN_GROUP) {
+  const shown = [];
+  let other = 0;
+  for (const { province, people } of rows) {
+    if (province && people >= min) shown.push({ province, people });
+    else other += people;
+  }
+  shown.sort((a, b) => b.people - a.people || a.province.localeCompare(b.province));
+  if (other > 0) shown.push({ province: null, people: other });
+  return shown;
+}
+
+module.exports = { AUDIENCE_MIN_GROUP, groupAudience, AD_CPM_KZ, MAX_AD_BUDGET, MAX_AD_DAYS, MIN_AD_BUDGET, formatKz, impressionCost, parseAdInput };

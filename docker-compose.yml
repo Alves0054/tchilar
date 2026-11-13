@@ -48,6 +48,12 @@ services:
       LIVE_TURN_URL: ${LIVE_TURN_URL:-}
       LIVE_TURN_SECRET: ${LIVE_TURN_SECRET:-}
       LIVE_TURN_RELAY_ONLY: ${LIVE_TURN_RELAY_ONLY:-true}
+      # Diretos em grande escala (MediaMTX + CDN). Vazios = modo direto até 8 pessoas.
+      MEDIA_API_URL: ${MEDIA_API_URL:-}
+      MEDIA_HLS_URL: ${MEDIA_HLS_URL:-}
+      MEDIA_WHIP_URL: ${MEDIA_WHIP_URL:-}
+      MEDIA_RTMP_URL: ${MEDIA_RTMP_URL:-}
+      MEDIA_HOOK_SECRET: ${MEDIA_HOOK_SECRET:-}
     ports:
       - "127.0.0.1:4000:4000"
     volumes:
@@ -61,6 +67,25 @@ services:
       timeout: 5s
       retries: 10
       start_period: 20s
+
+  # Servidor de vídeo dos diretos. Só arranca com: docker compose --profile live up -d
+  mediamtx:
+    image: bluenviron/mediamtx:1.21.3
+    profiles: ["live"]
+    restart: unless-stopped
+    environment:
+      MTX_AUTHHTTPADDRESS: http://app:4000/api/media/auth?secret=${MEDIA_HOOK_SECRET:-}
+      MTX_WEBRTCADDITIONALHOSTS: ${MEDIA_PUBLIC_HOST:-}
+    volumes:
+      - ./deploy/mediamtx.yml:/mediamtx.yml:ro
+    ports:
+      - "1935:1935"            # RTMP (OBS, vMix, encoders)
+      - "8189:8189/udp"        # WebRTC do WHIP
+      - "8189:8189/tcp"
+      - "127.0.0.1:8888:8888"  # HLS → nginx → CDN
+      - "127.0.0.1:8889:8889"  # WHIP → nginx (HTTPS)
+    depends_on:
+      - app
 
 volumes:
   biva-postgres:

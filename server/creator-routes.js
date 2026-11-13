@@ -1,6 +1,6 @@
 // Rotas do painel do criador: insights, conteúdo, engajamento, monetização, anúncios,
 // visualizações de publicações e partilhas. Registadas a partir de index.js.
-const { impressionCost, parseAdInput } = require("./ads");
+const { groupAudience, impressionCost, parseAdInput } = require("./ads");
 const { TARGETING_SURCHARGE, parseTargeting } = require("./growth");
 const { POST_MUSIC_SQL } = require("./music-routes");
 const {
@@ -305,6 +305,7 @@ function registerCreatorRoutes(app, deps) {
     const result = await pool.query(`
       SELECT ${AD_FIELDS}, LEFT(p.body,120) AS post_excerpt, p.media_url AS post_media_url, p.media_type AS post_media_type,
         (SELECT COUNT(*) FROM ad_events e WHERE e.ad_id=a.id AND e.kind='impression')::int AS impressions,
+        (SELECT COUNT(DISTINCT e.user_id) FROM ad_events e WHERE e.ad_id=a.id AND e.kind='impression')::int AS reach,
         (SELECT COUNT(*) FROM ad_events e WHERE e.ad_id=a.id AND e.kind='click')::int AS clicks
       FROM ads a LEFT JOIN posts p ON p.id=a.post_id
       WHERE a.owner_id=$1 ORDER BY a.created_at DESC`, [req.user.id]);
@@ -383,6 +384,30 @@ function registerCreatorRoutes(app, deps) {
     if (!result.rowCount) return res.status(404).json({ error: "Anúncio não encontrado." });
     await removeUpload(result.rows[0].image_url);
     res.json({ deleted: true });
+  });
+
+  // Resultados de uma promoção (só para quem a criou): números por dia, no máximo os últimos 30,
+  // e público por província. Nunca diz quem viu ou clicou.
+  app.get("/api/ads/:id/stats", auth, async (req, res) => {
+    const id = parseId(req.params.id);
+    if (!id) return res.status(400).json({ error: "Anúncio inválido." });
+    const owned = await pool.query("SELECT 1 FROM ads WHERE id=$1 AND owner_id=$2", [id, req.user.id]);
+    if (!owned.rowCount) return res.status(404).json({ error: "Anúncio não encontrado." });
+    const [daily, provinces] = await Promise.all([
+      pool.query(`
+        WITH span AS (SELECT starts_at::date AS first, LEAST(ends_at::date, CURRENT_DATE) AS last FROM ads WHERE id=$1),
+          d AS (SELECT g::date AS day FROM span, generate_series(GREATEST(span.first, span.last - 29), span.last, INTERVAL '1 day') g)
+        SELECT to_char(d.day, 'YYYY-MM-DD') AS day,
+          COUNT(e.kind) FILTER (WHERE e.kind='impression')::int AS impressions,
+          COUNT(e.kind) FILTER (WHERE e.kind='click')::int AS clicks
+        FROM d LEFT JOIN ad_events e ON e.ad_id=$1 AND e.day=d.day
+        GROUP BY d.day ORDER BY d.day`, [id]),
+      pool.query(`
+        SELECT NULLIF(u.province, '') AS province, COUNT(DISTINCT e.user_id)::int AS people
+        FROM ad_events e JOIN users u ON u.id=e.user_id
+        WHERE e.ad_id=$1 AND e.kind='impression' GROUP BY 1`, [id])
+    ]);
+    res.json({ daily: daily.rows, provinces: groupAudience(provinces.rows) });
   });
 
   // Condição SQL partilhada: promoção paga, ativa, dentro do prazo e com orçamento.

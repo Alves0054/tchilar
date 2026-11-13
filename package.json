@@ -7,7 +7,7 @@
     "server": "node server/index.js",
     "client": "vite --host 0.0.0.0",
     "build": "vite build",
-    "test": "node --test server/index.test.js server/migrate.test.js server/subscriptions.test.js server/moderation.test.js server/images.test.js server/ads.test.js server/promotions.test.js server/growth.test.js server/payouts.test.js server/payments.test.js server/angola-payments.test.js server/totp.test.js server/video-edit.test.js server/music-routes.test.js",
+    "test": "node --test server/index.test.js server/migrate.test.js server/subscriptions.test.js server/moderation.test.js server/images.test.js server/ads.test.js server/promotions.test.js server/growth.test.js server/payouts.test.js server/payments.test.js server/angola-payments.test.js server/totp.test.js server/video-edit.test.js server/music-routes.test.js server/media-server.test.js server/preferences.test.js",
     "db:setup": "powershell -ExecutionPolicy Bypass -File scripts/setup-database.ps1",
     "db:migrate": "node server/migrate-cli.js",
     "db:seed-demo": "node server/seed-demo.js",
@@ -22,6 +22,7 @@
     "express": "^5.1.0",
     "express-rate-limit": "^8.7.2",
     "helmet": "^8.3.0",
+    "hls.js": "^1.7.4",
     "jsonwebtoken": "^9.0.2",
     "lucide-react": "^1.65.0",
     "multer": "^2.0.2",
@@ -31,7 +32,7 @@
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "react-router-dom": "^7.8.0",
-    "sharp": "^0.34.5",
+    "sharp": "^0.35.5",
     "stripe": "^23.1.0"
   },
   "devDependencies": {

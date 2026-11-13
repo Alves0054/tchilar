@@ -23,6 +23,7 @@ const { registerFinanceRoutes } = require("./finance-routes");
 const { decrypt, encrypt, loadKey } = require("./payouts");
 const { generateSecret, otpauthUri, verifyCode } = require("./totp");
 const { parseVideoEdit } = require("./video-edit");
+const { canReach, readPreferences, updatePreferences } = require("./preferences");
 const { POST_MUSIC_SQL, registerMusicRoutes } = require("./music-routes");
 const QRCode = require("qrcode");
 const { MODERATION_ACTIONS, REPORT_REASONS, blockedBetween, shouldAutoHide } = require("./moderation");
@@ -112,6 +113,9 @@ if (Number(process.env.TRUST_PROXY) > 0) app.set("trust proxy", Number(process.e
 const apiOrigin = (() => {
   try { return process.env.VITE_API_URL ? new URL(process.env.VITE_API_URL).origin : null; } catch { return null; }
 })();
+// Servidor de vídeo dos diretos (MediaMTX e a CDN do HLS): o browser envia (WHIP) e recebe (HLS) daí.
+const originOf = value => { try { return value ? new URL(value).origin : null; } catch { return null; } };
+const mediaOrigins = [...new Set([originOf(process.env.MEDIA_WHIP_URL), originOf(process.env.MEDIA_HLS_URL)].filter(Boolean))];
 app.use(helmet({
   contentSecurityPolicy: {
     directives: {
@@ -119,9 +123,9 @@ app.use(helmet({
       scriptSrc: ["'self'"],
       styleSrc: ["'self'", "'unsafe-inline'"],
       imgSrc: ["'self'", "data:", "blob:", "https:"],
-      mediaSrc: ["'self'", "blob:"],
+      mediaSrc: ["'self'", "blob:", ...mediaOrigins],
       fontSrc: ["'self'", "data:"],
-      connectSrc: ["'self'", ...(apiOrigin ? [apiOrigin] : [])],
+      connectSrc: ["'self'", ...(apiOrigin ? [apiOrigin] : []), ...mediaOrigins],
       objectSrc: ["'none'"],
       frameAncestors: ["'none'"],
       formAction: ["'self'"],
@@ -246,7 +250,7 @@ const imageUpload = multer({
 });
 
 // Campos da própria conta devolvidos ao cliente (nunca inclui password_hash nem auth_version).
-const OWN_ACCOUNT_FIELDS = "id,username,email,display_name,bio,avatar_url,cover_url,cover_position,location,website,profession,is_creator,subscription_price,email_verified,is_admin";
+const OWN_ACCOUNT_FIELDS = "id,username,email,display_name,bio,avatar_url,cover_url,cover_position,location,website,profession,is_creator,subscription_price,email_verified,is_admin,created_at";
 
 // Apaga um ficheiro de /uploads de forma segura (ignora valores vazios e ficheiros já removidos).
 async function removeUpload(mediaUrl) {
@@ -266,7 +270,9 @@ function isRecord(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-function cleanText(value, maxLength) {
+// Só limpa espaços. O tamanho máximo verifica-se em cada rota, para dar uma mensagem própria
+// em vez de cortar o texto em silêncio.
+function cleanText(value) {
   return typeof value === "string" ? value.trim() : "";
 }
 
@@ -364,6 +370,9 @@ function requireAdmin(req, res, next) {
     next();
   }).catch(next);
 }
+
+// Só aceita tokens HS256 assinados por nós (nunca "none" nem outro algoritmo).
+const JWT_VERIFY = { algorithms: ["HS256"] };
 
 function sign(user) {
   return jwt.sign(
@@ -469,7 +478,7 @@ function auth(req, res, next) {
   if (!token) return res.status(401).json({ error: "Autenticação necessária." });
   let claims;
   try {
-    claims = jwt.verify(token, JWT_SECRET);
+    claims = jwt.verify(token, JWT_SECRET, JWT_VERIFY);
   } catch {
     return res.status(401).json({ error: "Token inválido ou expirado." });
   }
@@ -485,12 +494,40 @@ function auth(req, res, next) {
   }).catch(next);
 }
 
+// Só para os sinais de vida dos diretos (centenas por segundo com muita audiência): a verificação
+// da sessão fica 5 s em memória. Não serve para nada que altere dados; no pior caso, uma sessão
+// revogada continua a contar como espectador durante 5 s.
+const presenceSessions = new Map();
+function presenceAuth(req, res, next) {
+  const authorization = req.headers.authorization || "";
+  let claims;
+  try {
+    claims = jwt.verify(authorization.startsWith("Bearer ") ? authorization.slice(7) : "", JWT_SECRET, JWT_VERIFY);
+  } catch {
+    return res.status(401).json({ error: "Token inválido ou expirado." });
+  }
+  const accept = row => {
+    if (!row || Number(row.auth_version) !== Number(claims.version || 0) || row.suspended_at) {
+      return res.status(401).json({ error: "Sessão inválida ou expirada." });
+    }
+    req.user = { ...claims, isAdmin: row.is_admin === true };
+    next();
+  };
+  const cached = presenceSessions.get(claims.id);
+  if (cached && Date.now() - cached.at < 5000) return accept(cached.row);
+  pool.query(SESSION_SQL, [claims.id]).then(result => {
+    if (presenceSessions.size > 200_000) presenceSessions.clear();
+    presenceSessions.set(claims.id, { row: result.rows[0] || null, at: Date.now() });
+    accept(result.rows[0]);
+  }).catch(next);
+}
+
 function optionalAuth(req, res, next) {
   const authorization = req.headers.authorization || "";
   if (authorization.startsWith("Bearer ")) {
     let claims;
     try {
-      claims = jwt.verify(authorization.slice(7), JWT_SECRET);
+      claims = jwt.verify(authorization.slice(7), JWT_SECRET, JWT_VERIFY);
     } catch {
       return next();
     }
@@ -545,7 +582,7 @@ app.get("/uploads/:filename", optionalAuth, async (req, res, next) => {
       }
       let access;
       try {
-        access = jwt.verify(String(req.query.access || ""), JWT_SECRET);
+        access = jwt.verify(String(req.query.access || ""), JWT_SECRET, JWT_VERIFY);
       } catch {
         return res.status(403).json({ error: "Não tens acesso a este ficheiro." });
       }
@@ -565,7 +602,7 @@ app.get("/uploads/:filename", optionalAuth, async (req, res, next) => {
       let permitted = access.allowed;
       if (!permitted && req.query.access) {
         try {
-          const access = jwt.verify(String(req.query.access), JWT_SECRET);
+          const access = jwt.verify(String(req.query.access), JWT_SECRET, JWT_VERIFY);
           permitted = access.purpose === "media" && access.filename === filename;
         } catch {
           permitted = false;
@@ -586,10 +623,10 @@ app.get("/uploads/:filename", optionalAuth, async (req, res, next) => {
 app.post("/api/auth/register", authRateLimit, async (req, res) => {
   try {
     const body = isRecord(req.body) ? req.body : {};
-    const username = cleanText(body.username, 40).toLowerCase();
-    const email = cleanText(body.email, 160).toLowerCase();
+    const username = cleanText(body.username).toLowerCase();
+    const email = cleanText(body.email).toLowerCase();
     const password = typeof body.password === "string" ? body.password : "";
-    const displayName = cleanText(body.displayName, 100);
+    const displayName = cleanText(body.displayName);
     const isCreator = body.isCreator === true;
     const subscriptionPrice = body.subscriptionPrice === undefined || body.subscriptionPrice === 0
       ? 0
@@ -597,8 +634,9 @@ app.post("/api/auth/register", authRateLimit, async (req, res) => {
     if (!/^[a-z0-9._]{3,40}$/.test(username)) {
       return res.status(400).json({ error: "O username deve ter 3 a 40 caracteres: letras, números, ponto ou underscore." });
     }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: "Indica um email válido." });
+    if (email.length > 160 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: "Indica um email válido." });
     if (!displayName) return res.status(400).json({ error: "O nome público é obrigatório." });
+    if (displayName.length > 100) return res.status(400).json({ error: "O nome público pode ter até 100 caracteres." });
     const passwordError = passwordProblem(body.password);
     if (passwordError) return res.status(400).json({ error: passwordError });
     if (body.isCreator !== undefined && typeof body.isCreator !== "boolean") {
@@ -653,7 +691,7 @@ app.get("/api/auth/username-available", usernameCheckRateLimit, async (req, res)
 
 app.post("/api/auth/login", authRateLimit, async (req, res) => {
   const body = isRecord(req.body) ? req.body : {};
-  const email = cleanText(body.email, 160).toLowerCase();
+  const email = cleanText(body.email).toLowerCase();
   const password = typeof body.password === "string" ? body.password : "";
   if (!email || !password) return res.status(400).json({ error: "Email e palavra-passe são obrigatórios." });
   const result = await pool.query(`
@@ -768,6 +806,37 @@ app.get("/api/auth/me", auth, async (req, res) => {
   if (!r.rowCount) return res.status(404).json({ error: "Conta não encontrada." });
   res.json({ user: r.rows[0] });
 });
+
+// Preferências da conta: notificações por categoria e quem pode enviar mensagens ou comentar.
+app.get("/api/auth/me/preferences", auth, async (req, res) => {
+  const r = await pool.query("SELECT preferences FROM users WHERE id=$1", [req.user.id]);
+  res.json({ preferences: readPreferences(r.rows[0]?.preferences) });
+});
+
+app.patch("/api/auth/me/preferences", auth, async (req, res) => {
+  const updated = await transaction(async client => {
+    const current = await client.query("SELECT preferences FROM users WHERE id=$1 FOR UPDATE", [req.user.id]);
+    const result = updatePreferences(current.rows[0]?.preferences, req.body);
+    if (result.error) return result;
+    await client.query("UPDATE users SET preferences=$1 WHERE id=$2", [JSON.stringify(result.preferences), req.user.id]);
+    return result;
+  });
+  if (updated.error) return res.status(400).json({ error: updated.error });
+  res.json({ preferences: updated.preferences });
+});
+
+// Respeita a escolha de quem recebe: "toda a gente", "só quem sigo" ou "ninguém".
+// Uma resposta numa conversa que a própria pessoa começou passa sempre.
+async function reachAllowed(kind, targetId, actorId) {
+  const r = await pool.query(`
+    SELECT u.preferences,
+      EXISTS(SELECT 1 FROM follows WHERE follower_id=u.id AND following_id=$2) AS follows,
+      ($3 = 'messages' AND EXISTS(SELECT 1 FROM messages WHERE sender_id=u.id AND receiver_id=$2)) AS replied
+    FROM users u WHERE u.id=$1`, [targetId, actorId, kind]);
+  if (!r.rowCount) return true;
+  const row = r.rows[0];
+  return canReach(readPreferences(row.preferences)[kind], { follows: row.follows, replied: row.replied });
+}
 
 // Mudar a palavra-passe com sessão iniciada. Aumentar auth_version invalida todas as sessões abertas;
 // este dispositivo recebe logo um token novo para não ser posto fora.
@@ -1054,7 +1123,7 @@ app.get("/api/stories", auth, async (req, res) => {
 
 app.post("/api/stories", auth, upload.single("media"), optimizeUpload("story"), async (req, res) => {
   const bodyData = isRecord(req.body) ? req.body : {};
-  const body = cleanText(bodyData.body, 500);
+  const body = cleanText(bodyData.body);
   if (body.length > 500) return res.status(400).json({ error: "O story não pode exceder 500 caracteres." });
   if (!body && !req.file) return res.status(400).json({ error: "Escreve uma mensagem ou escolhe uma fotografia." });
 
@@ -1086,7 +1155,7 @@ app.delete("/api/stories/:id", auth, async (req, res) => {
 
 app.post("/api/posts", auth, upload.single("media"), optimizeUpload("post"), async (req, res) => {
   const bodyData = isRecord(req.body) ? req.body : {};
-  const body = cleanText(bodyData.body, 5000);
+  const body = cleanText(bodyData.body);
   const rawGroupId = bodyData.groupId;
   const rawPageId = bodyData.pageId;
   const groupId = rawGroupId ? parseId(rawGroupId) : null;
@@ -1195,6 +1264,9 @@ app.post("/api/posts/:id/comments", auth, async (req, res) => {
   const access = await canAccessPost(id, req.user.id);
   if (!access.exists) return res.status(404).json({ error: "Publicação não encontrada." });
   if (!access.allowed) return res.status(403).json({ error: "Não tens acesso a esta publicação." });
+  if (access.post.user_id !== req.user.id && !(await reachAllowed("comments", access.post.user_id, req.user.id))) {
+    return res.status(403).json({ error: "O autor limitou quem pode comentar nas publicações." });
+  }
   const comment = await transaction(async client => {
     const result = await client.query(`
       INSERT INTO comments(user_id,post_id,body) VALUES($1,$2,$3)
@@ -1785,6 +1857,9 @@ app.post("/api/messages/:userId", auth, async (req, res) => {
   const recipient = await pool.query("SELECT 1 FROM users WHERE id=$1 AND suspended_at IS NULL", [other]);
   if (!recipient.rowCount) return res.status(404).json({ error: "Destinatário não encontrado." });
   if (await isBlocked(req.user.id, other)) return res.status(403).json({ error: BLOCKED_ERROR });
+  if (!(await reachAllowed("messages", other, req.user.id))) {
+    return res.status(403).json({ error: "Esta conta escolheu quem lhe pode enviar mensagens, e de momento não podes escrever-lhe." });
+  }
   const message = await transaction(async client => {
     const result = await client.query(
       "INSERT INTO messages(sender_id,receiver_id,body) VALUES($1,$2,$3) RETURNING *",
@@ -2161,7 +2236,7 @@ const growth = registerGrowthRoutes(app, {
 });
 // Chave para cifrar os IBAN dos criadores (obrigatória em produção; ver README).
 const payoutKey = loadKey({ payoutKey: process.env.PAYOUT_ENCRYPTION_KEY, jwtSecret: JWT_SECRET, isProduction: !isDevelopment });
-registerLiveRoutes(app, { pool, auth, optionalAuth, parseId, isRecord, cleanText, transaction, blockedBetween });
+registerLiveRoutes(app, { pool, auth, presenceAuth, optionalAuth, parseId, isRecord, cleanText, transaction, blockedBetween, rateLimit: accountSecurityRateLimit });
 const music = registerMusicRoutes(app, { pool, auth, optionalAuth, requireAdmin, parseId, isRecord, uploadDir, removeUpload, rateLimit });
 registerFinanceRoutes(app, { pool, auth, requireAdmin, parseId, isRecord, cleanText, transaction, payments, payoutKey });
 
@@ -2185,8 +2260,28 @@ app.use((error, _req, res, next) => {
   if (error.message === "Formato de ficheiro não suportado.") {
     return res.status(415).json({ error: error.message });
   }
-  console.error("API request failed:", error.code || error.name || "Error");
-  res.status(500).json({ error: "Ocorreu um erro interno. Tenta novamente mais tarde." });
+  // Referência curta para cruzar a queixa de quem usa com o registo do servidor.
+  // Regista a rota sem a query (pode ter tokens de acesso), a conta e a pilha completa.
+  const reference = crypto.randomBytes(4).toString("hex");
+  console.error(JSON.stringify({
+    level: "error",
+    at: new Date().toISOString(),
+    reference,
+    method: _req.method,
+    route: _req.route?.path || _req.path,
+    path: _req.path,
+    userId: _req.user?.id || null,
+    code: error.code || null,
+    message: error.message,
+    stack: error.stack
+  }));
+  res.status(500).json({ error: `Ocorreu um erro interno. Tenta novamente mais tarde (referência ${reference}).`, reference });
+});
+
+// Erros fora dos pedidos (intervalos, webhooks em segundo plano): ficam registados com a pilha.
+process.on("unhandledRejection", reason => {
+  console.error(JSON.stringify({ level: "error", at: new Date().toISOString(), kind: "unhandledRejection",
+    message: reason?.message || String(reason), stack: reason?.stack || null }));
 });
 
 async function startServer() {

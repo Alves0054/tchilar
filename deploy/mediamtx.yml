@@ -1,0 +1,58 @@
+# MediaMTX — servidor de vídeo dos diretos do Biva.
+# Recebe a emissão (OBS por RTMP/WHIP, estúdio do browser por WHIP) e entrega HLS à CDN.
+# Valores que mudam por instalação vêm de variáveis de ambiente MTX_* (ver docker-compose.yml):
+#   MTX_AUTHHTTPADDRESS        → http://app:4000/api/media/auth?secret=<MEDIA_HOOK_SECRET>
+#   MTX_WEBRTCADDITIONALHOSTS  → IP público ou domínio do VPS (para o WHIP funcionar de fora)
+
+logLevel: info
+
+# Cada emissão e cada leitura é autorizada pela API do Biva (chave de transmissão, direto aberto).
+authMethod: http
+authHTTPAddress: http://127.0.0.1:4000/api/media/auth?secret=change-me
+# A API de controlo não pede autorização à app: só está acessível dentro da rede interna (sem porta pública).
+authHTTPExclude:
+  - action: api
+  - action: metrics
+  - action: pprof
+
+api: true
+apiAddress: :9997
+
+# Protocolos que não usamos ficam desligados (menos superfície exposta).
+rtsp: false
+srt: false
+
+# OBS / encoders / placas com RTMP: rtmp://<servidor>/live  +  chave "u<id>?key=sk_..."
+rtmp: true
+rtmpAddress: :1935
+
+# HLS para a CDN. Segmentos de 2 s em fMP4: compatíveis com todas as CDNs (latência ~6–10 s).
+# Para 100 mil pessoas a CDN pede cada segmento à origem uma vez e serve-o a toda a gente.
+hls: true
+hlsAddress: :8888
+hlsAllowOrigins: ["*"]
+hlsAlwaysRemux: true
+hlsVariant: fmp4
+hlsSegmentCount: 7
+hlsSegmentDuration: 2s
+hlsPartDuration: 200ms
+hlsMuxerCloseAfter: 60s
+# Se a CDN enviar "Authorization: Bearer <segredo>", põe aqui o mesmo segredo.
+hlsCDNSecret: ""
+
+# WHIP: OBS 30+ ("WHIP") e o estúdio do browser enviam por WebRTC (menos atraso a emitir).
+webrtc: true
+webrtcAddress: :8889
+webrtcAllowOrigins: ["*"]
+webrtcLocalUDPAddress: :8189
+webrtcLocalTCPAddress: :8189
+webrtcIPsFromInterfaces: true
+webrtcAdditionalHosts: []
+
+pathDefaults:
+  # Só um emissor por caminho: quem tenta emitir por cima de outro é recusado.
+  overridePublisher: false
+
+paths:
+  # Caminhos aceites: live/u<id> (a API recusa todos os outros).
+  "~^live/u[0-9]+$":

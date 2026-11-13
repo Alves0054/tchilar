@@ -81,7 +81,10 @@ import {
   UsersRound,
   Video,
   X,
-  Zap
+  Zap,
+  Pin,
+  PinOff,
+  MicOff as MuteIcon
 } from "lucide-react";
 import "@fontsource-variable/nunito";
 import "@fontsource-variable/bricolage-grotesque";
@@ -92,6 +95,33 @@ const API_BASE = (import.meta.env.DEV ? "" : import.meta.env.VITE_API_URL || "")
 const API = `${API_BASE}/api`;
 const UserContext = createContext({ user: null, refreshUser: () => {} });
 const ThemeContext = createContext({ theme: "light", setTheme: () => {} });
+
+// Preferências deste dispositivo (não vão para o servidor): tamanho do texto, vídeos automáticos e animações.
+const DEVICE_PREFS_KEY = "biva-device";
+const DEVICE_PREFS_DEFAULTS = { textSize: "normal", autoplay: true, reduceMotion: false };
+function readDevicePrefs() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(DEVICE_PREFS_KEY) || "{}");
+    return {
+      textSize: ["normal", "large", "larger"].includes(saved.textSize) ? saved.textSize : DEVICE_PREFS_DEFAULTS.textSize,
+      autoplay: saved.autoplay !== false,
+      reduceMotion: saved.reduceMotion === true
+    };
+  } catch {
+    return { ...DEVICE_PREFS_DEFAULTS };
+  }
+}
+function applyDevicePrefs(prefs) {
+  const root = document.documentElement;
+  root.dataset.textSize = prefs.textSize;
+  if (prefs.reduceMotion) root.dataset.motion = "reduce";
+  else delete root.dataset.motion;
+}
+function saveDevicePrefs(prefs) {
+  try { localStorage.setItem(DEVICE_PREFS_KEY, JSON.stringify(prefs)); } catch { /* sem armazenamento: vale só nesta visita */ }
+  applyDevicePrefs(prefs);
+  return prefs;
+}
 const token = () => localStorage.getItem("token");
 
 async function api(path, options = {}) {
@@ -243,7 +273,7 @@ function VideoPlayer({ src, edit, music = null, className = "", autoPlay = true,
   // Começa quando pelo menos 60% do vídeo está visível; pára quando sai do ecrã.
   useEffect(() => {
     const video = videoRef.current;
-    if (!autoPlay || !video) return undefined;
+    if (!autoPlay || !readDevicePrefs().autoplay || !video) return undefined;
     const observer = new IntersectionObserver(([entry]) => {
       // Entrar/sair do ecrã cheio muda o layout por instantes: nesse momento não se mexe no vídeo.
       if (document.fullscreenElement) return;
@@ -438,6 +468,9 @@ const ICONS = {
   move: Move,
   report: Flag,
   shield: ShieldCheck,
+  pin: Pin,
+  unpin: PinOff,
+  silence: MuteIcon,
   stats: BarChart3,
   bolt: Zap,
   camera: Camera,
@@ -479,7 +512,20 @@ function Icon({ name, size = 16 }) {
 }
 
 function Layout({ children }) {
-  const [theme, setTheme] = useState(() => (localStorage.getItem("biva-theme") || localStorage.getItem("nova-theme")) === "dark" ? "dark" : "light");
+  // Preferência guardada: "light", "dark" ou "system" (segue o telemóvel/computador).
+  const [themePreference, setTheme] = useState(() => {
+    const saved = localStorage.getItem("biva-theme") || localStorage.getItem("nova-theme");
+    return ["light", "dark", "system"].includes(saved) ? saved : "light";
+  });
+  const [systemDark, setSystemDark] = useState(() => !!window.matchMedia?.("(prefers-color-scheme: dark)").matches);
+  useEffect(() => {
+    const query = window.matchMedia?.("(prefers-color-scheme: dark)");
+    if (!query) return undefined;
+    const update = () => setSystemDark(query.matches);
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
+  const theme = themePreference === "system" ? (systemDark ? "dark" : "light") : themePreference;
   const [user, setUser] = useState(null);
   const [authError, setAuthError] = useState("");
   const [unreadCount, setUnreadCount] = useState(0);
@@ -489,9 +535,9 @@ function Layout({ children }) {
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
-    localStorage.setItem("biva-theme", theme);
+    localStorage.setItem("biva-theme", themePreference);
     localStorage.removeItem("nova-theme");
-  }, [theme]);
+  }, [theme, themePreference]);
 
   const refreshUser = async () => {
     if (!token()) {
@@ -532,7 +578,7 @@ function Layout({ children }) {
   usePolling(refreshBadges, 30000, !!user);
 
   const authPage = !user && ["/", "/login", "/register", "/verify-email", "/forgot-password", "/reset-password"].includes(location.pathname);
-  return <ThemeContext.Provider value={{ theme, setTheme }}><UserContext.Provider value={{ user, refreshUser, authReady }}>
+  return <ThemeContext.Provider value={{ theme, themePreference, setTheme }}><UserContext.Provider value={{ user, refreshUser, authReady }}>
     <div className={`app ${authPage ? "app-public" : "app-community"}`}>
       {!authPage && <TopBar user={user} unreadCount={unreadCount} unreadMessages={unreadMessages}
         onLogout={() => { localStorage.removeItem("token"); setUser(null); setUnreadCount(0); setUnreadMessages(0); }} />}
@@ -2672,8 +2718,8 @@ function BlockedAccounts() {
     }
   };
 
-  return <div className="settings-action-row settings-blocked">
-    <span className="settings-action-mark"><Icon name="block" /></span>
+  return <div className="prefs-row prefs-blocked">
+    <span className="prefs-row-icon"><Icon name="block" /></span>
     <span>
       <strong>Contas bloqueadas</strong>
       <small>{blocked === null ? "A carregar..." : blocked.length ? "Estas contas não te veem nem te podem contactar." : "Não bloqueaste nenhuma conta."}</small>
@@ -2681,7 +2727,7 @@ function BlockedAccounts() {
         {blocked.map(person => <div key={person.id}>
           <Avatar user={person} size="tiny" />
           <span><strong>{person.display_name}</strong> <small>@{person.username}</small></span>
-          <button className="settings-account-link" type="button" onClick={() => unblock(person.id)}>Desbloquear</button>
+          <button className="prefs-link" type="button" onClick={() => unblock(person.id)}>Desbloquear</button>
         </div>)}
       </div>}
       {error && <p className="error" role="alert">{error}</p>}
@@ -3108,7 +3154,7 @@ function CreatorMonetization() {
     <section className="creator-card" aria-labelledby="money-full-title">
       <div className="creator-card-head">
         <div><h2 id="money-full-title">Subscrições</h2><p>{data.price > 0 ? <>A tua subscrição custa <strong>{formatPrice(data.price)}</strong> por mês.</> : "Ainda não definiste o preço da tua subscrição."}</p></div>
-        <Link className="btn secondary" to="/settings"><Icon name="settings" size={16} /> {data.price > 0 ? "Alterar preço" : "Definir preço"}</Link>
+        <Link className="btn secondary" to="/profile/edit"><Icon name="settings" size={16} /> {data.price > 0 ? "Alterar preço" : "Definir preço"}</Link>
       </div>
       <div className="stat-grid">{tiles.map(([label, value]) => <div className="stat-box" key={label}><span>{label}</span><strong>{value}</strong></div>)}</div>
       <p className="muted creator-footnote">A receita é uma estimativa bruta (subscritores a pagar × preço atual), antes de taxas e impostos.</p>
@@ -3210,17 +3256,157 @@ const AD_STATUS = {
   ended: ["Terminado", "is-off"]
 };
 
-function AdPreview({ ad, imageSrc }) {
-  return <div className="home-sponsor ad-preview" aria-label="Pré-visualização do anúncio">
-    <span className="home-sponsor-art">{imageSrc ? <img src={imageSrc} alt="" /> : <img src="/biva-logo.png" alt="" />}</span>
-    <span><strong>{ad.title || "Título do anúncio"}</strong><small>{ad.body || "O texto do teu anúncio aparece aqui."}</small></span>
+// Igual ao espaço «Patrocinado» da página inicial (SponsoredSlot), dentro de uma moldura da coluna.
+function AdPreview({ ad, imageSrc, advertiser }) {
+  const site = ad.destination === "link" ? (() => { try { return new URL(ad.linkUrl).hostname.replace(/^www\./, ""); } catch { return ""; } })() : "";
+  return <div className="ad-preview-frame">
+    <span className="home-heading">Patrocinado</span>
+    <div className="home-sponsor ad-preview" aria-label="Pré-visualização do anúncio">
+      <span className="home-sponsor-art">{imageSrc ? <img src={imageSrc} alt="" /> : <img src="/biva-logo.png" alt="" />}</span>
+      <span>
+        <strong className={ad.title ? "" : "is-placeholder"}>{ad.title || "Título do anúncio"}</strong>
+        <small className={ad.body ? "" : "is-placeholder"}>{ad.body || "O texto do teu anúncio aparece aqui."}</small>
+        <small className="home-sponsor-by">{advertiser}</small>
+      </span>
+    </div>
+    <p className="ad-preview-click"><Icon name={ad.destination === "link" ? "externalLink" : "profile"} size={14} />
+      {ad.destination === "link" ? (site ? `Ao clicar abre ${site}` : "Ao clicar abre o teu site") : "Ao clicar abre o teu perfil"}</p>
+  </div>;
+}
+
+function CharCount({ value, max }) {
+  const left = max - value.length;
+  return <small className={`char-count${left <= Math.ceil(max * 0.1) ? " is-near" : ""}`} aria-live={left <= 10 ? "polite" : "off"}>{value.length}/{max}</small>;
+}
+
+const AD_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
+const AD_IMAGE_MAX = 8 * 1024 * 1024;
+
+// Imagem do anúncio: escolher, arrastar para cá, trocar ou remover.
+function AdImagePicker({ image, preview, onChange }) {
+  const inputRef = useRef(null);
+  const [dragging, setDragging] = useState(false);
+  const [error, setError] = useState("");
+  const accept = file => {
+    if (!file) return;
+    if (!AD_IMAGE_TYPES.includes(file.type)) return setError("A imagem tem de ser JPG, PNG ou WebP.");
+    if (file.size > AD_IMAGE_MAX) return setError("A imagem é demasiado grande (máximo 8 MB).");
+    setError("");
+    onChange(file);
+  };
+  const drop = event => { event.preventDefault(); setDragging(false); accept(event.dataTransfer.files?.[0]); };
+  return <div className="ad-field">
+    <span className="ad-field-head">Imagem <small>Opcional</small></span>
+    <div className={`ad-image-drop${dragging ? " is-dragging" : ""}${image ? " has-image" : ""}`}
+      onDragOver={event => { event.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={drop}>
+      <input ref={inputRef} type="file" accept={AD_IMAGE_TYPES.join(",")} className="visually-hidden" id="ad-image-input"
+        onChange={event => { accept(event.target.files?.[0]); event.target.value = ""; }} />
+      {image ? <>
+        {preview ? <img src={preview} alt="Imagem escolhida para o anúncio" /> : <span className="ad-image-placeholder" />}
+        <span className="ad-image-info"><strong>{image.name}</strong><small>{(image.size / 1024 / 1024).toFixed(1).replace(".", ",")} MB</small></span>
+        <span className="ad-image-actions">
+          <button type="button" className="btn secondary" onClick={() => inputRef.current?.click()}>Trocar</button>
+          <button type="button" className="btn secondary icon-only" aria-label="Remover imagem" title="Remover" onClick={() => onChange(null)}><Icon name="trash" size={16} /></button>
+        </span>
+      </> : <label htmlFor="ad-image-input">
+        <span className="ad-kind-icon"><Icon name="image" size={18} /></span>
+        <span><strong>Escolher imagem</strong><small>ou arrasta-a para aqui · JPG, PNG ou WebP · quadrada fica melhor</small></span>
+      </label>}
+    </div>
+    {error && <p className="error" role="alert">{error}</p>}
   </div>;
 }
 
 const EMPTY_AD = { kind: "boost", postId: "", title: "", body: "", destination: "profile", linkUrl: "", budget: "5000", days: "7", provinces: [], minAge: "", maxAge: "" };
+const BUDGET_PRESETS = [2000, 5000, 10000, 25000, 50000];
+const AD_DAY_OPTIONS = [1, 3, 7, 14, 30];
+// Separadores da lista: cada promoção cai num só grupo.
+const AD_FILTERS = [
+  ["all", "Todas", () => true],
+  ["live", "No ar", ad => ad.status === "active" || ad.status === "paused"],
+  ["review", "Em revisão", ad => ad.status === "in_review"],
+  ["unpaid", "Por pagar", ad => ad.status === "pending_payment"],
+  ["done", "Terminadas", ad => ad.status === "ended" || ad.status === "rejected"]
+];
+const dayLabel = value => `${value} ${Number(value) === 1 ? "dia" : "dias"}`;
+const percentOf = (part, whole) => whole ? `${((part / whole) * 100).toFixed(1).replace(".", ",")}%` : "0%";
 
 // Só publicações públicas tuas podem ser impulsionadas.
 const canBoost = post => !post.is_exclusive && !post.group_id && !post.hidden_at && !post.shared_post_id;
+
+// Resumo de todas as promoções pagas (as recusadas são devolvidas, por isso não contam).
+function AdsOverview({ ads }) {
+  const paid = ads.filter(ad => ad.paid_at && ad.status !== "rejected");
+  const sum = key => paid.reduce((total, ad) => total + Number(ad[key] || 0), 0);
+  const impressions = sum("impressions");
+  const clicks = sum("clicks");
+  const live = ads.filter(ad => ad.status === "active").length;
+  const tiles = [
+    ["Investido", formatPrice(sum("budget")), `${formatPrice(sum("spent"))} já usados`],
+    ["Pessoas alcançadas", formatCount(sum("reach")), `${formatCount(impressions)} visualizações`],
+    ["Cliques", formatCount(clicks), `${percentOf(clicks, impressions)} de quem viu`],
+    ["No ar agora", formatCount(live), live === 1 ? "promoção ativa" : "promoções ativas"]
+  ];
+  return <dl className="ads-overview">
+    {tiles.map(([label, value, hint]) => <div key={label}><dt>{label}</dt><dd>{value}</dd><small>{hint}</small></div>)}
+  </dl>;
+}
+
+// Resultados de uma promoção: evolução por dia e onde está o público (só números agregados).
+function AdResults({ ad }) {
+  const [data, setData] = useState(null);
+  const [error, setError] = useState("");
+  const [metric, setMetric] = useState("impressions");
+  useEffect(() => { api(`/ads/${ad.id}/stats`).then(setData).catch(loadError => setError(loadError.message)); }, [ad.id]);
+  if (error) return <div className="ad-results"><p className="error" role="alert">{error}</p></div>;
+  if (!data) return <div className="ad-results"><div className="creator-loading">A carregar resultados...</div></div>;
+  const hasData = data.daily.some(day => day.impressions || day.clicks);
+  const people = data.provinces.reduce((total, row) => total + row.people, 0);
+  const top = Math.max(1, ...data.provinces.map(row => row.people));
+  return <div className="ad-results">
+    <div className="ad-results-chart">
+      <div className="ad-results-head">
+        <h4>Por dia</h4>
+        <div className="ad-toggle" role="group" aria-label="Mostrar">
+          {[["impressions", "Visualizações"], ["clicks", "Cliques"]].map(([key, label]) =>
+            <button key={key} type="button" aria-pressed={metric === key} onClick={() => setMetric(key)}>{label}</button>)}
+        </div>
+      </div>
+      {hasData
+        ? <InsightsChart daily={data.daily} metric={metric} label={metric === "clicks" ? "Cliques" : "Visualizações"} />
+        : <p className="muted">Ainda não há resultados. Os números aparecem assim que a promoção começar a ser vista.</p>}
+    </div>
+    <div className="ad-results-audience">
+      <h4>Onde está o público</h4>
+      {data.provinces.length
+        ? <ul>{data.provinces.map(row => <li key={row.province || "outras"}>
+          <span>{row.province || "Outras ou não indicada"}</span>
+          <span className="ad-results-bar" aria-hidden="true"><span style={{ width: `${(row.people / top) * 100}%` }} /></span>
+          <strong>{percentOf(row.people, people)}</strong>
+        </li>)}</ul>
+        : <p className="muted">Sem pessoas alcançadas ainda.</p>}
+      <small className="muted">Grupos com menos de 5 pessoas juntam-se em «Outras», para ninguém poder ser identificado.</small>
+    </div>
+  </div>;
+}
+
+// Pré-visualização de uma publicação impulsionada em cada sítio onde pode aparecer.
+function BoostPreview({ post, user, placement }) {
+  const media = post.media_url
+    ? post.media_type === "video" ? <video src={`${API_BASE}${post.media_url}`} muted preload="metadata" /> : <img src={`${API_BASE}${post.media_url}`} alt="" />
+    : <span className="boost-mock-text">{post.excerpt || postKind(post)}</span>;
+  const who = <><Avatar user={user} size="tiny" /><span><strong>{user?.display_name || user?.username}</strong><small><Icon name="spark" size={11} /> Patrocinado</small></span></>;
+  if (placement === "feed") return <div className="boost-mock is-feed">
+    <div className="boost-mock-head">{who}</div>
+    {post.media_url && post.excerpt && <p>{post.excerpt}</p>}
+    <div className="boost-mock-media">{media}</div>
+  </div>;
+  return <div className={`boost-mock is-tall is-${placement}`}>
+    <div className="boost-mock-media">{media}</div>
+    <div className="boost-mock-head">{who}</div>
+    {placement === "reels" && <span className="boost-mock-side" aria-hidden="true"><Icon name="heart" size={18} /><Icon name="messages" size={18} /><Icon name="share" size={18} /></span>}
+  </div>;
+}
 
 function CreatorAds() {
   const { user } = useContext(UserContext);
@@ -3238,8 +3424,12 @@ function CreatorAds() {
   const [posts, setPosts] = useState([]);
   const [image, setImage] = useState(null);
   const [imagePreview, setImagePreview] = useState("");
-  const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState("");
+  const [formHint, setFormHint] = useState("");
+  const [filter, setFilter] = useState("all");
+  const [openResults, setOpenResults] = useState(null);
+  const [placement, setPlacement] = useState("feed");
+  const formRef = useRef(null);
 
   const load = () => api("/ads/mine").then(result => {
     setAds(result.ads);
@@ -3271,22 +3461,30 @@ function CreatorAds() {
 
   const update = (key, value) => setForm(current => ({ ...current, [key]: value }));
   const targeted = form.provinces.length > 0 || form.minAge !== "" || form.maxAge !== "";
-  const reach = Math.floor((Number(form.budget) || 0) / (cost * (targeted ? 1 + surcharge : 1)));
+  const budget = Number(form.budget) || 0;
+  const reach = Math.floor(budget / (cost * (targeted ? 1 + surcharge : 1)));
   const toggleProvince = province => update("provinces", form.provinces.includes(province) ? form.provinces.filter(item => item !== province) : [...form.provinces, province]);
   const selectedPost = posts.find(post => String(post.id) === String(form.postId));
+  // Reels só mostram vídeos e Stories só publicações com imagem ou vídeo (como em /api/ads/feed).
+  const placements = [["feed", "Feed", true], ["stories", "Stories", Boolean(selectedPost?.media_url)], ["reels", "Reels", selectedPost?.media_type === "video"]];
+  const shownPlacement = placements.find(([key, , available]) => key === placement && available) ? placement : "feed";
 
   const [paying, setPaying] = useState(null);
   const paidNotice = "Pagamento recebido. A promoção fica em revisão e entra no ar assim que a equipa a aprovar (normalmente em menos de 24 horas).";
 
+  const openForm = () => { setCreating(true); window.requestAnimationFrame(() => formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })); };
+  const closeForm = () => { setCreating(false); setFormError(""); setFormHint(""); setForm(EMPTY_AD); setImage(null); };
+
   // Criar: abre o ecrã de pagamento; a promoção só é criada quando se escolhe como pagar.
-  const submit = async event => {
+  const submit = event => {
     event.preventDefault();
     if (form.kind === "boost" && !form.postId) return setFormError("Escolhe a publicação que queres impulsionar.");
+    if (budget < 1000) return setFormError(`O orçamento mínimo é ${formatPrice(1000)}.`);
     setFormError("");
     let createdId = null;
     setPaying({
       title: form.kind === "boost" ? "Pagar publicação impulsionada" : "Pagar anúncio",
-      amount: Number(form.budget) || 0,
+      amount: budget,
       onPay: async choice => {
         // Segunda tentativa (por exemplo, outro método): paga a promoção já criada.
         if (createdId) return api(`/ads/${createdId}/checkout`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(choice) });
@@ -3294,27 +3492,41 @@ function CreatorAds() {
         Object.entries(choice).forEach(([key, value]) => data.append(key, value));
         const result = await api("/ads", { method: "POST", body: data });
         createdId = result.id;
-        setCreating(false);
-        setForm(EMPTY_AD);
-        setImage(null);
+        closeForm();
         return result;
       }
     });
   };
 
   const buildAdForm = async () => {
-    {
-      const data = new FormData();
-      const fields = form.kind === "boost"
-        ? { postId: form.postId, title: form.title, budget: form.budget, days: form.days }
-        : { title: form.title, body: form.body, destination: form.destination, linkUrl: form.linkUrl, budget: form.budget, days: form.days };
-      Object.entries(fields).forEach(([key, value]) => data.append(key, value));
-      if (form.provinces.length) data.append("targetProvinces", form.provinces.join(","));
-      if (form.minAge !== "") data.append("targetMinAge", form.minAge);
-      if (form.maxAge !== "") data.append("targetMaxAge", form.maxAge);
-      if (image && form.kind === "ad") data.append("image", await downscaleImage(image, 1200, 1200));
-      return data;
-    }
+    const data = new FormData();
+    const fields = form.kind === "boost"
+      ? { postId: form.postId, title: form.title, budget: form.budget, days: form.days }
+      : { title: form.title, body: form.body, destination: form.destination, linkUrl: form.linkUrl, budget: form.budget, days: form.days };
+    Object.entries(fields).forEach(([key, value]) => data.append(key, value));
+    if (form.provinces.length) data.append("targetProvinces", form.provinces.join(","));
+    if (form.minAge !== "") data.append("targetMinAge", form.minAge);
+    if (form.maxAge !== "") data.append("targetMaxAge", form.maxAge);
+    if (image && form.kind === "ad") data.append("image", await downscaleImage(image, 1200, 1200));
+    return data;
+  };
+
+  // Repetir: preenche o formulário com uma promoção anterior (a imagem tem de ser escolhida outra vez).
+  const repeat = ad => {
+    const external = ad.link_url && !ad.link_url.startsWith("/");
+    const postAvailable = !ad.post_id || posts.some(post => post.id === ad.post_id);
+    setForm({
+      ...EMPTY_AD, kind: ad.post_id ? "boost" : "ad", postId: ad.post_id && postAvailable ? String(ad.post_id) : "",
+      title: ad.post_id ? "" : ad.title, body: ad.body || "", destination: external ? "link" : "profile", linkUrl: external ? ad.link_url : "",
+      budget: String(Math.round(ad.budget)), days: String(ad.days), provinces: ad.target_provinces || [],
+      minAge: ad.target_min_age ?? "", maxAge: ad.target_max_age ?? ""
+    });
+    setImage(null);
+    setFormError("");
+    setFormHint(!postAvailable ? "A publicação original já não pode ser impulsionada. Escolhe outra."
+      : !ad.post_id && ad.image_url ? "Copiámos o texto, o orçamento e o público. Escolhe a imagem outra vez."
+        : "Copiámos o orçamento, a duração e o público. Revê e paga quando quiseres.");
+    openForm();
   };
 
   const pay = ad => setPaying({
@@ -3343,25 +3555,33 @@ function CreatorAds() {
     }
   };
 
+  const counts = Object.fromEntries(AD_FILTERS.map(([key, , test]) => [key, ads?.filter(test).length || 0]));
+  const activeFilter = AD_FILTERS.find(([key]) => key === filter) || AD_FILTERS[0];
+  const visibleAds = ads?.filter(activeFilter[2]) || [];
+  const endsOn = new Date(Date.now() + Number(form.days) * 86400000).toLocaleDateString("pt-PT", { day: "numeric", month: "long" });
+
   return <>
     {paying && <PaymentDialog title={paying.title} amountKz={paying.amount} onPay={paying.onPay}
       onDone={() => { setNotice(paidNotice); load(); }} onClose={() => { setPaying(null); load(); }} />}
     <section className="creator-card" aria-labelledby="ads-full-title">
       <div className="creator-card-head">
         <div><h2 id="ads-full-title">Anúncios e publicações impulsionadas</h2>
-          <p>Pagas uma vez e o Biva mostra a tua promoção automaticamente a quem ainda não a viu: {formatPrice(cost * 1000)} por cada 1000 pessoas alcançadas.</p></div>
-        {!creating && <button className="btn" type="button" onClick={() => setCreating(true)}><Icon name="plus" size={16} /> Criar promoção</button>}
+          <p>Pagas uma vez e o Biva mostra a tua promoção a quem ainda não a viu: {formatPrice(cost * 1000)} por cada 1000 pessoas alcançadas.</p></div>
+        {!creating && <button className="btn" type="button" onClick={openForm}><Icon name="plus" size={16} /> Criar promoção</button>}
       </div>
       {notice && <p className="success" role="status">{notice}</p>}
-      {payments === "demo" && <p className="info-draft" role="note"><Icon name="info" size={15} /> Pagamentos em modo de demonstração: as promoções ficam ativas sem cobrança. Configura a Stripe para cobrar.</p>}
+      {payments === "demo" && <p className="info-draft" role="note"><Icon name="info" size={15} /> Pagamentos em modo de demonstração: as promoções ficam ativas sem cobrança.</p>}
+      {ads && ads.length > 0 && <AdsOverview ads={ads} />}
 
-      {creating && <form className="ad-form" onSubmit={submit}>
+      {creating && <form className="ad-form" onSubmit={submit} ref={formRef} aria-labelledby="ad-form-title">
         <div className="ad-form-fields">
+          <h3 id="ad-form-title" className="ad-form-title">Nova promoção</h3>
+          {formHint && <p className="info-draft" role="status"><Icon name="copy" size={15} /> {formHint}</p>}
           <div className="ad-kind" role="radiogroup" aria-label="Tipo de promoção">
             <label className={form.kind === "boost" ? "is-selected" : ""}>
               <input type="radio" name="kind" checked={form.kind === "boost"} onChange={() => update("kind", "boost")} />
               <span className="ad-kind-icon"><Icon name="bolt" size={18} /></span>
-              <span><strong>Impulsionar publicação</strong><small>Um vídeo, fotografia ou trabalho teu aparece no feed de mais pessoas.</small></span>
+              <span><strong>Impulsionar publicação</strong><small>Um vídeo, fotografia ou trabalho teu aparece no feed, nos Stories e nos Reels de mais pessoas.</small></span>
             </label>
             <label className={form.kind === "ad" ? "is-selected" : ""}>
               <input type="radio" name="kind" checked={form.kind === "ad"} onChange={() => update("kind", "ad")} />
@@ -3380,25 +3600,52 @@ function CreatorAds() {
               </label>)}</div>
               : <p className="muted">Ainda não tens publicações públicas. <Link to="/create">Publica primeiro</Link> e volta para a impulsionar.</p>}
           </fieldset> : <>
-            <label>Título <small>{form.title.length}/80</small><input value={form.title} maxLength={80} required onChange={event => update("title", event.target.value)} placeholder="Ex.: Novas peças na loja da Rita" /></label>
-            <label>Texto <small>{form.body.length}/200</small><textarea rows={3} value={form.body} maxLength={200} onChange={event => update("body", event.target.value)} placeholder="Diz em poucas palavras o que estás a promover." /></label>
-            <label className="ad-image-field">Imagem <small>Opcional</small>
-              <input type="file" accept="image/jpeg,image/png,image/webp" onChange={event => setImage(event.target.files?.[0] || null)} />
+            <label className="ad-field">
+              <span className="ad-field-head">Título <CharCount value={form.title} max={80} /></span>
+              <input value={form.title} maxLength={80} required onChange={event => update("title", event.target.value)} placeholder="Ex.: Novas peças na loja da Rita" />
             </label>
+            <label className="ad-field">
+              <span className="ad-field-head">Texto <CharCount value={form.body} max={200} /></span>
+              <textarea rows={3} value={form.body} maxLength={200} onChange={event => update("body", event.target.value)} placeholder="Diz em poucas palavras o que estás a promover. Ex.: Até 40% em peças selecionadas, só esta semana." />
+            </label>
+            <AdImagePicker image={image} preview={imagePreview} onChange={setImage} />
             <fieldset className="ad-destination">
               <legend>Quando alguém clica, vai para…</legend>
-              <label><input type="radio" name="destination" checked={form.destination === "profile"} onChange={() => update("destination", "profile")} /> O teu perfil (@{user?.username})</label>
-              <label><input type="radio" name="destination" checked={form.destination === "link"} onChange={() => update("destination", "link")} /> Um site</label>
-              {form.destination === "link" && <input type="url" inputMode="url" placeholder="https://" value={form.linkUrl} required onChange={event => update("linkUrl", event.target.value)} aria-label="Endereço do site" />}
+              <div className="ad-kind is-compact" role="radiogroup" aria-label="Destino do clique">
+                <label className={form.destination === "profile" ? "is-selected" : ""}>
+                  <input type="radio" name="destination" checked={form.destination === "profile"} onChange={() => update("destination", "profile")} />
+                  <span className="ad-kind-icon"><Icon name="profile" size={17} /></span>
+                  <span><strong>O teu perfil</strong><small>@{user?.username}</small></span>
+                </label>
+                <label className={form.destination === "link" ? "is-selected" : ""}>
+                  <input type="radio" name="destination" checked={form.destination === "link"} onChange={() => update("destination", "link")} />
+                  <span className="ad-kind-icon"><Icon name="globe" size={17} /></span>
+                  <span><strong>Um site</strong><small>A tua loja, WhatsApp ou página</small></span>
+                </label>
+              </div>
+              {form.destination === "link" && <div className="ad-url">
+                <Icon name="externalLink" size={16} />
+                <input type="url" inputMode="url" placeholder="https://aminhaloja.ao" value={form.linkUrl} required onChange={event => update("linkUrl", event.target.value)} aria-label="Endereço do site (começa por https://)" />
+              </div>}
             </fieldset>
           </>}
 
-          <div className="ad-budget">
-            <label>Orçamento total (Kz) <input type="number" min="1000" max="10000000" step="500" required value={form.budget} onChange={event => update("budget", event.target.value)} /></label>
-            <label>Duração <select value={form.days} onChange={event => update("days", event.target.value)}>
-              {[1, 3, 7, 14, 30].map(value => <option key={value} value={value}>{value} {value === 1 ? "dia" : "dias"}</option>)}
-            </select></label>
-          </div>
+          <fieldset className="ad-choice">
+            <legend>Orçamento total</legend>
+            <div className="ad-chips" role="group" aria-label="Valores sugeridos">
+              {BUDGET_PRESETS.map(value => <button key={value} type="button" className="province-chip" aria-pressed={budget === value} onClick={() => update("budget", String(value))}>{formatPrice(value)}</button>)}
+            </div>
+            <label className="ad-custom-budget">Outro valor (Kz)<input type="number" min="1000" max="10000000" step="500" required value={form.budget} onChange={event => update("budget", event.target.value)} /></label>
+          </fieldset>
+          <fieldset className="ad-choice">
+            <legend>Duração</legend>
+            <div className="ad-chips" role="radiogroup" aria-label="Duração">
+              {AD_DAY_OPTIONS.map(value => <label key={value} className="ad-day">
+                <input type="radio" name="days" checked={form.days === String(value)} onChange={() => update("days", String(value))} />
+                <span>{dayLabel(value)}</span>
+              </label>)}
+            </div>
+          </fieldset>
           <fieldset className="ad-audience">
             <legend>Público <small>Opcional · +{Math.round(surcharge * 100)}% por pessoa alcançada</small></legend>
             <div className="province-chips" role="group" aria-label="Províncias">
@@ -3410,58 +3657,91 @@ function CreatorAds() {
             </div>
             <small className="muted">{targeted ? `Só vê quem ${form.provinces.length ? `está em ${form.provinces.join(", ")}` : "tem a idade indicada"}${form.provinces.length && (form.minAge || form.maxAge) ? " e tem a idade indicada" : ""} (quem indicou a província e a idade nas Definições).` : "Sem filtros: o Biva mostra a toda a gente."}</small>
           </fieldset>
-          <p className="ad-review-note"><Icon name="shield" size={15} /> Depois do pagamento, a equipa revê a promoção (normalmente em menos de 24 horas). Se for recusada, devolvemos o valor. Lê as <Link to="/publicidade">Regras de publicidade</Link>.</p>
-          <p className="ad-estimate"><Icon name="friends" size={16} /> Alcance estimado: até <strong>{formatCount(reach)}</strong> pessoas em {form.days} {form.days === "1" ? "dia" : "dias"} · cerca de {formatPrice(Math.round((Number(form.budget) || 0) / Number(form.days)))} por dia.</p>
-          {formError && <p className="error" role="alert">{formError}</p>}
-          <div className="modal-actions">
-            <button className="btn secondary" type="button" disabled={busy} onClick={() => { setCreating(false); setFormError(""); }}>Cancelar</button>
-            <button className="btn" type="submit" disabled={busy}>{busy ? "A preparar..." : `Pagar ${formatPrice(Number(form.budget) || 0)} e publicar`}</button>
+          <p className="ad-review-note"><Icon name="shield" size={15} /> <span>Depois do pagamento, a equipa revê a promoção (normalmente em menos de 24 horas). Se for recusada, devolvemos o valor. Lê as <Link to="/publicidade">Regras de publicidade</Link>.</span></p>
+        </div>
+
+        <aside className="ad-form-preview" aria-label="Pré-visualização e resumo">
+          <div className="ad-preview-head">
+            <h3>Pré-visualização</h3>
+            {form.kind === "boost" && <div className="ad-toggle" role="group" aria-label="Onde aparece">
+              {placements.map(([key, label, available]) => <button key={key} type="button" aria-pressed={shownPlacement === key} disabled={!available}
+                title={available ? undefined : key === "reels" ? "Os Reels só mostram vídeos" : "Os Stories precisam de imagem ou vídeo"} onClick={() => setPlacement(key)}>{label}</button>)}
+            </div>}
           </div>
-        </div>
-        <div className="ad-form-preview">
-          <h3>Pré-visualização</h3>
           {form.kind === "boost"
-            ? <><p className="muted">Aparece no feed com a etiqueta «Patrocinado».</p>
-              {selectedPost ? <div className="boost-preview"><span className="boost-preview-label"><Icon name="spark" size={13} /> Patrocinado</span><ContentThumb post={selectedPost} /></div>
-                : <p className="muted">Escolhe uma publicação.</p>}</>
-            : <><p className="muted">Assim aparece em «Patrocinado».</p><AdPreview ad={form} imageSrc={imagePreview} /></>}
-        </div>
+            ? selectedPost ? <BoostPreview post={selectedPost} user={user} placement={shownPlacement} /> : <p className="muted">Escolhe uma publicação para a veres aqui.</p>
+            : <><p className="muted">Na coluna da direita da página inicial, em computador.</p><AdPreview ad={form} imageSrc={imagePreview} advertiser={user?.display_name || user?.username} /></>}
+
+          <div className="ad-summary" aria-live="polite">
+            <p className="ad-summary-reach"><strong>{formatCount(reach)}</strong><span>pessoas alcançadas, no máximo</span></p>
+            <dl>
+              <div><dt>Por dia</dt><dd>cerca de {formatPrice(Math.round(budget / Number(form.days)))}</dd></div>
+              <div><dt>Duração</dt><dd>{dayLabel(form.days)}, até {endsOn} se for aprovada hoje</dd></div>
+              <div><dt>Público</dt><dd>{targeted ? `Escolhido (+${Math.round(surcharge * 100)}%)` : "Toda a gente"}</dd></div>
+              <div className="is-total"><dt>Total</dt><dd>{formatPrice(budget)}</dd></div>
+            </dl>
+            {formError && <p className="error" role="alert">{formError}</p>}
+            <div className="ad-summary-actions">
+              <button className="btn" type="submit">Pagar {formatPrice(budget)} e publicar</button>
+              <button className="btn secondary" type="button" onClick={closeForm}>Cancelar</button>
+            </div>
+          </div>
+        </aside>
       </form>}
 
       {error && <p className="error" role="alert">{error}</p>}
       {!ads && !error && <div className="creator-loading">A carregar...</div>}
-      {ads && !ads.length && !creating && <p className="muted">Ainda não criaste nenhuma promoção.</p>}
-      {ads && ads.length > 0 && <ul className="ad-list">
-        {ads.map(ad => {
-          const [statusLabel, statusClass] = AD_STATUS[ad.status] || AD_STATUS.ended;
-          const ctr = ad.impressions ? ((ad.clicks / ad.impressions) * 100).toFixed(1).replace(".", ",") : "0";
-          const spentRatio = Math.min(100, (ad.spent / ad.budget) * 100);
-          const art = ad.post_id
-            ? ad.post_media_url && ad.post_media_type === "image" ? <img src={`${API_BASE}${ad.post_media_url}`} alt="" /> : <Icon name="bolt" size={22} />
-            : ad.image_url ? <img src={`${API_BASE}${ad.image_url}`} alt="" /> : <Icon name="ad" size={22} />;
-          return <li className="ad-item" key={ad.id}>
-            <span className="ad-item-art">{art}</span>
-            <div className="ad-item-main">
-              <div className="ad-item-title"><strong>{ad.title}</strong><span className={`status-pill ${statusClass}`}>{statusLabel}</span></div>
-              <small>{ad.post_id ? "Publicação impulsionada" : "Anúncio"}{ad.target_provinces?.length ? ` · ${ad.target_provinces.join(", ")}` : ""}{ad.target_min_age || ad.target_max_age ? ` · ${ad.target_min_age || 13}–${ad.target_max_age || "100"} anos` : ""} · {ad.status === "pending_payment" ? `${ad.days} ${ad.days === 1 ? "dia" : "dias"} depois do pagamento` : `${ad.status === "ended" ? "terminou" : "termina"} a ${new Date(ad.ends_at).toLocaleDateString("pt-PT", { day: "numeric", month: "short" })}`}</small>
-              <div className="ad-budget-bar" role="progressbar" aria-label="Orçamento gasto" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(spentRatio)}><span style={{ width: `${spentRatio}%` }} /></div>
-              <small>{formatPrice(ad.spent)} de {formatPrice(ad.budget)} gastos</small>
-            </div>
-            <dl className="ad-metrics">
-              <div><dt>Alcance</dt><dd>{formatCount(ad.impressions)}</dd></div>
-              <div><dt>Cliques</dt><dd>{formatCount(ad.clicks)}</dd></div>
-              <div><dt>Taxa de cliques</dt><dd>{ctr}%</dd></div>
-            </dl>
-            <div className="ad-actions">
-              {ad.status === "pending_payment" && <button className="btn" type="button" onClick={() => pay(ad)}>Pagar {formatPrice(ad.budget)}</button>}
-              {ad.status === "rejected" && ad.review_note && <small className="review-note">Motivo: {ad.review_note}{ad.refund_status === "refunded" ? " · valor devolvido" : ad.refund_status === "manual" || ad.refund_status === "failed" ? " · devolução em curso" : ""}</small>}
-              {ad.status === "active" && <button className="btn secondary" type="button" onClick={() => setStatus(ad, "paused")}><Icon name="pause" size={15} /> Pausar</button>}
-              {ad.status === "paused" && <button className="btn secondary" type="button" onClick={() => setStatus(ad, "active")}><Icon name="play" size={15} /> Retomar</button>}
-              <button className="btn secondary icon-only" type="button" aria-label={`Apagar ${ad.title}`} title="Apagar" onClick={() => remove(ad)}><Icon name="trash" size={16} /></button>
-            </div>
-          </li>;
-        })}
-      </ul>}
+      {ads && !ads.length && !creating && <div className="ads-empty">
+        <span className="ad-kind-icon"><Icon name="bolt" size={22} /></span>
+        <div><strong>Ainda não criaste nenhuma promoção</strong><p className="muted">Escolhe uma publicação de que gostas, define quanto queres gastar e o Biva mostra-a a mais pessoas.</p></div>
+        <button className="btn" type="button" onClick={openForm}><Icon name="plus" size={16} /> Criar a primeira</button>
+      </div>}
+      {ads && ads.length > 0 && <>
+        <div className="ad-filters" role="group" aria-label="Filtrar promoções">
+          {AD_FILTERS.filter(([key]) => key === "all" || counts[key] > 0).map(([key, label]) =>
+            <button key={key} type="button" aria-pressed={activeFilter[0] === key} onClick={() => setFilter(key)}>{label} <span>{counts[key]}</span></button>)}
+        </div>
+        <ul className="ad-list">
+          {visibleAds.map(ad => {
+            const [statusLabel, statusClass] = AD_STATUS[ad.status] || AD_STATUS.ended;
+            const spentRatio = Math.min(100, (ad.spent / ad.budget) * 100);
+            const daysLeft = Math.max(0, Math.ceil((new Date(ad.ends_at) - Date.now()) / 86400000));
+            const art = ad.post_id
+              ? ad.post_media_url && ad.post_media_type === "image" ? <img src={`${API_BASE}${ad.post_media_url}`} alt="" /> : <Icon name={ad.post_media_type === "video" ? "reels" : "bolt"} size={22} />
+              : ad.image_url ? <img src={`${API_BASE}${ad.image_url}`} alt="" /> : <Icon name="ad" size={22} />;
+            const when = ad.status === "pending_payment" ? `${dayLabel(ad.days)} depois do pagamento`
+              : ad.status === "in_review" ? `${dayLabel(ad.days)} depois da aprovação`
+                : ad.status === "active" || ad.status === "paused" ? (daysLeft <= 1 ? "termina hoje" : `faltam ${dayLabel(daysLeft)}`)
+                  : `terminou a ${new Date(ad.ends_at).toLocaleDateString("pt-PT", { day: "numeric", month: "short" })}`;
+            const expanded = openResults === ad.id;
+            return <li className={`ad-item${expanded ? " is-open" : ""}`} key={ad.id}>
+              <span className="ad-item-art">{art}</span>
+              <div className="ad-item-main">
+                <div className="ad-item-title"><strong>{ad.title}</strong><span className={`status-pill ${statusClass}`}>{statusLabel}</span></div>
+                <small>{ad.post_id ? "Publicação impulsionada" : "Anúncio"}{ad.target_provinces?.length ? ` · ${ad.target_provinces.join(", ")}` : ""}{ad.target_min_age || ad.target_max_age ? ` · ${ad.target_min_age || 13}–${ad.target_max_age || "100"} anos` : ""} · {when}</small>
+                <div className="ad-budget-bar" role="progressbar" aria-label="Orçamento gasto" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(spentRatio)}><span style={{ width: `${spentRatio}%` }} /></div>
+                <small>{formatPrice(ad.spent)} de {formatPrice(ad.budget)} gastos</small>
+              </div>
+              <dl className="ad-metrics">
+                <div><dt>Pessoas</dt><dd>{formatCount(ad.reach ?? ad.impressions)}</dd></div>
+                <div><dt>Cliques</dt><dd>{formatCount(ad.clicks)}</dd></div>
+                <div><dt>Taxa de cliques</dt><dd>{percentOf(ad.clicks, ad.impressions)}</dd></div>
+              </dl>
+              <div className="ad-actions">
+                {ad.status === "pending_payment" && <button className="btn" type="button" onClick={() => pay(ad)}>Pagar {formatPrice(ad.budget)}</button>}
+                {ad.status === "rejected" && ad.review_note && <small className="review-note">Motivo: {ad.review_note}{ad.refund_status === "refunded" ? " · valor devolvido" : ad.refund_status === "manual" || ad.refund_status === "failed" ? " · devolução em curso" : ""}</small>}
+                {ad.paid_at && ad.status !== "rejected" && ad.status !== "in_review" && <button className="btn secondary" type="button" aria-expanded={expanded} onClick={() => setOpenResults(expanded ? null : ad.id)}>
+                  <Icon name="stats" size={15} /> {expanded ? "Fechar" : "Resultados"}</button>}
+                {ad.status === "active" && <button className="btn secondary" type="button" onClick={() => setStatus(ad, "paused")}><Icon name="pause" size={15} /> Pausar</button>}
+                {ad.status === "paused" && <button className="btn secondary" type="button" onClick={() => setStatus(ad, "active")}><Icon name="play" size={15} /> Retomar</button>}
+                {(ad.status === "ended" || ad.status === "rejected") && <button className="btn secondary" type="button" onClick={() => repeat(ad)}><Icon name="copy" size={15} /> Repetir</button>}
+                <button className="btn secondary icon-only" type="button" aria-label={`Apagar ${ad.title}`} title="Apagar" onClick={() => remove(ad)}><Icon name="trash" size={16} /></button>
+              </div>
+              {expanded && <AdResults ad={ad} />}
+            </li>;
+          })}
+        </ul>
+      </>}
     </section>
   </>;
 }
@@ -3685,25 +3965,28 @@ function AudienceSettings() {
       setError(saveError.message);
     }
   };
-  return <section className="settings-section card" id="audience" aria-labelledby="audience-heading">
-    <div className="settings-section-heading">
-      <span className="settings-option-icon"><Icon name="location" /></span>
-      <div><p className="settings-section-kicker">Privado</p><h2 id="audience-heading">Província e idade</h2><p>Só servem para te mostrar promoções da tua zona e idade. Não aparecem no teu perfil, e a província só é vista pelas marcas se o autorizares.</p></div>
-    </div>
+  return <>
     {data && <form className="audience-form" onSubmit={save}>
-      <label>Província<select value={form.province} onChange={event => setForm({ ...form, province: event.target.value })}>
-        <option value="">Prefiro não dizer</option>
-        {data.provinces.map(province => <option key={province} value={province}>{province}</option>)}
-      </select></label>
-      <label>Data de nascimento<input type="date" value={form.birthDate} onChange={event => setForm({ ...form, birthDate: event.target.value })} /></label>
-      <label className="audience-optin"><input type="checkbox" checked={form.showProvinceToBrands} disabled={!form.province}
-        onChange={event => setForm({ ...form, showProvinceToBrands: event.target.checked })} />
-        <span>Mostrar a minha província às marcas no marketplace <small>Só a província, nunca a idade. Podes desligar quando quiseres.</small></span></label>
-      <button className="btn" type="submit">Guardar</button>
-      {status && <span className="success" role="status">{status}</span>}
+      <div className="field-pair">
+        <label className="field">Província<select value={form.province} onChange={event => setForm({ ...form, province: event.target.value })}>
+          <option value="">Prefiro não dizer</option>
+          {data.provinces.map(province => <option key={province} value={province}>{province}</option>)}
+        </select></label>
+        <label className="field">Data de nascimento<input type="date" value={form.birthDate} onChange={event => setForm({ ...form, birthDate: event.target.value })} /></label>
+      </div>
+      <label className="prefs-switch">
+        <span className="prefs-row-text"><strong>Mostrar a minha província às marcas</strong><small>Só a província, nunca a idade. Podes desligar quando quiseres.</small></span>
+        <input type="checkbox" role="switch" checked={form.showProvinceToBrands} disabled={!form.province}
+          onChange={event => setForm({ ...form, showProvinceToBrands: event.target.checked })} />
+        <span className="prefs-switch-track" aria-hidden="true"><i /></span>
+      </label>
+      <div className="prefs-form-foot">
+        {status && <span className="prefs-saved" role="status"><Icon name="check" size={14} />{status}</span>}
+        <button className="btn" type="submit">Guardar</button>
+      </div>
     </form>}
     {error && <p className="error" role="alert">{error}</p>}
-  </section>;
+  </>;
 }
 
 // Marketplace: marcas encontram criadores e propõem campanhas pagas.
@@ -4511,9 +4794,12 @@ function PaymentState({ state }) {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Diretos (lives): vídeo por WebRTC entre quem emite e cada espectador, chat e estrelas
+// Diretos (lives). Com servidor de vídeo (modo "cdn"): quem emite envia uma vez (WHIP ou OBS) e
+// quem vê recebe HLS pela CDN, sem limite prático de espectadores. Sem ele (modo "p2p"): WebRTC
+// direto entre quem emite e cada espectador, até 8 pessoas.
 // ---------------------------------------------------------------------------------------------
-let pendingHostStream = null; // a câmara aberta no diálogo passa para a sala sem pedir outra vez
+let pendingHostStream = null; // a fonte aberta no estúdio passa para a sala sem pedir outra vez
+let pendingHostSettings = null;
 
 const liveDuration = since => {
   const seconds = Math.max(0, Math.floor((Date.now() - new Date(since).getTime()) / 1000));
@@ -4534,58 +4820,559 @@ const sendSignal = (liveId, to, kind, payload = "") => api(`/lives/${liveId}/sig
   method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ to, kind, payload })
 });
 
-function LiveBadge({ small }) {
-  return <span className={`live-badge${small ? " is-small" : ""}`}><span className="live-dot" aria-hidden="true" />Ao vivo</span>;
+const LIVE_CATEGORY_LABELS = {
+  conversa: "Conversa", musica: "Música", jogos: "Jogos", desporto: "Desporto", educacao: "Educação",
+  negocios: "Negócios", fe: "Fé", arte: "Arte e criação", outro: "Outro"
+};
+
+// Qualidade de emissão do estúdio no browser. kbps = máximo enviado (quem vê recebe o mesmo).
+const LIVE_QUALITIES = {
+  "480p30": { label: "480p · poupa dados", width: 854, height: 480, fps: 30, kbps: 1200 },
+  "720p30": { label: "720p · recomendado", width: 1280, height: 720, fps: 30, kbps: 2500 },
+  "720p60": { label: "720p 60 fps · jogos e desporto", width: 1280, height: 720, fps: 60, kbps: 4000 },
+  "1080p30": { label: "1080p · Full HD", width: 1920, height: 1080, fps: 30, kbps: 4500 }
+};
+
+// Câmaras (inclui placas de captura e a «OBS Virtual Camera») e microfones (inclui placas de som).
+function useMediaDevices(active) {
+  const [devices, setDevices] = useState({ video: [], audio: [] });
+  useEffect(() => {
+    if (!active || !navigator.mediaDevices?.enumerateDevices) return undefined;
+    const load = () => navigator.mediaDevices.enumerateDevices().then(list => setDevices({
+      video: list.filter(item => item.kind === "videoinput"),
+      audio: list.filter(item => item.kind === "audioinput")
+    })).catch(() => {});
+    load();
+    navigator.mediaDevices.addEventListener("devicechange", load);
+    return () => navigator.mediaDevices.removeEventListener("devicechange", load);
+  }, [active]);
+  return devices;
+}
+
+const audioConstraints = (deviceId, original) => ({
+  ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
+  // Placas de captura e música: som tal como chega (sem cancelar eco nem "limpar" ruído).
+  echoCancellation: !original, noiseSuppression: !original, autoGainControl: !original,
+  ...(original ? { channelCount: 2, sampleRate: 48000 } : {})
+});
+
+// Abre a fonte escolhida. Ecrã: vídeo do ecrã + microfone, misturado com o som do ecrã se existir.
+async function openLiveSource({ kind, videoId, audioId, quality, originalAudio }) {
+  const preset = LIVE_QUALITIES[quality] || LIVE_QUALITIES["720p30"];
+  if (kind === "screen") {
+    if (!navigator.mediaDevices?.getDisplayMedia) throw new Error("Este browser não permite partilhar o ecrã. Usa o Chrome ou o Edge num computador.");
+    const screen = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: { ideal: preset.fps }, height: { ideal: preset.height } }, audio: true });
+    let mic = null;
+    let micError = null;
+    try { mic = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints(audioId, originalAudio) }); } catch (error) { micError = error.name; }
+    const sources = [screen, mic].filter(stream => stream?.getAudioTracks().length);
+    let audioTracks = sources.flatMap(stream => stream.getAudioTracks());
+    if (sources.length > 1) {
+      const context = new AudioContext();
+      keepAudioRunning(context);
+      const destination = context.createMediaStreamDestination();
+      sources.forEach(stream => context.createMediaStreamSource(stream).connect(destination));
+      audioTracks = destination.stream.getAudioTracks();
+      audioTracks[0].addEventListener("ended", () => context.close());
+    }
+    const combined = new MediaStream([...screen.getVideoTracks(), ...audioTracks]);
+    combined.parts = [screen, mic].filter(Boolean); // para desligar tudo no fim
+    combined.micError = micError;
+    // Para o estúdio mostrar microfone e som do ecrã em separado.
+    combined.isScreen = true;
+    combined.micStream = mic;
+    combined.screenAudio = screen.getAudioTracks().length ? new MediaStream(screen.getAudioTracks()) : null;
+    return combined;
+  }
+  if (!navigator.mediaDevices?.getUserMedia) throw new Error("Este browser não permite usar a câmara. Usa o Chrome, Edge ou Safari atualizados.");
+  const video = { ...(videoId ? { deviceId: { exact: videoId } } : {}), width: { ideal: preset.width }, height: { ideal: preset.height }, frameRate: { ideal: preset.fps } };
+  let micError = null;
+  try {
+    return await navigator.mediaDevices.getUserMedia({ video, audio: audioConstraints(audioId, originalAudio) });
+  } catch (error) {
+    if (!MISSING_DEVICE_ERRORS.includes(error.name) && error.name !== "NotAllowedError") throw error;
+    micError = error.name;
+  }
+  // Sabe se o bloqueio é só do microfone: se a câmara sozinha também for recusada, o erro sobe tal como está.
+  const withoutMic = async constraints => {
+    const stream = await navigator.mediaDevices.getUserMedia(constraints);
+    stream.micError = micError === "NotAllowedError" ? "NotAllowedError" : "NotFoundError";
+    return stream;
+  };
+  // Falta a câmara ou o microfone (ou o escolhido desligou-se): tenta só a imagem, com a câmara predefinida se for preciso.
+  try {
+    return await withoutMic({ video, audio: false });
+  } catch (error) {
+    if (!MISSING_DEVICE_ERRORS.includes(error.name)) throw error;
+  }
+  if (videoId) {
+    try {
+      return await withoutMic({ video: { ...video, deviceId: undefined }, audio: false });
+    } catch (error) {
+      if (!MISSING_DEVICE_ERRORS.includes(error.name)) throw error;
+    }
+  }
+  const noCamera = new Error("Não encontrámos nenhuma câmara ligada a este computador. Liga uma webcam ou placa de captura, ou escolhe Ecrã ou OBS.");
+  noCamera.name = "NoCameraError";
+  throw noCamera;
+}
+
+// Erros do browser quando o dispositivo não existe ou já não está ligado.
+const MISSING_DEVICE_ERRORS = ["NotFoundError", "OverconstrainedError", "DevicesNotFoundError"];
+
+// Traduz os erros do browser ao abrir câmara, microfone ou ecrã.
+function liveSourceError(error) {
+  if (error.name === "NotAllowedError") return "O browser bloqueou o acesso. Carrega no cadeado ao lado do endereço, permite a câmara e o microfone, e tenta outra vez.";
+  if (error.name === "NotReadableError") return "Esta câmara ou placa está a ser usada por outro programa. Fecha-o e tenta outra vez.";
+  if (MISSING_DEVICE_ERRORS.includes(error.name)) return "Esse dispositivo não foi encontrado. Confirma que está ligado ou escolhe outro.";
+  if (error.name === "AbortError") return "A partilha foi interrompida. Tenta outra vez.";
+  return error.message || "Não foi possível abrir a fonte.";
+}
+
+// O Chrome só deixa o áudio da página correr logo após um clique. Se o AudioContext nascer
+// "adormecido" (ex.: a pessoa demorou a escolher o ecrã), acorda-o já e no próximo clique ou tecla.
+function keepAudioRunning(context) {
+  const resume = () => { if (context.state === "suspended") context.resume().catch(() => {}); };
+  const events = ["pointerdown", "keydown"];
+  const stop = () => events.forEach(name => document.removeEventListener(name, resume, true));
+  resume();
+  events.forEach(name => document.addEventListener(name, resume, true));
+  context.addEventListener("statechange", () => {
+    if (context.state === "running" || context.state === "closed") stop();
+  });
+  return stop;
+}
+
+const stopStream = stream => {
+  stream?.getTracks().forEach(track => track.stop());
+  stream?.parts?.forEach(part => part.getTracks().forEach(track => track.stop()));
+};
+
+// Nível do microfone (0–1), para confirmar que o som está a entrar.
+function useAudioLevel(stream) {
+  const [level, setLevel] = useState(0);
+  useEffect(() => {
+    const track = stream?.getAudioTracks()[0];
+    if (!track || typeof AudioContext !== "function") { setLevel(0); return undefined; }
+    const context = new AudioContext();
+    const stopWaking = keepAudioRunning(context);
+    const analyser = context.createAnalyser();
+    analyser.fftSize = 512;
+    context.createMediaStreamSource(new MediaStream([track])).connect(analyser);
+    const data = new Float32Array(analyser.fftSize);
+    let frame = 0;
+    // Escala em decibéis (-60 dB a 0 dB), como nas mesas de mistura: uma voz baixa também se vê.
+    const read = () => {
+      analyser.getFloatTimeDomainData(data);
+      let sum = 0;
+      for (const sample of data) sum += sample * sample;
+      const rms = Math.sqrt(sum / data.length);
+      const db = rms > 0 ? 20 * Math.log10(rms) : -100;
+      const next = Math.min(1, Math.max(0, (db + 60) / 60));
+      setLevel(current => Math.max(next, current * 0.88));
+      frame = window.requestAnimationFrame(read);
+    };
+    read();
+    return () => { window.cancelAnimationFrame(frame); stopWaking(); context.close().catch(() => {}); };
+  }, [stream]);
+  return level;
+}
+
+// Barra do nível do som, com o nome do microfone e um aviso se não chegar som nenhum.
+function AudioMeter({ stream, original = false }) {
+  const level = useAudioLevel(stream);
+  const track = stream?.getAudioTracks()[0];
+  const [heard, setHeard] = useState(false);
+  const [quiet, setQuiet] = useState(false);
+  const [muted, setMuted] = useState(Boolean(track?.muted));
+  useEffect(() => { setHeard(false); setQuiet(false); }, [track]);
+  // "muted" = o sistema não está a entregar som (privacidade do Windows, botão de silêncio, outro programa).
+  useEffect(() => {
+    if (!track) return undefined;
+    const update = () => setMuted(track.muted);
+    update();
+    track.addEventListener("mute", update);
+    track.addEventListener("unmute", update);
+    return () => { track.removeEventListener("mute", update); track.removeEventListener("unmute", update); };
+  }, [track]);
+  useEffect(() => { if (level > 0.2) { setHeard(true); setQuiet(false); } }, [level]);
+  useEffect(() => {
+    if (!track || heard) return undefined;
+    const timer = window.setTimeout(() => setQuiet(true), 5000);
+    return () => window.clearTimeout(timer);
+  }, [track, heard]);
+  const name = track?.label && !/^MediaStreamAudioDestinationNode/.test(track.label) ? track.label : "";
+  return <span className="live-meter-wrap">
+    <span className="live-meter" role="meter" aria-label="Nível do som" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(level * 100)}>
+      <span style={{ transform: `scaleX(${Math.min(1, level * 1.6)})` }} />
+    </span>
+    <small className={`live-meter-note${quiet || muted ? " is-quiet" : ""}`}>
+      {!track ? "Sem som"
+        : muted ? `O Windows não está a deixar passar o som${name ? ` de «${name}»` : ""}. Em Definições do Windows → Privacidade → Microfone, permite o acesso às apps e ao Chrome, e confirma que o microfone não está em silêncio.`
+          : quiet ? (original
+            ? `Chega muito pouco som${name ? ` de «${name}»` : ""}. Desliga «Som original»: o volume do microfone passa a ser automático.`
+            : `Não chega som${name ? ` de «${name}»` : ""}. Se não for o teu microfone, escolhe outro em «Som». Confirma também o volume em Definições do Windows → Sistema → Som → Entrada.`)
+            : heard ? `A ouvir${name ? `: ${name}` : ""}` : `Fala para testar${name ? ` · ${name}` : ""}`}
+    </small>
+  </span>;
+}
+
+const MIC_ERROR_TEXT = {
+  NotAllowedError: "O Chrome bloqueou o microfone. Carrega no ícone ao lado do endereço, permite o microfone e escolhe o ecrã outra vez.",
+  NotFoundError: "Não encontrámos nenhum microfone ligado. Liga-o e escolhe o ecrã outra vez.",
+  OverconstrainedError: "O microfone escolhido em «Som» já não está ligado. Escolhe outro.",
+  NotReadableError: "O microfone está a ser usado por outro programa (por exemplo Discord, Zoom ou Teams). Fecha-o e escolhe o ecrã outra vez."
+};
+
+// Níveis do som do estúdio. No ecrã há duas fontes (microfone e som do ecrã), cada uma com a sua barra,
+// para se perceber logo qual delas não está a entrar.
+function LiveAudioMeters({ stream, original = false }) {
+  if (!stream?.isScreen) return <div className="live-studio-level"><span>Nível do som</span><AudioMeter stream={stream} original={original} /></div>;
+  return <div className="live-studio-level live-studio-levels">
+    <div>
+      <span><Icon name="mic" size={14} /> Microfone</span>
+      {stream.micStream
+        ? <AudioMeter stream={stream.micStream} original={original} />
+        : <small className="live-meter-note is-quiet">{MIC_ERROR_TEXT[stream.micError] || "Não foi possível abrir o microfone. Escolhe o ecrã outra vez."}</small>}
+    </div>
+    <div>
+      <span><Icon name="devices" size={14} /> Som do ecrã</span>
+      {stream.screenAudio
+        ? <AudioMeter stream={stream.screenAudio} />
+        : <small className="live-meter-note">Sem som do ecrã. Para o incluir, escolhe um separador ou o ecrã inteiro e ativa «Partilhar áudio».</small>}
+    </div>
+  </div>;
+}
+
+// Enviar para o servidor de vídeo por WHIP (o mesmo protocolo que o OBS usa). Prefere H.264,
+// que o HLS e todos os telemóveis tocam.
+async function publishWhip(url, stream, kbps, iceServers) {
+  const pc = new RTCPeerConnection({ iceServers: iceServers || [] });
+  for (const track of stream.getTracks()) {
+    const transceiver = pc.addTransceiver(track, {
+      direction: "sendonly", streams: [stream],
+      ...(track.kind === "video" ? { sendEncodings: [{ maxBitrate: kbps * 1000 }] } : {})
+    });
+    if (track.kind === "video" && RTCRtpSender.getCapabilities) {
+      const codecs = RTCRtpSender.getCapabilities("video")?.codecs || [];
+      const h264 = codecs.filter(codec => codec.mimeType === "video/H264");
+      if (h264.length && transceiver.setCodecPreferences) transceiver.setCodecPreferences([...h264, ...codecs.filter(codec => codec.mimeType !== "video/H264")]);
+    }
+  }
+  await pc.setLocalDescription(await pc.createOffer());
+  await waitForIce(pc, 2500);
+  const response = await fetch(url, { method: "POST", headers: { "Content-Type": "application/sdp" }, body: pc.localDescription.sdp });
+  if (!response.ok) { pc.close(); throw new Error(response.status === 401 ? "O servidor de vídeo recusou a emissão." : "Não foi possível ligar ao servidor de vídeo."); }
+  await pc.setRemoteDescription({ type: "answer", sdp: await response.text() });
+  const location = response.headers.get("Location");
+  return { pc, resource: location ? new URL(location, url).href : "" };
+}
+
+// Ver por HLS (hls.js, carregado só quando é preciso; Safari usa o leitor nativo).
+function useHlsPlayback(videoRef, url, enabled, setState) {
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!url || !enabled || !video) return undefined;
+    let hls = null;
+    let retry = 0;
+    let cancelled = false;
+    const again = state => { setState(state); window.clearTimeout(retry); retry = window.setTimeout(start, 3000); };
+    async function start() {
+      if (cancelled) return;
+      hls?.destroy();
+      hls = null;
+      const { default: Hls } = await import("hls.js");
+      if (cancelled) return;
+      if (Hls.isSupported()) {
+        hls = new Hls({ enableWorker: false, liveSyncDurationCount: 3, manifestLoadingMaxRetry: 1 });
+        hls.on(Hls.Events.MANIFEST_PARSED, () => { video.play().catch(() => {}); setState("live"); });
+        hls.on(Hls.Events.ERROR, (_event, data) => {
+          if (!data.fatal) return;
+          // 404: o servidor ainda não recebe o vídeo (OBS a ligar). Outro erro: rede; tenta de novo.
+          again(data.response?.code === 404 ? "waiting" : "reconnecting");
+        });
+        hls.loadSource(url);
+        hls.attachMedia(video);
+      } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+        video.src = url;
+        video.onloadedmetadata = () => { video.play().catch(() => {}); setState("live"); };
+        video.onerror = () => again("waiting");
+      } else setState("unsupported");
+    }
+    setState("connecting");
+    start();
+    return () => {
+      cancelled = true;
+      window.clearTimeout(retry);
+      hls?.destroy();
+      video.onloadedmetadata = null;
+      video.onerror = null;
+      video.removeAttribute("src");
+      video.load();
+    };
+  }, [url, enabled]);
+}
+
+const maskKey = key => key ? `${key.slice(0, 10)}${"•".repeat(14)}` : "";
+
+function CopyField({ label, value, secret }) {
+  const [shown, setShown] = useState(!secret);
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(value); setCopied(true); window.setTimeout(() => setCopied(false), 1800); } catch { setShown(true); }
+  };
+  return <div className="copy-field">
+    <span className="copy-field-label">{label}</span>
+    <div className="copy-field-row">
+      <code>{shown ? value : maskKey(value)}</code>
+      {secret && <button type="button" className="btn secondary" onClick={() => setShown(value => !value)}>{shown ? "Esconder" : "Mostrar"}</button>}
+      <button type="button" className="btn secondary" onClick={copy}><Icon name={copied ? "check" : "copy"} size={15} /> {copied ? "Copiado" : "Copiar"}</button>
+    </div>
+  </div>;
+}
+
+// Chave de transmissão para OBS, vMix, Streamlabs ou encoders e placas com saída RTMP.
+function StreamKeyPanel() {
+  const [info, setInfo] = useState(null);
+  const [fresh, setFresh] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [protocol, setProtocol] = useState("rtmp");
+  useEffect(() => { api("/lives/stream-key").then(setInfo).catch(loadError => setError(loadError.message)); }, []);
+  const generate = async () => {
+    if (info?.hasKey && !window.confirm("Gerar uma chave nova? A antiga deixa de funcionar e uma emissão em curso com ela é cortada.")) return;
+    setBusy(true);
+    setError("");
+    try { const result = await api("/lives/stream-key", { method: "POST" }); setInfo(result); setFresh(result); }
+    catch (keyError) { setError(keyError.message); }
+    finally { setBusy(false); }
+  };
+  if (!info) return <div className="creator-loading">{error || "A carregar..."}</div>;
+  const data = fresh || info;
+  return <div className="stream-key">
+    <div className="ad-toggle" role="group" aria-label="Protocolo">
+      <button type="button" aria-pressed={protocol === "rtmp"} onClick={() => setProtocol("rtmp")}>RTMP</button>
+      {data.whip && <button type="button" aria-pressed={protocol === "whip"} onClick={() => setProtocol("whip")}>WHIP</button>}
+    </div>
+    {protocol === "rtmp" ? <>
+      <CopyField label="Servidor" value={data.rtmp?.server || ""} />
+      {fresh ? <CopyField label="Chave de transmissão" value={fresh.rtmp.streamKey} secret />
+        : <p className="muted stream-key-hint">{info.hasKey ? "A tua chave está guardada de forma segura e não pode ser mostrada outra vez. Se a perdeste, gera uma nova." : "Ainda não tens chave. Gera uma para ligar o OBS."}</p>}
+    </> : <>
+      <CopyField label="Servidor (WHIP)" value={data.whip.url} />
+      {fresh ? <CopyField label="Bearer token" value={fresh.whip.token} secret />
+        : <p className="muted stream-key-hint">Usa a mesma chave como «Bearer token». Gera uma nova se não a tens.</p>}
+    </>}
+    {fresh && <p className="info-draft" role="status"><Icon name="lock" size={15} /> Copia a chave agora: por segurança só é mostrada uma vez. Nunca a mostres no ecrã do direto.</p>}
+    {error && <p className="error" role="alert">{error}</p>}
+    <button type="button" className="btn secondary" onClick={generate} disabled={busy}><Icon name="reset" size={15} /> {busy ? "A gerar..." : info.hasKey ? "Gerar nova chave" : "Gerar chave"}</button>
+    <details className="stream-key-help">
+      <summary>Como configurar o OBS</summary>
+      <ol>
+        <li>No OBS: <strong>Definições → Transmissão</strong>, serviço <strong>Personalizado</strong> ({protocol === "rtmp" ? "RTMP" : "WHIP"}).</li>
+        <li>Cola o servidor e a {protocol === "rtmp" ? "chave" : "bearer token"} acima.</li>
+        <li><strong>Saída</strong>: H.264 (x264 ou NVENC), CBR, 2500–4500 kbps, intervalo de keyframes 2 s, áudio AAC 160 kbps.</li>
+        <li><strong>Vídeo</strong>: 1280×720 a 30 fps (ou 1920×1080 com boa internet).</li>
+        <li>Cria o direto aqui no Biva e depois carrega em <strong>Iniciar transmissão</strong> no OBS.</li>
+      </ol>
+      <p className="muted">A placa de captura (Elgato, AVerMedia...) entra no OBS como «Dispositivo de captura de vídeo». Também a podes escolher diretamente no estúdio do Biva, sem OBS.</p>
+    </details>
+  </div>;
+}
+
+// Sem servidor de vídeo (MEDIA_* no .env), o Biva não consegue receber o vídeo de programas externos.
+function ObsUnavailable() {
+  return <div className="obs-unavailable">
+    <span className="ad-kind-icon"><Icon name="info" size={18} /></span>
+    <div>
+      <strong>A transmissão por OBS ainda não está ligada neste servidor</strong>
+      <p className="muted">Para usar OBS, vMix ou Streamlabs com chave de transmissão, a equipa do Biva tem de ligar o servidor de vídeo (MediaMTX). Enquanto isso, podes emitir pelo browser: escolhe «Câmara ou placa» — a placa de captura e a câmara virtual do OBS aparecem lá.</p>
+    </div>
+  </div>;
+}
+
+// A chave também se vê e gera fora de um direto (como nas definições de transmissão de outras plataformas).
+function StreamKeyDialog({ onClose }) {
+  const [enabled, setEnabled] = useState(null);
+  useEffect(() => { api("/lives/config").then(result => setEnabled(Boolean(result.obs))).catch(() => setEnabled(false)); }, []);
+  useEffect(() => {
+    const onKey = event => { if (event.key === "Escape") onClose(); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  return createPortal(<div className="modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
+    <div className="modal card stream-key-dialog" role="dialog" aria-modal="true" aria-labelledby="stream-key-title">
+      <div className="share-dialog-head">
+        <h2 id="stream-key-title">Chave de transmissão</h2>
+        <button className="round-button" type="button" aria-label="Fechar" onClick={onClose}><Icon name="close" size={18} /></button>
+      </div>
+      <p className="muted">Usa-a no OBS, vMix, Streamlabs ou numa placa/encoder com saída RTMP. Depois cria o direto no Biva com «OBS ou programa» e inicia a transmissão no programa.</p>
+      {enabled === null ? <div className="creator-loading">A carregar...</div> : enabled ? <StreamKeyPanel /> : <ObsUnavailable />}
+    </div>
+  </div>, document.body);
 }
 
 function StartLiveDialog({ onClose }) {
   const navigate = useNavigate();
   const videoRef = useRef(null);
+  const [config, setConfig] = useState(null);
+  const [mode, setMode] = useState("camera");
   const [stream, setStream] = useState(null);
-  const [title, setTitle] = useState("");
+  const [videoId, setVideoId] = useState("");
+  const [audioId, setAudioId] = useState("");
+  const [quality, setQuality] = useState("720p30");
+  const [originalAudio, setOriginalAudio] = useState(false);
+  const [details, setDetails] = useState({ title: "", description: "", category: "" });
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  useEffect(() => {
-    let current = null;
-    if (!navigator.mediaDevices?.getUserMedia) { setError("Este browser não permite usar a câmara. Usa o Chrome, Edge ou Safari atualizados."); return undefined; }
-    navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1280 }, height: { ideal: 720 } }, audio: true })
-      .then(media => { current = media; setStream(media); if (videoRef.current) videoRef.current.srcObject = media; })
-      .catch(() => setError("Não foi possível abrir a câmara e o microfone. Autoriza o acesso no browser e tenta outra vez."));
-    return () => { if (current && current !== pendingHostStream) current.getTracks().forEach(track => track.stop()); };
-  }, []);
+  const streamRef = useRef(null);
+  // Sem câmara: abre só o microfone, para a barra do som e a lista de microfones funcionarem na mesma.
+  const [micPreview, setMicPreview] = useState(null);
+  const micPreviewRef = useRef(null);
+  const setMicOnly = next => {
+    stopStream(micPreviewRef.current);
+    micPreviewRef.current = next;
+    setMicPreview(next);
+  };
+  const devices = useMediaDevices(Boolean(stream || micPreview));
+
+  useEffect(() => { api("/lives/config").then(setConfig).catch(() => setConfig({ mode: "p2p", categories: Object.keys(LIVE_CATEGORY_LABELS) })); }, []);
+  const replaceStream = next => {
+    if (streamRef.current && streamRef.current !== pendingHostStream) stopStream(streamRef.current);
+    streamRef.current = next;
+    setStream(next);
+    if (videoRef.current) videoRef.current.srcObject = next;
+  };
+  const open = async (kind = mode) => {
+    setError("");
+    setMicOnly(null);
+    try {
+      replaceStream(await openLiveSource({ kind, videoId, audioId, quality, originalAudio }));
+    } catch (openError) {
+      replaceStream(null);
+      if (kind === "camera" && openError.name === "NoCameraError") {
+        navigator.mediaDevices.getUserMedia({ audio: audioConstraints(audioId, originalAudio) })
+          .then(setMicOnly)
+          .catch(() => {});
+      }
+      // No ecrã, "NotAllowedError" quase sempre quer dizer que a pessoa fechou a janela de escolha.
+      setError(kind === "screen" && openError.name === "NotAllowedError"
+        ? "Não escolheste nenhum ecrã. Carrega em «Escolher ecrã ou janela» e escolhe um separador, janela ou ecrã inteiro."
+        : liveSourceError(openError));
+    }
+  };
+  // Câmara/placa: reabre ao mudar de dispositivo, qualidade ou tipo de som. Ecrã: só quando se carrega no botão.
+  useEffect(() => { if (mode === "camera") open("camera"); }, [mode, videoId, audioId, quality, originalAudio]);
+  useEffect(() => { setError(""); setMicOnly(null); if (mode !== "camera") replaceStream(null); }, [mode]);
+  useEffect(() => () => { if (streamRef.current !== pendingHostStream) stopStream(streamRef.current); stopStream(micPreviewRef.current); }, []);
+
+  const update = (key, value) => setDetails(current => ({ ...current, [key]: value }));
   const start = async event => {
     event.preventDefault();
     setBusy(true);
     setError("");
     try {
-      const result = await api("/lives", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title }) });
-      pendingHostStream = stream;
+      const result = await api("/lives", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...details, source: mode === "obs" ? "obs" : "browser" }) });
+      if (mode !== "obs") { pendingHostStream = stream; pendingHostSettings = { quality, videoId, audioId, originalAudio, kind: mode }; }
       navigate(`/live/${result.id}`);
     } catch (startError) {
       setError(startError.message);
       setBusy(false);
     }
   };
+  const canStart = details.title.trim() && (mode === "obs" ? Boolean(config?.obs) : stream);
+  const sources = [
+    ["camera", "video", "Câmara ou placa", "Webcam, placa de captura ou câmara virtual do OBS"],
+    ["screen", "devices", "Ecrã", "Uma janela, separador ou o ecrã inteiro"],
+    ["obs", "live", "OBS ou programa", "Chave de transmissão RTMP ou WHIP"]
+  ];
+
   return createPortal(<div className="modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget && !busy) onClose(); }}>
-    <form className="modal card start-live-dialog" role="dialog" aria-modal="true" aria-labelledby="start-live-title" onSubmit={start}>
+    <form className="modal card start-live-dialog live-studio" role="dialog" aria-modal="true" aria-labelledby="start-live-title" onSubmit={start}>
       <div className="share-dialog-head">
-        <h2 id="start-live-title">Começar um direto</h2>
+        <h2 id="start-live-title">Estúdio do direto</h2>
         <button className="round-button" type="button" aria-label="Fechar" onClick={onClose} disabled={busy}><Icon name="close" size={18} /></button>
       </div>
-      <div className="start-live-preview">
-        <video ref={videoRef} autoPlay muted playsInline />
-        {!stream && !error && <span>A abrir a câmara...</span>}
-        {stream && <LiveBadge small />}
-      </div>
-      <label className="start-live-title">Título do direto<input required maxLength={120} value={title} onChange={event => setTitle(event.target.value)} placeholder="Ex.: Conversa sobre música angolana" /></label>
-      <p className="muted create-page-note">Quem te segue recebe uma notificação. O vídeo chega diretamente a até 8 pessoas; o chat e as estrelas funcionam para todos.</p>
-      {error && <p className="error" role="alert">{error}</p>}
-      <div className="modal-actions">
-        <button className="btn secondary" type="button" onClick={onClose} disabled={busy}>Cancelar</button>
-        <button className="btn live-start-button" type="submit" disabled={busy || !stream || !title.trim()}><Icon name="live" size={16} /> {busy ? "A começar..." : "Entrar em direto"}</button>
+      <div className="live-studio-grid">
+        <div className="live-studio-media">
+          <div className="ad-kind live-sources" role="radiogroup" aria-label="De onde vem o vídeo">
+            {sources.map(([key, icon, label, hint]) => <label key={key} className={mode === key ? "is-selected" : ""}>
+              <input type="radio" name="live-source" checked={mode === key} onChange={() => setMode(key)} />
+              <span className="ad-kind-icon"><Icon name={icon} size={17} /></span>
+              <span><strong>{label}</strong><small>{hint}</small></span>
+            </label>)}
+          </div>
+          {mode === "obs" ? (config?.obs ? <StreamKeyPanel /> : <ObsUnavailable />) : <>
+            <div className="start-live-preview">
+              <video ref={videoRef} autoPlay muted playsInline />
+              {!stream && (mode === "screen"
+                ? <button type="button" className="btn" onClick={() => open("screen")}><Icon name="devices" size={16} /> Escolher ecrã ou janela</button>
+                : error
+                  ? <button type="button" className="btn secondary" onClick={() => open("camera")}><Icon name="reset" size={16} /> Tentar outra vez</button>
+                  : <span>A abrir a câmara...</span>)}
+              {stream && <LiveBadge small />}
+              {stream && stream.getVideoTracks()[0] && <span className="live-studio-res">{(() => { const settings = stream.getVideoTracks()[0].getSettings(); return settings.height ? `${settings.width}×${settings.height}${settings.frameRate ? ` · ${Math.round(settings.frameRate)} fps` : ""}` : ""; })()}</span>}
+            </div>
+            <div className="live-studio-devices">
+              {mode === "camera" && <label>Vídeo
+                <select value={videoId} onChange={event => setVideoId(event.target.value)}>
+                  <option value="">Câmara predefinida</option>
+                  {devices.video.map((device, index) => <option key={device.deviceId || index} value={device.deviceId}>{device.label || `Câmara ${index + 1}`}</option>)}
+                </select>
+              </label>}
+              <label>Som
+                <select value={audioId} onChange={event => setAudioId(event.target.value)}>
+                  <option value="">Microfone predefinido</option>
+                  {devices.audio.map((device, index) => <option key={device.deviceId || index} value={device.deviceId}>{device.label || `Microfone ${index + 1}`}</option>)}
+                </select>
+              </label>
+              <label>Qualidade
+                <select value={quality} onChange={event => setQuality(event.target.value)}>
+                  {Object.entries(LIVE_QUALITIES).map(([key, preset]) => <option key={key} value={key}>{preset.label}</option>)}
+                </select>
+              </label>
+              <LiveAudioMeters stream={stream || micPreview} original={originalAudio} />
+            </div>
+            {stream && !stream.getAudioTracks().length && <p className="live-studio-nosound" role="status">
+              <Icon name="micOff" size={16} />
+              {stream.micError === "NotAllowedError"
+                ? "O browser bloqueou o microfone, por isso o direto vai sem som. Carrega no cadeado ao lado do endereço, permite o microfone e volta a escolher a fonte."
+                : `Não encontrámos nenhum microfone: o direto vai sem som. Liga um microfone e escolhe-o em «Som»${mode === "screen" ? ", ou partilha o som do separador ao escolher o ecrã" : ""}.`}
+            </p>}
+            <label className="live-switch">
+              <input type="checkbox" checked={originalAudio} onChange={event => setOriginalAudio(event.target.checked)} />
+              <span><strong>Som original</strong><small>Para placas de captura, mesas de mistura e música: sem cancelamento de eco nem redução de ruído.</small></span>
+            </label>
+            {mode === "screen" && stream && <button type="button" className="btn secondary" onClick={() => open("screen")}>Escolher outro ecrã</button>}
+          </>}
+        </div>
+        <div className="live-studio-details">
+          <label>Título<input required maxLength={120} value={details.title} onChange={event => update("title", event.target.value)} placeholder="Ex.: Conversa sobre música angolana" /></label>
+          <label><span className="ad-field-head">Descrição <CharCount value={details.description} max={500} /></span>
+            <textarea rows={4} maxLength={500} value={details.description} onChange={event => update("description", event.target.value)} placeholder="Do que vais falar, convidados, horário..." /></label>
+          <label>Categoria
+            <select value={details.category} onChange={event => update("category", event.target.value)}>
+              <option value="">Sem categoria</option>
+              {(config?.categories || Object.keys(LIVE_CATEGORY_LABELS)).map(key => <option key={key} value={key}>{LIVE_CATEGORY_LABELS[key] || key}</option>)}
+            </select>
+          </label>
+          <p className="muted create-page-note">{config?.mode === "cdn"
+            ? "Quem te segue recebe uma notificação. O vídeo chega a todas as pessoas, mesmo a quem não tem conta."
+            : "Quem te segue recebe uma notificação. Neste servidor o vídeo chega diretamente a até 8 pessoas; o chat e as estrelas funcionam para todos."}</p>
+          {error && <p className="error" role="alert">{error}</p>}
+          <div className="modal-actions">
+            <button className="btn secondary" type="button" onClick={onClose} disabled={busy}>Cancelar</button>
+            <button className="btn live-start-button" type="submit" disabled={busy || !canStart}><Icon name="live" size={16} /> {busy ? "A começar..." : mode === "obs" ? "Criar direto" : "Entrar em direto"}</button>
+          </div>
+        </div>
       </div>
     </form>
   </div>, document.body);
+}
+
+function LiveBadge({ small }) {
+  return <span className={`live-badge${small ? " is-small" : ""}`}><span className="live-dot" aria-hidden="true" />Ao vivo</span>;
 }
 
 function LivePage() {
@@ -4598,25 +5385,38 @@ function LiveList() {
   const { user } = useContext(UserContext);
   const [lives, setLives] = useState(null);
   const [starting, setStarting] = useState(false);
+  const [keyOpen, setKeyOpen] = useState(false);
+  const [category, setCategory] = useState("");
   const [, tick] = useState(0);
   const load = () => api("/lives").then(result => setLives(result.lives)).catch(() => setLives([]));
   usePolling(load, 15000, true);
   useEffect(() => { load(); const timer = window.setInterval(() => tick(value => value + 1), 1000); return () => window.clearInterval(timer); }, []);
   const mine = lives?.find(live => user && live.username === user.username);
+  const categories = [...new Set((lives || []).map(live => live.category).filter(Boolean))];
+  const shown = (lives || []).filter(live => !category || live.category === category);
   return <div className="pages-view live-list">
     <header className="pages-head">
       <div><h1>Diretos</h1><p>Vê quem está a emitir agora, conversa no chat e apoia com estrelas.</p></div>
-      {user ? (mine ? <Link className="btn live-start-button" to={`/live/${mine.id}`}><Icon name="live" size={16} /> Voltar ao teu direto</Link>
-        : <button className="btn live-start-button" type="button" onClick={() => setStarting(true)}><Icon name="live" size={16} /> Começar um direto</button>)
-        : <Link className="btn" to="/login">Entrar para emitir</Link>}
+      <div className="live-head-actions">
+        {user && <button className="btn secondary" type="button" onClick={() => setKeyOpen(true)}><Icon name="lock" size={16} /> Chave para OBS</button>}
+        {user ? (mine ? <Link className="btn live-start-button" to={`/live/${mine.id}`}><Icon name="live" size={16} /> Voltar ao teu direto</Link>
+          : <button className="btn live-start-button" type="button" onClick={() => setStarting(true)}><Icon name="live" size={16} /> Começar um direto</button>)
+          : <Link className="btn" to="/login">Entrar para emitir</Link>}
+      </div>
     </header>
+    {keyOpen && <StreamKeyDialog onClose={() => setKeyOpen(false)} />}
+    {categories.length > 0 && <div className="ad-filters live-categories" role="group" aria-label="Categorias">
+      <button type="button" aria-pressed={!category} onClick={() => setCategory("")}>Todos <span>{lives.length}</span></button>
+      {categories.map(key => <button key={key} type="button" aria-pressed={category === key} onClick={() => setCategory(key)}>
+        {LIVE_CATEGORY_LABELS[key] || key} <span>{lives.filter(live => live.category === key).length}</span></button>)}
+    </div>}
     {!lives && <div className="empty card">A procurar diretos...</div>}
     {lives && !lives.length && <div className="empty card pages-empty live-empty">
       <span className="group-lock-icon live-empty-icon"><Icon name="live" size={26} /></span>
       <p>Ninguém está em direto neste momento. Sê a primeira pessoa: mostra o que estás a fazer, responde a perguntas, recebe estrelas.</p>
       {user && <button className="btn live-start-button" type="button" onClick={() => setStarting(true)}><Icon name="live" size={16} /> Começar um direto</button>}
     </div>}
-    {lives?.length > 0 && <div className="pages-grid">{lives.map(live => <Link key={live.id} to={`/live/${live.id}`} className="live-card card">
+    {shown.length > 0 && <div className="pages-grid">{shown.map(live => <Link key={live.id} to={`/live/${live.id}`} className="live-card card">
       <span className={`live-card-cover tone-page-${pageTone(live.username)}`}>
         <span className="live-card-avatar"><Avatar user={live} size="large" /></span>
         <LiveBadge small />
@@ -4625,21 +5425,70 @@ function LiveList() {
       <span className="live-card-body">
         <strong>{live.title}</strong>
         <small>{live.display_name}<VerifiedBadge show={live.is_verified} /> · há {liveDuration(live.started_at)}</small>
+        {live.category && <small className="live-card-category">{LIVE_CATEGORY_LABELS[live.category] || live.category}</small>}
       </span>
     </Link>)}</div>}
     {starting && <StartLiveDialog onClose={() => setStarting(false)} />}
   </div>;
 }
 
+const LIVE_REACTIONS = [["heart", "Coração"], ["like", "Gosto"], ["spark", "Faísca"]];
+
+// Moderadores: escolhidos por quem emite e válidos em todos os seus diretos.
+function LiveModerators() {
+  const [list, setList] = useState(null);
+  const [username, setUsername] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const load = () => api("/lives/moderators").then(result => setList(result.moderators)).catch(loadError => setError(loadError.message));
+  useEffect(() => { load(); }, []);
+  const add = async event => {
+    event.preventDefault();
+    if (!username.trim()) return;
+    setBusy(true);
+    setError("");
+    try {
+      await api("/lives/moderators", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username }) });
+      setUsername("");
+      await load();
+    } catch (addError) {
+      setError(addError.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const remove = async person => {
+    try {
+      await api(`/lives/moderators/${person.id}`, { method: "DELETE" });
+      setList(current => current.filter(item => item.id !== person.id));
+    } catch (removeError) {
+      setError(removeError.message);
+    }
+  };
+  return <div className="live-mods">
+    <h3>Moderadores</h3>
+    <p className="muted">Podem apagar mensagens, fixar e silenciar pessoas no chat. Valem para todos os teus diretos.</p>
+    <form className="live-mods-add" onSubmit={add}>
+      <input value={username} onChange={event => setUsername(event.target.value)} placeholder="@nome_de_utilizador" aria-label="Nome de utilizador do moderador" />
+      <button className="btn secondary" type="submit" disabled={busy || !username.trim()}>Adicionar</button>
+    </form>
+    {error && <p className="error" role="alert">{error}</p>}
+    {list?.length > 0 && <ul className="live-mods-list">{list.map(person => <li key={person.id}>
+      <Avatar user={person} size="tiny" />
+      <span><strong>{person.display_name}</strong><small>@{person.username}</small></span>
+      <button type="button" className="btn secondary icon-only" aria-label={`Retirar ${person.display_name} dos moderadores`} title="Retirar" onClick={() => remove(person)}><Icon name="close" size={15} /></button>
+    </li>)}</ul>}
+  </div>;
+}
+
 function LiveRoom({ liveId }) {
   const { user } = useContext(UserContext);
-  const navigate = useNavigate();
   const [live, setLive] = useState(null);
   const [supporters, setSupporters] = useState([]);
   const [error, setError] = useState("");
   const [comments, setComments] = useState([]);
   const [text, setText] = useState("");
-  const [config, setConfig] = useState({ iceServers: [{ urls: "stun:stun.cloudflare.com:3478" }], giftAmounts: [1, 5, 10, 50, 100] });
+  const [config, setConfig] = useState(null);
   const [videoState, setVideoState] = useState("connecting");
   const [muted, setMuted] = useState(true);
   const [micOn, setMicOn] = useState(true);
@@ -4647,23 +5496,37 @@ function LiveRoom({ liveId }) {
   const [panel, setPanel] = useState("chat");
   const [balance, setBalance] = useState(null);
   const [giftMessage, setGiftMessage] = useState("");
+  const [feedPoll, setFeedPoll] = useState(2500);
+  const [pinned, setPinned] = useState(null);
+  const [roles, setRoles] = useState({ host: "", moderators: [] });
+  const [floats, setFloats] = useState([]);
+  const reactionTotals = useRef(null);
+  const ownReactions = useRef({ heart: 0, like: 0, spark: 0 });
+  const [beatMs, setBeatMs] = useState(30000);
+  const [hostStream, setHostStream] = useState(null);
+  const [studio, setStudio] = useState({ signal: null, stats: null });
+  const [settings, setSettings] = useState(() => pendingHostSettings || { quality: "720p30", videoId: "", audioId: "", originalAudio: false, kind: "camera" });
+  const [blocked, setBlocked] = useState(() => new Set());
   const [, tick] = useState(0);
   const videoRef = useRef(null);
   const chatRef = useRef(null);
   const streamRef = useRef(null);
-  const peers = useRef(new Map());     // quem emite: uma ligação por espectador
-  const viewerPc = useRef(null);       // espectador: a ligação a quem emite
-  const viewerSession = useRef("");    // identifica o pedido atual (ignora respostas antigas)
+  const whip = useRef(null);             // modo cdn: ligação WHIP de quem emite
+  const peers = useRef(new Map());     // modo p2p: uma ligação por espectador
+  const viewerPc = useRef(null);       // modo p2p: a ligação do espectador a quem emite
+  const viewerSession = useRef("");
   const lastSignal = useRef(0);
-  const lastComment = useRef(0);
   const isHost = Boolean(live?.is_host);
   const ended = live?.status === "ended";
+  const cdn = config?.mode === "cdn";
+  const fromObs = live?.source === "obs";
 
   const loadLive = async () => {
     try {
       const result = await api(`/lives/${liveId}`);
       setLive(result.live);
       setSupporters(result.supporters);
+      if (result.live.signal) setStudio({ signal: result.live.signal, stats: result.live.stats });
     } catch (loadError) {
       setError(loadError.message);
     }
@@ -4671,35 +5534,90 @@ function LiveRoom({ liveId }) {
 
   useEffect(() => {
     loadLive();
-    api("/lives/config").then(setConfig).catch(() => {});
+    api("/lives/config").then(setConfig).catch(() => setConfig({ mode: "p2p", iceServers: [{ urls: "stun:stun.cloudflare.com:3478" }], giftAmounts: [1, 5, 10, 50, 100] }));
     const timer = window.setInterval(() => tick(value => value + 1), 1000);
     return () => window.clearInterval(timer);
   }, [liveId]);
+  useEffect(() => { if (user) api("/blocks").then(result => setBlocked(new Set(result.blocked.map(person => person.username)))).catch(() => {}); }, [user?.id]);
 
-  // ----- Quem emite: câmara + uma ligação WebRTC por espectador -----
+  // ----- Quem emite pelo browser: abre a fonte e envia (WHIP em modo cdn) -----
+  const startWhip = async stream => {
+    whip.current?.pc.close();
+    const { whip: url } = await api(`/lives/${liveId}/publish`, { method: "POST" });
+    const preset = LIVE_QUALITIES[settings.quality] || LIVE_QUALITIES["720p30"];
+    const connection = await publishWhip(url, stream, preset.kbps, config.iceServers);
+    whip.current = connection;
+    connection.pc.addEventListener("connectionstatechange", () => {
+      if (connection.pc.connectionState === "failed" && whip.current === connection) {
+        setVideoState("reconnecting");
+        window.setTimeout(() => { if (whip.current === connection && streamRef.current) startWhip(streamRef.current).then(() => setVideoState("live")).catch(() => setVideoState("failed")); }, 2000);
+      }
+    });
+  };
+
   useEffect(() => {
-    if (!isHost || ended) return undefined;
+    if (!isHost || ended || fromObs || !config) return undefined;
     let cancelled = false;
     (async () => {
       let stream = pendingHostStream;
       pendingHostStream = null;
+      pendingHostSettings = null;
       if (!stream) {
-        try { stream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1280 }, height: { ideal: 720 } }, audio: true }); }
+        try { stream = await openLiveSource({ ...settings, kind: settings.kind === "screen" ? "camera" : settings.kind }); }
         catch { setVideoState("no-camera"); return; }
       }
-      if (cancelled) { stream.getTracks().forEach(track => track.stop()); return; }
+      if (cancelled) { stopStream(stream); return; }
       streamRef.current = stream;
+      setHostStream(stream);
       if (videoRef.current) videoRef.current.srcObject = stream;
-      setVideoState("live");
+      if (cdn) {
+        setVideoState("publishing");
+        try { await startWhip(stream); if (!cancelled) setVideoState("live"); }
+        catch (publishError) { if (!cancelled) { setVideoState("failed"); setGiftMessage(publishError.message); } }
+      } else setVideoState("live");
     })();
     return () => {
       cancelled = true;
+      if (whip.current) {
+        if (whip.current.resource) fetch(whip.current.resource, { method: "DELETE" }).catch(() => {});
+        whip.current.pc.close();
+        whip.current = null;
+      }
       peers.current.forEach(pc => pc.close());
       peers.current.clear();
-      streamRef.current?.getTracks().forEach(track => track.stop());
+      stopStream(streamRef.current);
     };
-  }, [isHost, ended]);
+  }, [isHost, ended, fromObs, Boolean(config)]);
 
+  // Trocar de câmara/placa/microfone sem parar o direto: substitui as faixas em todas as ligações.
+  const switchSource = async next => {
+    const merged = { ...settings, ...next };
+    setSettings(merged);
+    try {
+      const stream = await openLiveSource(merged);
+      const senders = [...(whip.current ? whip.current.pc.getSenders() : []), ...[...peers.current.values()].flatMap(pc => pc.getSenders())];
+      for (const track of stream.getTracks()) {
+        for (const sender of senders.filter(item => item.track?.kind === track.kind)) await sender.replaceTrack(track);
+      }
+      const previous = streamRef.current;
+      streamRef.current = stream;
+      setHostStream(stream);
+      if (videoRef.current) videoRef.current.srcObject = stream;
+      setMicOn(true);
+      setCamOn(true);
+      stopStream(previous);
+    } catch (switchError) {
+      setGiftMessage(liveSourceError(switchError));
+    }
+  };
+  const devices = useMediaDevices(isHost && !fromObs && Boolean(hostStream));
+
+  // ----- Quem vê em modo cdn (e quem emite pelo OBS, para confirmar o que sai): HLS -----
+  // Só depois de a configuração chegar é que o <video> existe (antes mostra «A abrir o direto...»).
+  const watchHls = Boolean(live?.playback?.hls && config) && !ended && (!isHost || fromObs);
+  useHlsPlayback(videoRef, live?.playback?.hls, watchHls, setVideoState);
+
+  // ----- Modo p2p (sem servidor de vídeo) -----
   const answerOffer = async signal => {
     const viewerId = signal.from_user;
     peers.current.get(viewerId)?.close();
@@ -4720,9 +5638,8 @@ function LiveRoom({ liveId }) {
     await sendSignal(liveId, viewerId, "answer", JSON.stringify({ session: offer.session, sdp: pc.localDescription.sdp }));
   };
 
-  // ----- Espectador: pede o vídeo a quem emite -----
   const connectViewer = async () => {
-    if (!live || isHost || ended || !user || typeof RTCPeerConnection !== "function") return;
+    if (!live || isHost || ended || !user || cdn || !config || typeof RTCPeerConnection !== "function") return;
     viewerPc.current?.close();
     setVideoState("connecting");
     const pc = new RTCPeerConnection({ iceServers: config.iceServers, iceTransportPolicy: config.iceTransportPolicy || "all" });
@@ -4730,9 +5647,7 @@ function LiveRoom({ liveId }) {
     pc.addTransceiver("video", { direction: "recvonly" });
     pc.addTransceiver("audio", { direction: "recvonly" });
     pc.addEventListener("track", event => { if (videoRef.current) videoRef.current.srcObject = event.streams[0]; setVideoState("live"); });
-    pc.addEventListener("connectionstatechange", () => {
-      if (pc.connectionState === "failed") setVideoState("failed");
-    });
+    pc.addEventListener("connectionstatechange", () => { if (pc.connectionState === "failed") setVideoState("failed"); });
     await pc.setLocalDescription(await pc.createOffer());
     await waitForIce(pc);
     viewerSession.current = Math.random().toString(36).slice(2);
@@ -4740,19 +5655,18 @@ function LiveRoom({ liveId }) {
   };
 
   useEffect(() => {
-    if (live && !isHost && !ended && user) connectViewer().catch(() => setVideoState("failed"));
+    if (config && !cdn && live && !isHost && !ended && user) connectViewer().catch(() => setVideoState("failed"));
     return () => {
       if (viewerPc.current && live && !isHost) { sendSignal(liveId, live.host_id, "bye").catch(() => {}); viewerPc.current.close(); viewerPc.current = null; }
     };
-  }, [live?.id, isHost, ended, user?.id]);
+  }, [live?.id, isHost, ended, user?.id, cdn, Boolean(config)]);
 
-  // Sinais (ofertas para quem emite; respostas para quem vê), sinal de vida e chat.
   usePolling(async () => {
     if (!user || !live || ended) return;
     const result = await api(`/lives/${liveId}/signals?after=${lastSignal.current}`);
     for (const signal of result.signals) {
       lastSignal.current = Math.max(lastSignal.current, signal.id);
-      if (isHost && signal.kind === "offer") await answerOffer(signal).catch(error => console.warn("Live offer:", error.message));
+      if (isHost && signal.kind === "offer") await answerOffer(signal).catch(offerError => console.warn("Live offer:", offerError.message));
       if (isHost && signal.kind === "bye") { peers.current.get(signal.from_user)?.close(); peers.current.delete(signal.from_user); }
       if (!isHost && (signal.kind === "answer" || signal.kind === "bye")) {
         let data = {};
@@ -4764,23 +5678,98 @@ function LiveRoom({ liveId }) {
         if (signal.kind === "bye") setVideoState(data.reason === "full" ? "full" : "connecting");
       }
     }
-  }, 1500, Boolean(user && live && !ended));
+  }, 1500, Boolean(user && live && !ended && config && !cdn));
 
+  // Sinal de vida: quem emite a cada 8 s (mantém o direto e recebe o estado do vídeo); quem vê a cada 30–60 s (o servidor diz).
   usePolling(async () => {
     if (!user || !live || ended) return;
     const beat = await api(`/lives/${liveId}/heartbeat`, { method: "POST" });
-    setLive(current => current && { ...current, viewers: beat.viewers, stars: beat.stars, status: beat.status });
-  }, 8000, Boolean(user && live && !ended));
+    setLive(current => current && { ...current, viewers: beat.viewers, status: beat.status });
+    if (isHost) setStudio({ signal: beat.signal, stats: beat.stats });
+    else if (beat.next) setBeatMs(beat.next);
+  }, isHost ? 8000 : beatMs, Boolean(user && live && !ended));
+  useEffect(() => {
+    if (!user || !live || isHost || ended) return undefined;
+    api(`/lives/${liveId}/heartbeat`, { method: "POST" }).catch(() => {});
+    // Ao sair da sala deixa logo de contar (sem esperar que o sinal de vida expire).
+    return () => { api(`/lives/${liveId}/leave`, { method: "POST" }).catch(() => {}); };
+  }, [live?.id, user?.id, isHost, ended]);
 
-  usePolling(async () => {
-    const result = await api(`/lives/${liveId}/comments?after=${lastComment.current}`);
-    if (!result.comments.length) return;
-    lastComment.current = result.comments[result.comments.length - 1].id;
-    setComments(current => [...current, ...result.comments].slice(-150));
-    if (result.comments.some(comment => comment.stars)) loadLive();
-  }, 2500, Boolean(live));
+  // Chat, estrelas e audiência: um feed igual para todos (cacheável), lido com mais calma em diretos grandes.
+  // Reações a subir no vídeo (no máximo 24 ao mesmo tempo, para não pesar em telemóveis).
+  const spawnFloats = (kind, count) => {
+    const fresh = Array.from({ length: count }, () => ({
+      id: Math.random().toString(36).slice(2), kind, x: Math.round(Math.random() * 40), drift: Math.round(Math.random() * 50 - 25)
+    }));
+    setFloats(current => [...current, ...fresh].slice(-24));
+    window.setTimeout(() => setFloats(current => current.filter(item => !fresh.includes(item))), 2600);
+  };
 
-  useEffect(() => { chatRef.current?.scrollTo({ top: chatRef.current.scrollHeight }); }, [comments.length]);
+  const applyFeed = feed => {
+    setComments(current => {
+      // O feed traz as últimas mensagens visíveis: as apagadas pela moderação desaparecem também aqui.
+      const ids = new Set(feed.comments.map(comment => comment.id));
+      const oldest = feed.comments[0]?.id ?? Infinity;
+      const kept = current.filter(comment => comment.id < oldest || ids.has(comment.id));
+      const last = kept.at(-1)?.id || 0;
+      const fresh = feed.comments.filter(comment => comment.id > last);
+      return fresh.length || kept.length !== current.length ? [...kept, ...fresh].slice(-150) : current;
+    });
+    setPinned(feed.pinned || null);
+    setRoles({ host: feed.host || "", moderators: feed.moderators || [] });
+    if (feed.reactions) {
+      const previous = reactionTotals.current;
+      reactionTotals.current = feed.reactions;
+      if (previous) for (const [kind, total] of Object.entries(feed.reactions)) {
+        const delta = Math.max(0, total - (previous[kind] || 0));
+        const mine = Math.min(delta, ownReactions.current[kind] || 0);
+        ownReactions.current[kind] = (ownReactions.current[kind] || 0) - mine;
+        if (delta - mine > 0) spawnFloats(kind, Math.min(delta - mine, 8));
+      }
+    }
+    setSupporters(feed.supporters);
+    setFeedPoll(feed.poll || 2500);
+    setLive(current => current && { ...current, stars: feed.stars, viewers: feed.viewers, status: feed.status === "ended" ? "ended" : current.status });
+  };
+  const loadFeed = () => api(`/lives/${liveId}/feed`).then(applyFeed);
+  useEffect(() => { if (live?.id) loadFeed().catch(() => {}); }, [live?.id]);
+  usePolling(loadFeed, feedPoll, Boolean(live && !ended));
+
+  const visibleComments = blocked.size ? comments.filter(comment => !blocked.has(comment.username)) : comments;
+  useEffect(() => { chatRef.current?.scrollTo({ top: chatRef.current.scrollHeight }); }, [visibleComments.length]);
+
+  const react = async kind => {
+    spawnFloats(kind, 1);
+    ownReactions.current[kind] = (ownReactions.current[kind] || 0) + 1;
+    try {
+      const result = await api(`/lives/${liveId}/react`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind }) });
+      if (!result.counted) ownReactions.current[kind] -= 1;
+    } catch {
+      ownReactions.current[kind] -= 1;
+    }
+  };
+
+  const myRole = isHost ? "host" : user && roles.moderators.includes(user.username) ? "moderator" : null;
+  const roleOf = username => username && username === roles.host ? "host" : roles.moderators.includes(username) ? "moderator" : null;
+  const moderate = async (action, comment) => {
+    setGiftMessage("");
+    const json = body => ({ method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    try {
+      if (action === "delete") {
+        await api(`/lives/${liveId}/comments/${comment.id}`, { method: "DELETE" });
+        setComments(current => current.filter(item => item.id !== comment.id));
+      }
+      if (action === "pin") await api(`/lives/${liveId}/pin`, json({ commentId: comment.id }));
+      if (action === "unpin") await api(`/lives/${liveId}/pin`, json({ commentId: null }));
+      if (action === "mute") {
+        await api(`/lives/${liveId}/mute`, json({ username: comment.username, minutes: 10 }));
+        setGiftMessage(`${comment.display_name} não pode escrever no chat durante 10 minutos.`);
+      }
+      loadFeed().catch(() => {});
+    } catch (moderateError) {
+      setGiftMessage(moderateError.message);
+    }
+  };
 
   const sendComment = async event => {
     event.preventDefault();
@@ -4789,6 +5778,7 @@ function LiveRoom({ liveId }) {
     setText("");
     try {
       await api(`/lives/${liveId}/comments`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ body }) });
+      loadFeed().catch(() => {});
     } catch (sendError) {
       setText(body);
       setGiftMessage(sendError.message);
@@ -4800,6 +5790,7 @@ function LiveRoom({ liveId }) {
     try {
       const result = await api(`/lives/${liveId}/stars`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ amount }) });
       setBalance(result.balance);
+      loadFeed().catch(() => {});
     } catch (giftError) {
       setGiftMessage(giftError.message);
     }
@@ -4815,8 +5806,15 @@ function LiveRoom({ liveId }) {
   const endLive = async () => {
     if (!window.confirm("Terminar o direto para toda a gente?")) return;
     try {
+      // Fecha primeiro a emissão WHIP (depois de terminar, o servidor já a teria cortado).
+      if (whip.current) {
+        const { pc, resource } = whip.current;
+        whip.current = null;
+        if (resource) await fetch(resource, { method: "DELETE" }).catch(() => {});
+        pc.close();
+      }
       await api(`/lives/${liveId}/end`, { method: "POST" });
-      streamRef.current?.getTracks().forEach(track => track.stop());
+      stopStream(streamRef.current);
       await loadLive();
     } catch (endError) {
       setError(endError.message);
@@ -4826,65 +5824,141 @@ function LiveRoom({ liveId }) {
   useEffect(() => { if (user && !isHost) api("/stars").then(result => setBalance(result.balance)).catch(() => {}); }, [user?.id, isHost]);
 
   if (error && !live) return <div className="page narrow"><div className="empty card">{error} <Link to="/live">Ver diretos</Link></div></div>;
-  if (!live) return <div className="page narrow"><div className="empty card">A abrir o direto...</div></div>;
+  if (!live || !config) return <div className="page narrow"><div className="empty card">A abrir o direto...</div></div>;
 
+  const needsLogin = !user && !cdn;
   const overlayText = {
     connecting: "A ligar ao direto...",
-    failed: "Não foi possível receber o vídeo nesta rede. O chat e as estrelas continuam a funcionar.",
-    full: "O vídeo chegou ao limite de espectadores. Continua no chat — o vídeo para muitas pessoas chega em breve.",
+    publishing: "A enviar o vídeo para o servidor...",
+    reconnecting: "A ligação falhou. A tentar outra vez...",
+    waiting: isHost ? "À espera do sinal do OBS. Carrega em «Iniciar transmissão» no programa." : "À espera do vídeo de quem emite...",
+    failed: isHost ? "Não foi possível enviar o vídeo. Verifica a internet e recarrega a página." : "Não foi possível receber o vídeo nesta rede. O chat e as estrelas continuam a funcionar.",
+    full: "O vídeo chegou ao limite de espectadores deste servidor. Continua no chat.",
+    unsupported: "Este browser não consegue tocar o direto. Atualiza-o ou usa o Chrome.",
     "no-camera": "Não foi possível abrir a câmara. Autoriza o acesso e recarrega a página."
   }[videoState];
+  const signal = studio.signal;
+  const stats = studio.stats;
 
   return <div className="live-room">
     <Link className="page-back" to="/live"><Icon name="previous" size={18} /> Todos os diretos</Link>
     <div className="live-layout">
       <section className="live-stage">
         <div className={`live-video${ended ? " is-ended" : ""}`}>
-          <video ref={videoRef} autoPlay playsInline muted={isHost || muted} />
+          <video ref={videoRef} autoPlay playsInline muted={(isHost && !fromObs) || muted} />
           {ended ? <div className="live-overlay is-ended">
             <Avatar user={live} size="large" />
             <strong>O direto terminou</strong>
-            <span>{formatCount(live.peak_viewers)} {live.peak_viewers === 1 ? "pessoa viu" : "pessoas viram"} ao mesmo tempo · {formatCount(live.stars)} estrelas recebidas</span>
+            <span>{formatCount(live.peak_viewers)} {live.peak_viewers === 1 ? "pessoa viu" : "pessoas viram"} ao mesmo tempo · {formatCount(live.unique_viewers)} no total · {formatCount(live.stars)} estrelas</span>
             <Link className="btn" to={`/u/${live.username}`}>Ver perfil de {live.display_name}</Link>
-          </div> : !user ? <div className="live-overlay"><strong>Entra na tua conta para ver o direto.</strong><Link className="btn" to="/login">Entrar</Link></div>
-            : overlayText && videoState !== "live" && <div className="live-overlay">{videoState === "connecting" && <span className="payment-spinner" aria-hidden="true" />}<span>{overlayText}</span>
-              {videoState === "failed" && <button className="btn secondary" type="button" onClick={() => connectViewer()}>Tentar outra vez</button>}</div>}
+          </div> : needsLogin ? <div className="live-overlay"><strong>Entra na tua conta para ver o direto.</strong><Link className="btn" to="/login">Entrar</Link></div>
+            : overlayText && videoState !== "live" && <div className="live-overlay">{["connecting", "publishing", "reconnecting", "waiting"].includes(videoState) && <span className="payment-spinner" aria-hidden="true" />}<span>{overlayText}</span>
+              {videoState === "failed" && !isHost && !cdn && <button className="btn secondary" type="button" onClick={() => connectViewer()}>Tentar outra vez</button>}</div>}
           {!ended && <div className="live-topbar">
             <LiveBadge />
             <span className="live-chip"><Icon name="eye" size={14} /> {formatCount(live.viewers)}</span>
             <span className="live-chip">{liveDuration(live.started_at)}</span>
             <span className="live-chip live-chip-stars"><Icon name="star" size={14} /> {formatCount(live.stars)}</span>
           </div>}
-          {!ended && !isHost && user && videoState === "live" && <button className="live-sound" type="button" onClick={() => setMuted(value => !value)} aria-pressed={!muted}>
+          <div className="live-floats" aria-hidden="true">
+            {floats.map(item => <span key={item.id} className={`live-float is-${item.kind}`} style={{ "--x": `${item.x}px`, "--drift": `${item.drift}px` }}><Icon name={item.kind} size={26} /></span>)}
+          </div>
+          {!ended && user && !isHost && <div className="live-reactions" role="group" aria-label="Reagir">
+            {LIVE_REACTIONS.map(([kind, label]) => <button key={kind} type="button" className={`is-${kind}`} aria-label={label} title={label} onClick={() => react(kind)}><Icon name={kind} size={22} /></button>)}
+          </div>}
+          {!ended && (!isHost || fromObs) && videoState === "live" && <button className="live-sound" type="button" onClick={() => setMuted(value => !value)} aria-pressed={!muted}>
             <Icon name={muted ? "volumeOff" : "volumeOn"} size={18} /> {muted ? "Ativar som" : "Som ligado"}</button>}
           {isHost && !ended && <div className="live-controls">
-            <button type="button" className={micOn ? "" : "is-off"} onClick={() => toggleTrack("audio")} aria-pressed={!micOn} aria-label={micOn ? "Desligar microfone" : "Ligar microfone"}><Icon name={micOn ? "mic" : "micOff"} size={20} /></button>
-            <button type="button" className={camOn ? "" : "is-off"} onClick={() => toggleTrack("video")} aria-pressed={!camOn} aria-label={camOn ? "Desligar câmara" : "Ligar câmara"}><Icon name={camOn ? "video" : "videoOff"} size={20} /></button>
+            {!fromObs && <>
+              <button type="button" className={micOn ? "" : "is-off"} onClick={() => toggleTrack("audio")} aria-pressed={!micOn} aria-label={micOn ? "Desligar microfone" : "Ligar microfone"}><Icon name={micOn ? "mic" : "micOff"} size={20} /></button>
+              <button type="button" className={camOn ? "" : "is-off"} onClick={() => toggleTrack("video")} aria-pressed={!camOn} aria-label={camOn ? "Desligar câmara" : "Ligar câmara"}><Icon name={camOn ? "video" : "videoOff"} size={20} /></button>
+            </>}
             <button type="button" className="live-end" onClick={endLive}><Icon name="stop" size={18} /> Terminar</button>
           </div>}
         </div>
         <div className="live-host">
           <Link to={`/u/${live.username}`}><Avatar user={live} size="large" /></Link>
-          <div><h1>{live.title}</h1><p><Link className="post-author" to={`/u/${live.username}`}>{live.display_name}</Link><VerifiedBadge show={live.is_verified} /></p></div>
+          <div>
+            <h1>{live.title}</h1>
+            <p><Link className="post-author" to={`/u/${live.username}`}>{live.display_name}</Link><VerifiedBadge show={live.is_verified} />
+              {live.category && <span className="live-category">{LIVE_CATEGORY_LABELS[live.category] || live.category}</span>}</p>
+            {live.description && <p className="live-description">{live.description}</p>}
+          </div>
         </div>
       </section>
 
       <aside className="live-side card">
         <div className="pages-tabs live-tabs" role="tablist">
-          <button type="button" role="tab" aria-selected={panel === "chat"} onClick={() => setPanel("chat")}>Chat<span>{comments.length}</span></button>
+          <button type="button" role="tab" aria-selected={panel === "chat"} onClick={() => setPanel("chat")}>Chat<span>{visibleComments.length}</span></button>
           <button type="button" role="tab" aria-selected={panel === "top"} onClick={() => setPanel("top")}>Apoiantes<span>{supporters.length}</span></button>
+          {isHost && !ended && <button type="button" role="tab" aria-selected={panel === "studio"} onClick={() => setPanel("studio")}>Estúdio</button>}
         </div>
-        {panel === "chat" ? <>
+        {panel === "studio" && isHost ? <div className="live-studio-panel">
+          <dl className="live-studio-stats">
+            <div><dt>A ver agora</dt><dd>{formatCount(live.viewers)}</dd></div>
+            <div><dt>Pico</dt><dd>{formatCount(stats?.peak ?? live.viewers)}</dd></div>
+            <div><dt>Pessoas diferentes</dt><dd>{formatCount(stats?.unique ?? 0)}</dd></div>
+            <div><dt>Estrelas</dt><dd>{formatCount(live.stars)}</dd></div>
+          </dl>
+          {cdn && <div className={`live-signal${signal?.ready ? " is-on" : ""}`}>
+            <span className="live-dot" aria-hidden="true" />
+            <span><strong>{signal?.ready ? "Sinal a chegar ao servidor" : "Sem sinal no servidor"}</strong>
+              <small>{signal?.ready ? `${signal.width && signal.height ? `${signal.width}×${signal.height} · ` : ""}${formatCount(signal.kbps)} kbps` : fromObs ? "Inicia a transmissão no OBS." : "A ligar..."}</small></span>
+          </div>}
+          {fromObs ? <>
+            <h3>Ligação do OBS</h3>
+            <StreamKeyPanel />
+          </> : <div className="live-studio-devices">
+            <label>Vídeo
+              <select value={settings.videoId} onChange={event => switchSource({ videoId: event.target.value, kind: "camera" })}>
+                <option value="">Câmara predefinida</option>
+                {devices.video.map((device, index) => <option key={device.deviceId || index} value={device.deviceId}>{device.label || `Câmara ${index + 1}`}</option>)}
+              </select>
+            </label>
+            <label>Som
+              <select value={settings.audioId} onChange={event => switchSource({ audioId: event.target.value })}>
+                <option value="">Microfone predefinido</option>
+                {devices.audio.map((device, index) => <option key={device.deviceId || index} value={device.deviceId}>{device.label || `Microfone ${index + 1}`}</option>)}
+              </select>
+            </label>
+            <LiveAudioMeters stream={hostStream} original={settings.originalAudio} />
+            <label className="live-switch">
+              <input type="checkbox" checked={settings.originalAudio} onChange={event => switchSource({ originalAudio: event.target.checked })} />
+              <span><strong>Som original</strong><small>Sem cancelamento de eco nem redução de ruído.</small></span>
+            </label>
+            <button type="button" className="btn secondary" onClick={() => switchSource({ kind: "screen" })}><Icon name="devices" size={15} /> Partilhar ecrã</button>
+            {settings.kind === "screen" && <button type="button" className="btn secondary" onClick={() => switchSource({ kind: "camera" })}><Icon name="video" size={15} /> Voltar à câmara</button>}
+          </div>}
+          <LiveModerators />
+          {!cdn && <p className="muted">Neste servidor o vídeo vai diretamente do teu browser para até {config.maxVideoViewers || 8} pessoas. Com o servidor de vídeo configurado, não há limite.</p>}
+        </div> : panel === "chat" ? <>
+          {pinned && <div className="live-pinned">
+            <Icon name="pin" size={15} />
+            <span><strong>{pinned.display_name || "Alguém"}</strong> {pinned.body}</span>
+            {myRole && !ended && <button type="button" className="live-chat-action" aria-label="Desafixar mensagem" title="Desafixar" onClick={() => moderate("unpin")}><Icon name="unpin" size={15} /></button>}
+          </div>}
           <ol className="live-chat" ref={chatRef} aria-live="polite">
-            {!comments.length && <li className="live-chat-empty">Ainda não há mensagens. Diz olá!</li>}
-            {comments.map(comment => <li key={comment.id} className={comment.stars ? "is-gift" : ""}>
-              <Avatar user={comment} size="tiny" />
-              <span><strong>{comment.display_name || "Alguém"}</strong> {comment.stars ? <span className="live-gift-text"><Icon name="star" size={13} /> {comment.body}</span> : comment.body}</span>
-            </li>)}
+            {!visibleComments.length && <li className="live-chat-empty">Ainda não há mensagens. Diz olá!</li>}
+            {visibleComments.map(comment => {
+              const role = roleOf(comment.username);
+              const canAct = myRole && !ended && !comment.stars && comment.username && (myRole === "host" || role !== "host");
+              return <li key={comment.id} className={comment.stars ? "is-gift" : ""}>
+                <Avatar user={comment} size="tiny" />
+                <span><strong>{comment.display_name || "Alguém"}</strong>
+                  {role && <span className={`live-role is-${role}`}>{role === "host" ? "Anfitrião" : "Moderador"}</span>}{" "}
+                  {comment.stars ? <span className="live-gift-text"><Icon name="star" size={13} /> {comment.body}</span> : comment.body}</span>
+                {canAct && <span className="live-chat-actions">
+                  <button type="button" className="live-chat-action" aria-label={`Fixar mensagem de ${comment.display_name}`} title="Fixar" onClick={() => moderate("pin", comment)}><Icon name="pin" size={14} /></button>
+                  <button type="button" className="live-chat-action" aria-label={`Apagar mensagem de ${comment.display_name}`} title="Apagar" onClick={() => moderate("delete", comment)}><Icon name="trash" size={14} /></button>
+                  {!role && <button type="button" className="live-chat-action" aria-label={`Silenciar ${comment.display_name} durante 10 minutos`} title="Silenciar 10 min" onClick={() => moderate("mute", comment)}><Icon name="silence" size={14} /></button>}
+                </span>}
+              </li>;
+            })}
           </ol>
+          {!user && !ended && <p className="live-chat-login"><Link to="/login">Entra</Link> para conversar e oferecer estrelas.</p>}
           {user && !ended && <>
             {!isHost && <div className="live-gifts">
-              {config.giftAmounts.map(amount => <button key={amount} type="button" onClick={() => gift(amount)} disabled={balance !== null && balance < amount}><Icon name="star" size={13} /> {amount}</button>)}
+              {(config.giftAmounts || []).map(amount => <button key={amount} type="button" onClick={() => gift(amount)} disabled={balance !== null && balance < amount}><Icon name="star" size={13} /> {amount}</button>)}
               <Link to="/estrelas" className="live-balance">{balance === null ? "" : `Saldo: ${formatCount(balance)}`}</Link>
             </div>}
             {giftMessage && <p className="live-gift-message" role="status">{giftMessage}</p>}
@@ -5293,7 +6367,7 @@ function About() {
     </ul>
     <h2>Como cuidamos do bairro</h2>
     <p>Qualquer pessoa pode bloquear contas e denunciar publicações, comentários ou perfis. A equipa de moderação analisa as denúncias e pode esconder conteúdo ou suspender contas que não respeitem os <Link to="/terms">Termos</Link>.</p>
-    <p>Os teus dados são teus: podes descarregá-los ou apagar a conta a qualquer momento em <Link to="/settings">Definições</Link>. Lê a <Link to="/privacy">Política de Privacidade</Link> para saber o que guardamos.</p>
+    <p>Os teus dados são teus: podes descarregá-los ou apagar a conta a qualquer momento em <Link to="/settings/conta">Definições → Conta</Link>. Lê a <Link to="/privacy">Política de Privacidade</Link> para saber o que guardamos.</p>
   </InfoPage>;
 }
 
@@ -5316,7 +6390,7 @@ const HELP_TOPICS = [
   ]],
   ["Subscrições", [
     ["Como cancelo uma subscrição?", "No perfil do criador, escolhe «Cancelar renovação». Manténs o acesso até ao fim do período que já pagaste."],
-    ["Como defino o meu preço como criador?", "Em Definições → Editar perfil, indica o preço mensal em kwanzas (entre 500 Kz e 500 000 Kz)."]
+    ["Como defino o meu preço como criador?", "No teu perfil, toca em Editar perfil e indica o preço mensal em kwanzas (entre 500 Kz e 500 000 Kz)."]
   ]]
 ];
 
@@ -5393,7 +6467,7 @@ function Privacy() {
     <h2>Os teus direitos</h2>
     <ul>
       <li><strong>Acesso e portabilidade:</strong> Definições → Descarregar dados.</li>
-      <li><strong>Retificação:</strong> Definições → Editar perfil, e Definições → Província e idade.</li>
+      <li><strong>Retificação:</strong> Editar perfil (no teu perfil) e Definições → Privacidade → Província e idade.</li>
       <li><strong>Apagamento:</strong> Definições → Apagar conta. A conta e o conteúdo são apagados de imediato. Os registos de pagamentos e levantamentos são guardados durante o prazo legal. Podem ficar cópias de segurança durante um período limitado.</li>
     </ul>
     <h2>Contacto</h2>
@@ -5570,39 +6644,27 @@ function AccountDataControls() {
     }
   };
 
-  return <div className="settings-danger-zone">
-    <div className="settings-action-row">
-      <span className="settings-action-mark"><Icon name="layers" /></span>
-      <span><strong>Os teus dados</strong><small>Descarrega um ficheiro com o teu perfil, publicações, comentários, mensagens e ligações.</small></span>
-      <button className="settings-account-link" type="button" disabled={!!busy} onClick={exportData}>{busy === "export" ? "A preparar..." : "Descarregar dados"}</button>
+  return <div className="prefs-stack">
+    <div className="prefs-row">
+      <span className="prefs-row-icon"><Icon name="layers" /></span>
+      <span><strong>Descarregar uma cópia</strong><small>Descarrega um ficheiro com o teu perfil, publicações, comentários, mensagens e ligações.</small></span>
+      <button className="prefs-link" type="button" disabled={!!busy} onClick={exportData}>{busy === "export" ? "A preparar..." : "Descarregar dados"}</button>
     </div>
-    <div className="settings-action-row">
-      <span className="settings-action-mark danger"><Icon name="trash" /></span>
+    <div className="prefs-row">
+      <span className="prefs-row-icon danger"><Icon name="trash" /></span>
       <span><strong>Apagar conta</strong><small>Apaga o perfil, publicações, comentários, mensagens, grupos e páginas que criaste. Cancela as subscrições pagas. Não pode ser desfeito.</small></span>
-      {!confirming && <button className="settings-account-link danger-text" type="button" onClick={() => setConfirming(true)}>Apagar conta</button>}
+      {!confirming && <button className="prefs-link danger-text" type="button" onClick={() => setConfirming(true)}>Apagar conta</button>}
     </div>
-    {confirming && <form className="settings-delete-form" onSubmit={deleteAccount}>
+    {confirming && <form className="prefs-form" onSubmit={deleteAccount}>
       <label>Escreve a tua palavra-passe para confirmar
         <input type="password" autoComplete="current-password" required value={password} onChange={event => setPassword(event.target.value)} />
       </label>
-      <div className="settings-form-actions">
+      <div className="prefs-form-foot">
         <button className="btn danger" type="submit" disabled={busy === "delete" || !password}>{busy === "delete" ? "A apagar..." : "Apagar definitivamente"}</button>
         <button className="btn secondary" type="button" disabled={busy === "delete"} onClick={() => { setConfirming(false); setPassword(""); setError(""); }}>Cancelar</button>
       </div>
     </form>}
     {error && <p className="error" role="alert">{error}</p>}
-  </div>;
-}
-
-function ImagePicker({ label, hint, busy, hasImage, onPick, onRemove }) {
-  return <div className="image-picker">
-    <span><strong>{label}</strong><small>{hint}</small></span>
-    <label className={`btn secondary${busy ? " is-busy" : ""}`}>
-      {busy ? "A enviar..." : hasImage ? "Trocar" : "Escolher imagem"}
-      <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" disabled={busy}
-        onChange={event => { const file = event.target.files?.[0]; event.target.value = ""; if (file) onPick(file); }} />
-    </label>
-    {hasImage && <button className="text-button" type="button" disabled={busy} onClick={onRemove}>Remover</button>}
   </div>;
 }
 
@@ -5652,8 +6714,8 @@ function TwoFactorSettings() {
 
   if (!status) return null;
   return <div className="two-factor">
-    <div className="settings-action-row settings-security-row">
-      <span className={`settings-action-mark${status.enabled ? " is-on" : ""}`}><Icon name="shield" /></span>
+    <div className="prefs-row">
+      <span className={`prefs-row-icon${status.enabled ? " is-on" : ""}`}><Icon name="shield" /></span>
       <span>
         <strong>Verificação em dois passos {status.enabled && <em className="two-factor-on">Ativa</em>}</strong>
         <small>{status.enabled
@@ -5663,10 +6725,10 @@ function TwoFactorSettings() {
             : "Mesmo que alguém descubra a tua palavra-passe, não entra sem o código do teu telemóvel."}</small>
       </span>
       {status.enabled
-        ? <button className="settings-account-link" type="button" onClick={() => { setDisabling(!disabling); setError(""); setCode(""); }}>{disabling ? "Cancelar" : "Desligar"}</button>
-        : !setup && <button className="settings-account-link" type="button" disabled={busy} onClick={start}>{busy ? "A preparar..." : "Ativar"} <Icon name="shield" size={14} /></button>}
+        ? <button className="prefs-link" type="button" onClick={() => { setDisabling(!disabling); setError(""); setCode(""); }}>{disabling ? "Cancelar" : "Desligar"}</button>
+        : !setup && <button className="prefs-link" type="button" disabled={busy} onClick={start}>{busy ? "A preparar..." : "Ativar"} <Icon name="shield" size={14} /></button>}
     </div>
-    {setup && <form className="settings-profile-form two-factor-setup" onSubmit={confirm}>
+    {setup && <form className="prefs-form two-factor-setup" onSubmit={confirm}>
       <img className="two-factor-qr" src={setup.qr} width="180" height="180" alt="Código QR para adicionar o Biva à app de autenticação" />
       <div className="two-factor-steps">
         <p><strong>1.</strong> Instala uma app de autenticação no telemóvel: Google Authenticator, Microsoft Authenticator ou Authy.</p>
@@ -5674,19 +6736,19 @@ function TwoFactorSettings() {
         <code className="two-factor-secret">{setup.secret.match(/.{1,4}/g).join(" ")}</code>
         <p><strong>3.</strong> Escreve o código que a app mostra para confirmar.</p>
         {codeInput}
-        <div className="settings-form-actions">
+        <div className="prefs-form-foot">
           <button className="btn" type="submit" disabled={busy || code.length !== 6}>{busy ? "A confirmar..." : "Confirmar e ativar"}</button>
           <button className="btn secondary" type="button" onClick={() => setSetup(null)}>Cancelar</button>
         </div>
       </div>
     </form>}
-    {disabling && <form className="settings-profile-form" onSubmit={turnOff}>
+    {disabling && <form className="prefs-form" onSubmit={turnOff}>
       <label>Palavra-passe<input type="password" autoComplete="current-password" required value={password} onChange={event => setPassword(event.target.value)} /></label>
       {codeInput}
-      <div className="settings-form-actions"><button className="btn danger" type="submit" disabled={busy || code.length !== 6}>{busy ? "A desligar..." : "Desligar verificação"}</button></div>
+      <div className="prefs-form-foot"><button className="btn danger" type="submit" disabled={busy || code.length !== 6}>{busy ? "A desligar..." : "Desligar verificação"}</button></div>
     </form>}
     {error && <p className="error" role="alert">{error}</p>}
-    {notice && <p className="settings-form-success" role="status"><Icon name="check" size={14} />{notice}</p>}
+    {notice && <p className="prefs-saved" role="status"><Icon name="check" size={14} />{notice}</p>}
   </div>;
 }
 
@@ -5740,92 +6802,440 @@ function SecuritySettings() {
   };
 
   return <div className="security-settings">
-    <div className="settings-action-row settings-security-row">
-      <span className="settings-action-mark"><Icon name="lock" /></span>
+    <div className="prefs-row">
+      <span className="prefs-row-icon"><Icon name="lock" /></span>
       <span><strong>Palavra-passe</strong><small>Ao mudá-la, as sessões abertas noutros dispositivos terminam.</small></span>
-      <button className="settings-account-link" type="button" aria-expanded={open} onClick={() => { setOpen(!open); setError(""); setNotice(""); }}>
+      <button className="prefs-link" type="button" aria-expanded={open} onClick={() => { setOpen(!open); setError(""); setNotice(""); }}>
         {open ? "Cancelar" : "Mudar palavra-passe"} <Icon name={open ? "close" : "create"} size={14} />
       </button>
     </div>
-    {open && <form className="settings-profile-form security-password-form" onSubmit={changePassword}>
+    {open && <form className="prefs-form security-password-form" onSubmit={changePassword}>
       <label>Palavra-passe atual<input type="password" autoComplete="current-password" required value={form.currentPassword} onChange={event => setForm({ ...form, currentPassword: event.target.value })} /></label>
       <label>Nova palavra-passe <small>Pelo menos {PASSWORD_MIN} caracteres</small><input type="password" autoComplete="new-password" required minLength={PASSWORD_MIN} value={form.newPassword} onChange={event => setForm({ ...form, newPassword: event.target.value })} /></label>
       <label>Repete a nova palavra-passe<input type="password" autoComplete="new-password" required minLength={PASSWORD_MIN} value={form.confirm} onChange={event => setForm({ ...form, confirm: event.target.value })} /></label>
-      <div className="settings-form-actions"><button className="btn" type="submit" disabled={busy === "password"}>{busy === "password" ? "A guardar..." : "Mudar palavra-passe"}</button></div>
+      <div className="prefs-form-foot"><button className="btn" type="submit" disabled={busy === "password"}>{busy === "password" ? "A guardar..." : "Mudar palavra-passe"}</button></div>
     </form>}
     <TwoFactorSettings />
-    <div className="settings-action-row settings-security-row">
-      <span className="settings-action-mark"><Icon name="devices" /></span>
+    <div className="prefs-row">
+      <span className="prefs-row-icon"><Icon name="devices" /></span>
       <span><strong>Sessões abertas</strong><small>Perdeste o telemóvel ou entraste num computador de outra pessoa? Termina todas as outras sessões.</small></span>
-      <button className="settings-account-link" type="button" disabled={busy === "logout"} onClick={logoutEverywhere}>
+      <button className="prefs-link" type="button" disabled={busy === "logout"} onClick={logoutEverywhere}>
         {busy === "logout" ? "A terminar..." : "Terminar outras sessões"} <Icon name="logout" size={14} />
       </button>
     </div>
-    <div className="settings-action-row settings-security-row">
-      <span className="settings-action-mark"><Icon name="mail" /></span>
+    <div className="prefs-row">
+      <span className="prefs-row-icon"><Icon name="mail" /></span>
       <span><strong>Esqueceste a palavra-passe?</strong><small>Recebe uma ligação segura no teu email.</small></span>
-      <Link className="settings-account-link" to="/forgot-password">Recuperar acesso <Icon name="externalLink" size={14} /></Link>
+      <Link className="prefs-link" to="/forgot-password">Recuperar acesso <Icon name="externalLink" size={14} /></Link>
     </div>
     {error && <p className="error" role="alert">{error}</p>}
-    {notice && <p className="settings-form-success" role="status"><Icon name="check" size={14} />{notice}</p>}
+    {notice && <p className="prefs-saved" role="status"><Icon name="check" size={14} />{notice}</p>}
   </div>;
 }
 
+// Definições: cada área tem a sua página (/settings/<área>). No computador a lista fica ao lado;
+// no telemóvel, /settings mostra só a lista e cada área abre em ecrã próprio com "voltar".
+// O perfil público não vive aqui: edita-se em /profile/edit, a partir do próprio perfil.
+const SETTINGS_GROUPS = [
+  { label: "Conta e segurança", items: [
+    { id: "conta", icon: "mail", label: "Conta", hint: "Email, tipo de conta e os teus dados", intro: "Os dados com que entras no Biva e o que podes fazer com eles.", private: true },
+    { id: "seguranca", icon: "shield", label: "Segurança", hint: "Palavra-passe, dois passos e sessões", intro: "Protege o acesso à tua conta, mesmo que alguém descubra a tua palavra-passe.", private: true },
+    { id: "privacidade", icon: "lock", label: "Privacidade", hint: "Mensagens, comentários e bloqueios", intro: "Decide quem te pode contactar e o que as marcas podem saber sobre ti.", private: true }
+  ] },
+  { label: "Preferências", items: [
+    { id: "notificacoes", icon: "notifications", label: "Notificações", hint: "Escolhe o que te avisamos", intro: "Escolhe sobre o que queres ser avisado. Avisos de dinheiro e segurança chegam sempre.", private: true },
+    { id: "aparencia", icon: "sun", label: "Aparência", hint: "Tema, tamanho do texto e vídeos", intro: "Escolhe como o Biva aparece e se comporta neste dispositivo." }
+  ] },
+  { label: "Suporte", items: [
+    { id: "ajuda", icon: "help", label: "Ajuda e informação", hint: "Perguntas frequentes, termos e privacidade", intro: "Respostas rápidas e as regras que valem para todos no Biva." }
+  ] }
+];
+const SETTINGS_SECTIONS = SETTINGS_GROUPS.flatMap(group => group.items);
+
+function useMediaQuery(query) {
+  const [matches, setMatches] = useState(() => !!window.matchMedia?.(query).matches);
+  useEffect(() => {
+    const list = window.matchMedia?.(query);
+    if (!list) return undefined;
+    const update = () => setMatches(list.matches);
+    update();
+    list.addEventListener("change", update);
+    return () => list.removeEventListener("change", update);
+  }, [query]);
+  return matches;
+}
+
 function Settings() {
-  const { user, refreshUser } = useContext(UserContext);
-  const { theme, setTheme } = useContext(ThemeContext);
-  const [editingProfile, setEditingProfile] = useState(false);
-  const [profileForm, setProfileForm] = useState({ displayName: "", bio: "", location: "", profession: "", website: "", subscriptionPrice: "" });
-  const [imageBusy, setImageBusy] = useState("");
-  const [profileError, setProfileError] = useState("");
-  const [profileNotice, setProfileNotice] = useState("");
-  const [savingProfile, setSavingProfile] = useState(false);
+  const { section } = useParams();
+  const { user } = useContext(UserContext);
+  const wide = useMediaQuery("(min-width: 900px)");
+  const current = SETTINGS_SECTIONS.find(item => item.id === section);
+  useEffect(() => { if (current) window.scrollTo(0, 0); }, [current?.id]);
+  if (section && !current) return <Navigate to="/settings" replace />;
+  if (!section && wide) return <Navigate to="/settings/conta" replace />;
+  const Panel = current && SETTINGS_PANELS[current.id];
 
-  const startProfileEdit = () => {
-    setProfileForm({
-      displayName: user?.display_name || "",
-      bio: user?.bio || "",
-      location: user?.location || "",
-      profession: user?.profession || "",
-      website: user?.website || "",
-      subscriptionPrice: Number(user?.subscription_price) > 0 ? String(Number(user.subscription_price)) : ""
-    });
-    setProfileError("");
-    setProfileNotice("");
-    setEditingProfile(true);
+  return <section className={`page prefs${current ? " has-section" : " is-root"}`}>
+    <aside className="prefs-nav">
+      <h1 className="prefs-title">Definições</h1>
+      {SETTINGS_GROUPS.map(group => <nav key={group.label} className="prefs-nav-group" aria-label={group.label}>
+        <h2>{group.label}</h2>
+        {group.items.map(item => <NavLink key={item.id} to={`/settings/${item.id}`} className="prefs-nav-item">
+          <span className="prefs-nav-icon"><Icon name={item.icon} size={18} /></span>
+          <span className="prefs-nav-text"><strong>{item.label}</strong><small>{item.hint}</small></span>
+          <span className="prefs-nav-chevron"><Icon name="next" size={16} /></span>
+        </NavLink>)}
+      </nav>)}
+      <InfoLinks />
+    </aside>
+    {current && <div className="prefs-main">
+      <Link className="prefs-back" to="/settings"><Icon name="previous" size={18} />Definições</Link>
+      <header className="prefs-head">
+        <span className="prefs-head-icon"><Icon name={current.icon} size={22} /></span>
+        <div><h2>{current.label}</h2><p>{current.intro}</p></div>
+      </header>
+      {current.private && !user
+        ? <div className="prefs-card prefs-guest">
+          <span className="prefs-row-icon"><Icon name="profile" /></span>
+          <div><strong>Inicia sessão para ver esta área</strong><p>Depois de entrares, podes gerir a tua conta, a segurança e a privacidade.</p></div>
+          <Link className="btn" to="/login">Iniciar sessão</Link>
+        </div>
+        : <Panel />}
+    </div>}
+  </section>;
+}
+
+// Uma linha de definição: ícone, título e explicação, e a ação à direita.
+function PrefsRow({ icon, title, children, action, tone }) {
+  return <div className={`prefs-row${tone ? ` tone-${tone}` : ""}`}>
+    <span className="prefs-row-icon"><Icon name={icon} /></span>
+    <span className="prefs-row-text"><strong>{title}</strong>{children && <small>{children}</small>}</span>
+    {action && <span className="prefs-row-action">{action}</span>}
+  </div>;
+}
+
+function PrefsCard({ title, note, children, tone }) {
+  return <section className={`prefs-card${tone ? ` tone-${tone}` : ""}`}>
+    {title && <header className="prefs-card-head"><h3>{title}</h3>{note && <p>{note}</p>}</header>}
+    {children}
+  </section>;
+}
+
+// Preferências guardadas na conta (servidor). Gravam logo que mudam; se falhar, volta atrás.
+function useAccountPreferences() {
+  const [preferences, setPreferences] = useState(null);
+  const [error, setError] = useState("");
+  const [saved, setSaved] = useState(false);
+  useEffect(() => {
+    api("/auth/me/preferences").then(result => setPreferences(result.preferences)).catch(loadError => setError(loadError.message));
+  }, []);
+  useEffect(() => {
+    if (!saved) return undefined;
+    const timer = window.setTimeout(() => setSaved(false), 2000);
+    return () => window.clearTimeout(timer);
+  }, [saved]);
+  const save = async patch => {
+    const previous = preferences;
+    setPreferences(current => ({ ...current, ...patch, notify: { ...current.notify, ...(patch.notify || {}) } }));
+    setError("");
+    try {
+      const result = await api("/auth/me/preferences", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch) });
+      setPreferences(result.preferences);
+      setSaved(true);
+    } catch (saveError) {
+      setPreferences(previous);
+      setError(saveError.message);
+    }
   };
+  return { preferences, save, error, saved };
+}
 
-  const saveProfile = async event => {
+// Interruptor numa linha de definição.
+function PrefsToggle({ icon, title, children, checked, onChange, disabled }) {
+  return <label className={`prefs-row prefs-toggle${disabled ? " is-disabled" : ""}`}>
+    <span className="prefs-row-icon"><Icon name={icon} /></span>
+    <span className="prefs-row-text"><strong>{title}</strong>{children && <small>{children}</small>}</span>
+    <input type="checkbox" role="switch" checked={checked} disabled={disabled} onChange={event => onChange(event.target.checked)} />
+    <span className="prefs-switch-track" aria-hidden="true"><i /></span>
+  </label>;
+}
+
+// Escolha única em lista (botões de opção com aspeto de linha).
+function PrefsChoice({ name, legend, options, value, onChange }) {
+  return <fieldset className="prefs-choice">
+    <legend className="visually-hidden">{legend}</legend>
+    {options.map(option => <label key={option.value} className={`prefs-choice-item${value === option.value ? " is-selected" : ""}`}>
+      <input type="radio" name={name} value={option.value} checked={value === option.value} onChange={() => onChange(option.value)} />
+      <span className="prefs-choice-dot" aria-hidden="true" />
+      <span className="prefs-row-text"><strong>{option.label}</strong><small>{option.hint}</small></span>
+      <Icon name={option.icon} size={18} />
+    </label>)}
+  </fieldset>;
+}
+
+function PrefsStatus({ error, saved }) {
+  if (error) return <p className="error prefs-status" role="alert">{error}</p>;
+  return <p className={`prefs-saved prefs-status${saved ? " is-visible" : ""}`} role="status" aria-live="polite">
+    {saved && <><Icon name="check" size={14} />Guardado</>}
+  </p>;
+}
+
+function SettingsAccount() {
+  const { user } = useContext(UserContext);
+  const [resend, setResend] = useState({ busy: false, message: "", error: "" });
+  const memberSince = user.created_at ? new Date(user.created_at).toLocaleDateString("pt-PT", { day: "numeric", month: "long", year: "numeric" }) : "";
+  const resendEmail = async () => {
+    setResend({ busy: true, message: "", error: "" });
+    try {
+      const result = await api("/auth/verify-email/resend", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: user.email }) });
+      setResend({ busy: false, message: "Enviámos uma nova ligação para o teu email.", error: "" });
+      if (result.verificationUrl) console.info("Ligação de confirmação (desenvolvimento):", result.verificationUrl);
+    } catch (resendError) {
+      setResend({ busy: false, message: "", error: resendError.message });
+    }
+  };
+  return <>
+    <PrefsCard title="Dados da conta">
+      <PrefsRow icon="mail" title="Email" action={user.email_verified
+        ? <span className="prefs-pill is-good"><Icon name="check" size={13} />Confirmado</span>
+        : <button className="prefs-link" type="button" disabled={resend.busy} onClick={resendEmail}>{resend.busy ? "A enviar..." : "Reenviar confirmação"}</button>}>
+        <span className="prefs-value">{user.email}</span>
+        {!user.email_verified && <span className="prefs-hint-warn">Ainda não confirmaste este email. Sem ele não consegues recuperar a conta.</span>}
+      </PrefsRow>
+      {(resend.message || resend.error) && <p className={resend.error ? "error prefs-status" : "prefs-saved prefs-status is-visible"} role="status">
+        {resend.message && <Icon name="check" size={14} />}{resend.message || resend.error}</p>}
+      <PrefsRow icon="reference" title="Nome de utilizador"><span className="prefs-value">@{user.username}</span></PrefsRow>
+      <PrefsRow icon={user.is_creator ? "star" : "friends"} title="Tipo de conta"
+        action={user.is_creator && <Link className="prefs-link" to="/creator">Painel do criador <Icon name="next" size={14} /></Link>}>
+        {user.is_creator ? "Criador: podes ter subscritores, receber estrelas e fazer anúncios." : "Membro da comunidade."}
+      </PrefsRow>
+      {memberSince && <PrefsRow icon="events" title="No Biva desde"><span className="prefs-value">{memberSince}</span></PrefsRow>}
+      <PrefsRow icon="globe" title="Idioma e região"><span className="prefs-value">Português · Angola (Kz)</span></PrefsRow>
+    </PrefsCard>
+    <PrefsCard title="Os teus dados" note="Os teus dados são teus. Podes levá-los contigo ou apagar tudo.">
+      <AccountDataControls />
+    </PrefsCard>
+  </>;
+}
+
+function SettingsSecurity() {
+  return <PrefsCard><SecuritySettings /></PrefsCard>;
+}
+
+const REACH_OPTIONS = {
+  messages: [
+    { value: "everyone", label: "Toda a gente", hint: "Qualquer pessoa no Biva te pode escrever.", icon: "globe" },
+    { value: "following", label: "Só quem eu sigo", hint: "As outras pessoas não conseguem começar uma conversa contigo.", icon: "friends" },
+    { value: "nobody", label: "Ninguém", hint: "Só recebes respostas em conversas que tu começaste.", icon: "lock" }
+  ],
+  comments: [
+    { value: "everyone", label: "Toda a gente", hint: "Quem vê a publicação pode comentar.", icon: "globe" },
+    { value: "following", label: "Só quem eu sigo", hint: "Os outros veem a publicação mas não comentam.", icon: "friends" },
+    { value: "nobody", label: "Ninguém", hint: "Os comentários ficam fechados em todas as tuas publicações.", icon: "lock" }
+  ]
+};
+
+function SettingsPrivacy() {
+  const { preferences, save, error, saved } = useAccountPreferences();
+  return <>
+    <PrefsStatus error={error} saved={saved} />
+    <PrefsCard title="Quem te pode enviar mensagens" note="Bloquear alguém continua a ser a forma de cortar o contacto com uma pessoa específica.">
+      {preferences
+        ? <PrefsChoice name="messages" legend="Quem te pode enviar mensagens" options={REACH_OPTIONS.messages} value={preferences.messages} onChange={value => save({ messages: value })} />
+        : <p className="prefs-loading">A carregar...</p>}
+    </PrefsCard>
+    <PrefsCard title="Quem pode comentar nas tuas publicações" note="Vale para as publicações e Reels que já fizeste e para as próximas. Os comentários que já lá estão ficam.">
+      {preferences
+        ? <PrefsChoice name="comments" legend="Quem pode comentar" options={REACH_OPTIONS.comments} value={preferences.comments} onChange={value => save({ comments: value })} />
+        : <p className="prefs-loading">A carregar...</p>}
+    </PrefsCard>
+    <PrefsCard><BlockedAccounts /></PrefsCard>
+    <PrefsCard title="Província e idade" note="Só servem para te mostrar promoções da tua zona e idade. Não aparecem no teu perfil.">
+      <AudienceSettings />
+    </PrefsCard>
+    <PrefsCard title="O que é público" note="O teu perfil, as publicações e os Stories são visíveis para quem está no Biva. Os Stories desaparecem ao fim de 24 horas.">
+      <PrefsRow icon="block" title="Bloquear alguém">Abre o perfil da pessoa e escolhe Bloquear. Deixa de te ver e de te poder contactar.</PrefsRow>
+      <PrefsRow icon="report" title="Denunciar conteúdo">Em qualquer publicação, comentário ou perfil, no menu de opções.</PrefsRow>
+    </PrefsCard>
+  </>;
+}
+
+const NOTIFY_OPTIONS = [
+  { key: "interactions", icon: "heart", title: "Gostos, comentários e partilhas", hint: "Quando alguém reage ao que publicas." },
+  { key: "people", icon: "friends", title: "Seguidores e amizades", hint: "Novos seguidores, pedidos de amizade e pedidos aceites." },
+  { key: "messages", icon: "messages", title: "Mensagens", hint: "Um aviso por cada mensagem nova. O número no ícone de mensagens aparece sempre." },
+  { key: "lives", icon: "live", title: "Diretos", hint: "Quando alguém que segues começa um direto." },
+  { key: "community", icon: "groups", title: "Grupos, páginas e eventos", hint: "Quando alguém entra no teu grupo, segue a tua página ou vai ao teu evento." }
+];
+
+function SettingsNotifications() {
+  const { preferences, save, error, saved } = useAccountPreferences();
+  const allOn = preferences && NOTIFY_OPTIONS.every(option => preferences.notify[option.key]);
+  return <>
+    <PrefsStatus error={error} saved={saved} />
+    <PrefsCard title="O que te avisamos" note="O que desligares deixa de aparecer nas notificações a partir de agora.">
+      {preferences
+        ? <>
+          {NOTIFY_OPTIONS.map(option => <PrefsToggle key={option.key} icon={option.icon} title={option.title}
+            checked={preferences.notify[option.key]} onChange={value => save({ notify: { [option.key]: value } })}>{option.hint}</PrefsToggle>)}
+          <div className="prefs-card-foot">
+            <button className="prefs-link" type="button" onClick={() => save({ notify: Object.fromEntries(NOTIFY_OPTIONS.map(option => [option.key, !allOn])) })}>
+              {allOn ? "Desligar tudo" : "Ligar tudo"}
+            </button>
+          </div>
+        </>
+        : <p className="prefs-loading">A carregar...</p>}
+    </PrefsCard>
+    <PrefsCard title="Avisos que chegam sempre">
+      <PrefsRow icon="card" title="Dinheiro e pagamentos">Estrelas, subscrições, levantamentos e campanhas pagas.</PrefsRow>
+      <PrefsRow icon="ad" title="Promoções e anúncios">Quando uma promoção tua é aprovada ou recusada.</PrefsRow>
+      <PrefsRow icon="shield" title="Segurança da conta">Emails sobre a palavra-passe e o acesso à tua conta.</PrefsRow>
+    </PrefsCard>
+    <PrefsCard>
+      <PrefsRow icon="notifications" title="Centro de notificações" action={<Link className="btn secondary" to="/notifications">Abrir</Link>}>
+        As notificações ficam guardadas aqui até as leres.
+      </PrefsRow>
+    </PrefsCard>
+  </>;
+}
+
+const THEME_OPTIONS = [
+  { value: "light", label: "Claro", hint: "Fundo branco", icon: "sun" },
+  { value: "dark", label: "Escuro", hint: "Fundo preto, menos brilho", icon: "moon" },
+  { value: "system", label: "Automático", hint: "Segue o teu dispositivo", icon: "devices" }
+];
+
+const TEXT_SIZES = [
+  { value: "normal", label: "Normal" },
+  { value: "large", label: "Grande" },
+  { value: "larger", label: "Maior" }
+];
+
+function SettingsAppearance() {
+  const { themePreference, setTheme } = useContext(ThemeContext);
+  const [device, setDevice] = useState(readDevicePrefs);
+  const change = patch => setDevice(saveDevicePrefs({ ...device, ...patch }));
+  return <>
+    <PrefsCard title="Tema" note="Fica guardado neste dispositivo.">
+      <fieldset className="prefs-themes">
+        <legend className="visually-hidden">Tema da aplicação</legend>
+        {THEME_OPTIONS.map(option => <label key={option.value} className={`prefs-theme${themePreference === option.value ? " is-selected" : ""}`}>
+          <input type="radio" name="theme" value={option.value} checked={themePreference === option.value} onChange={() => setTheme(option.value)} />
+          <span className={`prefs-theme-preview preview-${option.value}`} aria-hidden="true">
+            <span className="ptp-half"><i /><i /><i /></span>
+            {option.value === "system" && <span className="ptp-half ptp-dark"><i /><i /><i /></span>}
+          </span>
+          <span className="prefs-theme-label">
+            <Icon name={option.icon} size={16} />
+            <span><strong>{option.label}</strong><small>{option.hint}</small></span>
+            <span className="prefs-theme-check"><Icon name="check" size={13} /></span>
+          </span>
+        </label>)}
+      </fieldset>
+    </PrefsCard>
+    <PrefsCard title="Tamanho do texto" note="Aumenta o texto e os botões em todo o Biva, neste dispositivo.">
+      <div className="prefs-segment" role="radiogroup" aria-label="Tamanho do texto">
+        {TEXT_SIZES.map((size, index) => <label key={size.value} className={device.textSize === size.value ? "is-selected" : ""}>
+          <input type="radio" name="text-size" value={size.value} checked={device.textSize === size.value} onChange={() => change({ textSize: size.value })} />
+          <span className="prefs-segment-sample" style={{ fontSize: `${15 + index * 3}px` }} aria-hidden="true">Aa</span>
+          {size.label}
+        </label>)}
+      </div>
+      <p className="prefs-sample">Assim fica uma publicação: «Hoje o pôr do sol na Ilha estava incrível.»</p>
+    </PrefsCard>
+    <PrefsCard title="Vídeo e movimento" note="Ficam guardados neste dispositivo.">
+      <PrefsToggle icon="play" title="Reproduzir vídeos automaticamente" checked={device.autoplay} onChange={value => change({ autoplay: value })}>
+        Os vídeos começam sozinhos quando aparecem no ecrã. Desliga para poupar dados móveis.
+      </PrefsToggle>
+      <PrefsToggle icon="effects" title="Reduzir animações" checked={device.reduceMotion} onChange={value => change({ reduceMotion: value })}>
+        Menos movimento ao abrir janelas, nas reações dos diretos e nas transições.
+      </PrefsToggle>
+    </PrefsCard>
+  </>;
+}
+
+function SettingsHelp() {
+  const links = [
+    ["/help", "help", "Centro de ajuda", "Perguntas frequentes sobre a conta, pagamentos e criadores."],
+    ["/about", "info", "Sobre o Biva", "O que é o Biva e como cuidamos da comunidade."],
+    ["/terms", "pages", "Termos", "As regras que todos aceitamos ao usar o Biva."],
+    ["/privacy", "lock", "Política de Privacidade", "O que guardamos e porquê."],
+    ["/publicidade", "ad", "Publicidade", "Como funcionam os anúncios e promoções."]
+  ];
+  return <PrefsCard>
+    {links.map(([to, icon, title, hint]) => <Link key={to} to={to} className="prefs-row is-link">
+      <span className="prefs-row-icon"><Icon name={icon} /></span>
+      <span className="prefs-row-text"><strong>{title}</strong><small>{hint}</small></span>
+      <span className="prefs-row-action"><Icon name="next" size={16} /></span>
+    </Link>)}
+  </PrefsCard>;
+}
+
+const SETTINGS_PANELS = {
+  conta: SettingsAccount,
+  seguranca: SettingsSecurity,
+  privacidade: SettingsPrivacy,
+  notificacoes: SettingsNotifications,
+  aparencia: SettingsAppearance,
+  ajuda: SettingsHelp
+};
+
+// Editar o perfil público: capa e foto com pré-visualização, e os campos que aparecem no perfil.
+function EditProfile() {
+  const { user, refreshUser, authReady } = useContext(UserContext);
+  const navigate = useNavigate();
+  const [form, setForm] = useState(null);
+  const [imageBusy, setImageBusy] = useState("");
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!user || form) return;
+    setForm({
+      displayName: user.display_name || "",
+      bio: user.bio || "",
+      location: user.location || "",
+      profession: user.profession || "",
+      website: user.website || "",
+      subscriptionPrice: Number(user.subscription_price) > 0 ? String(Number(user.subscription_price)) : ""
+    });
+  }, [user]);
+
+  if (authReady && !user) return <Navigate to="/login" replace />;
+  if (!user || !form) return <section className="page narrow"><div className="empty card">A carregar...</div></section>;
+  const set = field => event => setForm({ ...form, [field]: event.target.value });
+
+  const save = async event => {
     event.preventDefault();
-    setSavingProfile(true);
-    setProfileError("");
-    setProfileNotice("");
+    setSaving(true);
+    setError("");
+    setNotice("");
     try {
       await api("/auth/me", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          displayName: profileForm.displayName,
-          bio: profileForm.bio,
-          location: profileForm.location,
-          profession: profileForm.profession,
-          website: profileForm.website,
-          ...(user?.is_creator && profileForm.subscriptionPrice !== "" && { subscriptionPrice: Number(profileForm.subscriptionPrice) })
+          displayName: form.displayName,
+          bio: form.bio,
+          location: form.location,
+          profession: form.profession,
+          website: form.website,
+          ...(user.is_creator && form.subscriptionPrice !== "" && { subscriptionPrice: Number(form.subscriptionPrice) })
         })
       });
       await refreshUser();
-      setEditingProfile(false);
-      setProfileNotice("O teu perfil foi atualizado.");
-    } catch (error) {
-      setProfileError(error.message);
+      setNotice("Perfil guardado.");
+    } catch (saveError) {
+      setError(saveError.message);
     } finally {
-      setSavingProfile(false);
+      setSaving(false);
     }
   };
 
   const changeImage = async (kind, file) => {
-    setProfileError("");
-    setProfileNotice("");
+    setError("");
+    setNotice("");
     setImageBusy(kind);
     try {
       if (file) {
@@ -5836,154 +7246,68 @@ function Settings() {
         await api(`/auth/me/${kind}`, { method: "DELETE" });
       }
       await refreshUser();
-      setProfileNotice(kind === "avatar" ? "Foto de perfil atualizada." : "Capa atualizada.");
-    } catch (error) {
-      setProfileError(error.message);
+      setNotice(kind === "avatar" ? "Foto de perfil atualizada." : "Capa atualizada.");
+    } catch (imageError) {
+      setError(imageError.message);
     } finally {
       setImageBusy("");
     }
   };
+  const imageInput = kind => <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" disabled={!!imageBusy}
+    onChange={event => { const file = event.target.files?.[0]; event.target.value = ""; if (file) changeImage(kind, file); }} />;
 
-  return <section className="page narrow settings-page">
-    <h1 className="settings-page-title">Definições</h1>
-    <p className="settings-page-intro">Gere a tua experiência, consulta a tua conta e encontra rapidamente as áreas principais do Biva.</p>
-    <div className="settings-layout">
-      <nav className="settings-nav" aria-label="Secções das definições">
-        <p>Gerir preferências</p>
-        <a href="#appearance" className="active"><span><Icon name="sun" /></span>Aparência</a>
-        <a href="#notifications"><span><Icon name="notifications" /></span>Notificações</a>
-        <a href="#privacy"><span><Icon name="settings" /></span>Privacidade</a>
-        <a href="#account"><span><Icon name="profile" /></span>A tua conta</a>
-        <a href="#shortcuts"><span><Icon name="layers" /></span>Atalhos</a>
-        <div className="settings-nav-note"><Icon name="spark" size={16} /><span>O modo de cor fica guardado neste dispositivo.</span></div>
-      </nav>
-      <div className="settings-content">
-        <section className="settings-section card" id="appearance" aria-labelledby="appearance-heading">
-          <div className="settings-section-heading">
-            <span className="settings-option-icon"><Icon name="sun" /></span>
-            <div><p className="settings-section-kicker">Personalização</p><h2 id="appearance-heading">Escolhe o teu ambiente</h2><p>Encontra o tema mais confortável para ti.</p></div>
-          </div>
-          <fieldset className="settings-theme-grid">
-            <legend className="visually-hidden">Tema da aplicação</legend>
-            <label className={`settings-theme-card ${theme === "light" ? "selected" : ""}`}>
-              <input className="settings-theme-radio" type="radio" name="theme" value="light" checked={theme === "light"} onChange={() => setTheme("light")} />
-              <span className="settings-theme-visual light-preview" aria-hidden="true">
-                <span className="theme-preview-top"><i /><i /><i /></span>
-                <span className="theme-preview-layout"><i /><i /><i /></span>
-                <span className="theme-preview-post"><i /><i /><i /><i /></span>
-                <span className="theme-preview-chip"><Icon name="sun" size={13} /></span>
-              </span>
-              <span className="settings-theme-details"><span><strong>Modo claro</strong><small>Leve, luminoso e familiar</small></span><i className="settings-theme-check"><Icon name="check" size={14} /></i></span>
-            </label>
-            <label className={`settings-theme-card ${theme === "dark" ? "selected" : ""}`}>
-              <input className="settings-theme-radio" type="radio" name="theme" value="dark" checked={theme === "dark"} onChange={() => setTheme("dark")} />
-              <span className="settings-theme-visual dark-preview" aria-hidden="true">
-                <span className="theme-preview-top"><i /><i /><i /></span>
-                <span className="theme-preview-layout"><i /><i /><i /></span>
-                <span className="theme-preview-post"><i /><i /><i /><i /></span>
-                <span className="theme-preview-chip"><Icon name="moon" size={13} /></span>
-              </span>
-              <span className="settings-theme-details"><span><strong>Modo escuro</strong><small>Mais conforto em pouca luz</small></span><i className="settings-theme-check"><Icon name="check" size={14} /></i></span>
-            </label>
-          </fieldset>
-          <p className="settings-save-note" role="status"><Icon name="check" size={14} /> A tua preferência é guardada automaticamente.</p>
-        </section>
-        <section className="settings-section card" id="notifications" aria-labelledby="notification-settings-heading">
-          <div className="settings-section-heading">
-            <span className="settings-option-icon"><Icon name="notifications" /></span>
-            <div><p className="settings-section-kicker">Atividade</p><h2 id="notification-settings-heading">Notificações</h2><p>Acompanha novidades e interações da comunidade.</p></div>
-          </div>
-          <div className="settings-action-row">
-            <span className="settings-action-mark"><Icon name="notifications" /></span>
-            <span><strong>Centro de notificações</strong><small>Consulta respostas, reações e outras novidades da tua conta.</small></span>
-            <Link className="settings-account-link" to="/notifications">Abrir notificações <Icon name="externalLink" size={14} /></Link>
-          </div>
-          <div className="settings-detail-grid settings-notification-types">
-            <div><span className="settings-detail-dot" /><span><strong>Interações</strong><small>Gostos e comentários nas tuas publicações</small></span></div>
-            <div><span className="settings-detail-dot" /><span><strong>Comunidade</strong><small>Pedidos de amizade e novos seguidores</small></span></div>
-            <div><span className="settings-detail-dot" /><span><strong>Atividade</strong><small>Novidades de grupos, páginas e eventos</small></span></div>
-          </div>
-        </section>
-        <AudienceSettings />
-        <section className="settings-section card" id="privacy" aria-labelledby="privacy-settings-heading">
-          <div className="settings-section-heading">
-            <span className="settings-option-icon"><Icon name="profile" /></span>
-            <div><p className="settings-section-kicker">Controlo</p><h2 id="privacy-settings-heading">Privacidade e visibilidade</h2><p>Confirma o que partilhas com as outras pessoas.</p></div>
-          </div>
-          <div className="settings-info-panel">
-            <span className="settings-info-mark"><Icon name="friends" /></span>
-            <div><strong>O teu perfil faz parte da comunidade</strong><p>O teu perfil e as publicações que partilhas podem ser vistos por outras pessoas no Biva.</p></div>
-            {user && <Link className="settings-account-link" to={`/u/${user.username}`}>Ver perfil <Icon name="externalLink" size={14} /></Link>}
-          </div>
-          <div className="settings-detail-grid settings-privacy-details">
-            <div><span className="settings-detail-icon"><Icon name="profile" /></span><span><strong>Perfil</strong><small>Nome, identificador e biografia ajudam as pessoas a reconhecer-te.</small></span></div>
-            <div><span className="settings-detail-icon"><Icon name="create" /></span><span><strong>Publicações</strong><small>O conteúdo que publicas aparece no teu espaço e no feed.</small></span></div>
-            <div><span className="settings-detail-icon"><Icon name="camera" /></span><span><strong>Stories</strong><small>Os Stories partilhados ficam disponíveis durante 24 horas.</small></span></div>
-          </div>
-          <p className="settings-section-footnote">As opções de audiência e visibilidade avançada ainda não estão disponíveis.</p>
-        </section>
-        <section className="settings-section card" id="account" aria-labelledby="account-settings-heading">
-          <div className="settings-section-heading">
-            <span className="settings-option-icon"><Icon name="profile" /></span>
-            <div><p className="settings-section-kicker">Perfil</p><h2 id="account-settings-heading">A tua conta</h2><p>As informações que partilhas com a comunidade.</p></div>
-          </div>
-          {user
-            ? <>
-              <div className="settings-account-row">
-                <Avatar user={user} size="large" />
-                <span><strong>{user.display_name}</strong><small>@{user.username}</small></span>
-                <div className="settings-account-actions">
-                  <button className="settings-account-link" type="button" onClick={startProfileEdit}>Editar perfil <Icon name="create" size={14} /></button>
-                  <Link className="settings-account-link" to={`/u/${user.username}`}>Ver perfil <Icon name="externalLink" size={14} /></Link>
-                </div>
-              </div>
-              <div className="settings-images">
-                <ImagePicker label="Foto de perfil" hint="Quadrada, até 8 MB" busy={imageBusy === "avatar"} hasImage={!!user.avatar_url}
-                  onPick={file => changeImage("avatar", file)} onRemove={() => changeImage("avatar", null)} />
-                <ImagePicker label="Capa do perfil" hint="Horizontal, até 8 MB" busy={imageBusy === "cover"} hasImage={!!user.cover_url}
-                  onPick={file => changeImage("cover", file)} onRemove={() => changeImage("cover", null)} />
-              </div>
-              {profileNotice && <p className="settings-form-success" role="status"><Icon name="check" size={14} />{profileNotice}</p>}
-              {editingProfile && <form className="settings-profile-form" onSubmit={saveProfile}>
-                <div className="settings-form-heading"><div><strong>Editar perfil público</strong><p>Estas informações ajudam as pessoas a reconhecer-te no Biva.</p></div><span>Visível no teu perfil</span></div>
-                <label>Nome público<input autoComplete="name" maxLength={100} required value={profileForm.displayName} onChange={event => setProfileForm({ ...profileForm, displayName: event.target.value })} /></label>
-                <label>Biografia <small>{profileForm.bio.length}/500</small><textarea maxLength={500} rows={4} value={profileForm.bio} onChange={event => setProfileForm({ ...profileForm, bio: event.target.value })} placeholder="Conta um pouco sobre ti..." /></label>
-                <label>Profissão<input maxLength={100} autoComplete="organization-title" value={profileForm.profession} onChange={event => setProfileForm({ ...profileForm, profession: event.target.value })} placeholder="Ex.: Fotógrafa, estudante, empreendedor" /></label>
-                <label>Localidade<input maxLength={100} autoComplete="address-level2" value={profileForm.location} onChange={event => setProfileForm({ ...profileForm, location: event.target.value })} placeholder="Ex.: Luanda, Angola" /></label>
-                <label>Site ou link<input maxLength={200} type="text" inputMode="url" autoComplete="url" value={profileForm.website} onChange={event => setProfileForm({ ...profileForm, website: event.target.value })} placeholder="Ex.: instagram.com/o_teu_nome" /></label>
-                {user.is_creator && <label>Preço da subscrição mensal (Kz) <small>Entre 500 Kz e 500 000 Kz</small><input type="number" inputMode="decimal" min="500" max="500000" step="0.01" value={profileForm.subscriptionPrice} onChange={event => setProfileForm({ ...profileForm, subscriptionPrice: event.target.value })} placeholder="Ex.: 2500" /></label>}
-                {profileError && <p className="error" role="alert">{profileError}</p>}
-                <div className="settings-form-actions"><button className="btn" type="submit" disabled={savingProfile}>{savingProfile ? "A guardar..." : "Guardar alterações"}</button><button className="btn secondary" type="button" disabled={savingProfile} onClick={() => setEditingProfile(false)}>Cancelar</button></div>
-              </form>}
-              <div className="settings-detail-grid settings-account-details">
-                <div><span className="settings-detail-icon"><Icon name="messages" /></span><span><small>Email da conta</small><strong>{user.email}</strong></span></div>
-                <div><span className="settings-detail-icon"><Icon name="profile" /></span><span><small>Tipo de conta</small><strong>{user.is_creator ? "Criador" : "Membro da comunidade"}</strong></span></div>
-                <div><span className="settings-detail-icon"><Icon name="check" /></span><span><small>Estado do email</small><strong className={`settings-verification ${user.email_verified ? "verified" : "pending"}`}>{user.email_verified ? "Email confirmado" : "Confirmação pendente"}</strong></span></div>
-                <div><span className="settings-detail-icon"><Icon name="create" /></span><span><small>Biografia</small><strong>{user.bio?.trim() || "Ainda não adicionaste uma biografia."}</strong></span></div>
-              </div>
-              <SecuritySettings />
-              <BlockedAccounts />
-              <AccountDataControls />
-            </>
-            : <div className="settings-guest-card"><span className="settings-action-mark"><Icon name="profile" /></span><div><strong>Inicia sessão para gerir a tua conta</strong><p>Depois de entrares, podes consultar os teus dados e abrir o teu perfil.</p></div><Link className="settings-account-link" to="/login">Iniciar sessão <Icon name="externalLink" size={14} /></Link></div>}
-        </section>
-        <section className="settings-section card" id="shortcuts" aria-labelledby="settings-shortcuts-heading">
-          <div className="settings-section-heading">
-            <span className="settings-option-icon"><Icon name="layers" /></span>
-            <div><p className="settings-section-kicker">Biva</p><h2 id="settings-shortcuts-heading">Acede rapidamente</h2><p>Continua a explorar e a participar na comunidade.</p></div>
-          </div>
-          <div className="settings-shortcuts-grid">
-            <Link to="/friends"><Icon name="friends" /><span><strong>Amigos</strong><small>Encontra pessoas</small></span><Icon name="externalLink" size={14} /></Link>
-            <Link to="/messages"><Icon name="messages" /><span><strong>Mensagens</strong><small>Fala em privado</small></span><Icon name="externalLink" size={14} /></Link>
-            <Link to="/groups"><Icon name="groups" /><span><strong>Grupos</strong><small>Partilha interesses</small></span><Icon name="externalLink" size={14} /></Link>
-            <Link to="/events"><Icon name="events" /><span><strong>Eventos</strong><small>Descobre atividades</small></span><Icon name="externalLink" size={14} /></Link>
-            <Link to="/creator"><Icon name="stats" /><span><strong>Painel do criador</strong><small>Insights, conteúdo, subscrições e anúncios</small></span><Icon name="externalLink" size={14} /></Link>
-            <Link to="/help"><Icon name="help" /><span><strong>Ajuda</strong><small>Perguntas frequentes</small></span><Icon name="externalLink" size={14} /></Link>
-          </div>
-          <InfoLinks />
-        </section>
+  return <section className="page narrow edit-profile">
+    <header className="edit-profile-top">
+      <Link className="prefs-back is-always" to={`/u/${user.username}`}><Icon name="previous" size={18} />Voltar ao perfil</Link>
+      <h1>Editar perfil</h1>
+      <p>O que escreves aqui é público: aparece no teu perfil para toda a gente.</p>
+    </header>
+    <div className="edit-profile-media">
+      <div className="edit-profile-cover" style={user.cover_url ? { backgroundImage: `url(${API_BASE}${user.cover_url})` } : undefined}>
+        <div className="edit-profile-cover-actions">
+          <label className={`edit-media-btn${imageBusy === "cover" ? " is-busy" : ""}`}>
+            <Icon name="camera" size={15} />{imageBusy === "cover" ? "A enviar..." : user.cover_url ? "Trocar capa" : "Adicionar capa"}{imageInput("cover")}
+          </label>
+          {user.cover_url && <button className="edit-media-btn is-icon" type="button" disabled={!!imageBusy} onClick={() => changeImage("cover", null)} aria-label="Remover capa"><Icon name="trash" size={15} /></button>}
+        </div>
       </div>
+      <div className="edit-profile-identity">
+        <div className="edit-profile-avatar">
+          <Avatar user={user} size="large" />
+          <label className={`edit-avatar-btn${imageBusy === "avatar" ? " is-busy" : ""}`} title="Mudar foto de perfil">
+            <Icon name="camera" size={16} /><span className="visually-hidden">Mudar foto de perfil</span>{imageInput("avatar")}
+          </label>
+        </div>
+        <div className="edit-profile-name">
+          <strong>{form.displayName || user.display_name}</strong>
+          <small>@{user.username}</small>
+          {user.avatar_url && <button className="text-button" type="button" disabled={!!imageBusy} onClick={() => changeImage("avatar", null)}>Remover foto</button>}
+        </div>
+      </div>
+      <p className="edit-profile-media-hint">Fotos em JPG, PNG, WebP ou GIF, até 8 MB. A foto fica melhor quadrada e a capa na horizontal.</p>
     </div>
+    <form className="edit-profile-form" onSubmit={save}>
+      <PrefsCard title="Sobre ti">
+        <label className="field">Nome público<input autoComplete="name" maxLength={100} required value={form.displayName} onChange={set("displayName")} /></label>
+        <label className="field">Biografia <small className="field-count">{form.bio.length}/500</small>
+          <textarea maxLength={500} rows={4} value={form.bio} onChange={set("bio")} placeholder="Conta em poucas palavras quem és e o que partilhas." /></label>
+        <div className="field-pair">
+          <label className="field">Profissão<input maxLength={100} autoComplete="organization-title" value={form.profession} onChange={set("profession")} placeholder="Ex.: fotógrafa, estudante" /></label>
+          <label className="field">Localidade<input maxLength={100} autoComplete="address-level2" value={form.location} onChange={set("location")} placeholder="Ex.: Luanda" /></label>
+        </div>
+        <label className="field">Site ou link<input maxLength={200} type="text" inputMode="url" autoComplete="url" value={form.website} onChange={set("website")} placeholder="Ex.: instagram.com/o_teu_nome" /></label>
+      </PrefsCard>
+      {user.is_creator && <PrefsCard title="Subscrição" note="O valor mensal que os teus subscritores pagam pelo conteúdo exclusivo.">
+        <label className="field">Preço por mês (Kz) <small>Entre 500 Kz e 500 000 Kz</small>
+          <input type="number" inputMode="decimal" min="500" max="500000" step="0.01" value={form.subscriptionPrice} onChange={set("subscriptionPrice")} placeholder="Ex.: 2500" /></label>
+      </PrefsCard>}
+      {error && <p className="error" role="alert">{error}</p>}
+      <div className="edit-profile-actions">
+        {notice && <p className="prefs-saved" role="status"><Icon name="check" size={14} />{notice}</p>}
+        <button className="btn secondary" type="button" disabled={saving} onClick={() => navigate(`/u/${user.username}`)}>Ver perfil</button>
+        <button className="btn" type="submit" disabled={saving}>{saving ? "A guardar..." : "Guardar perfil"}</button>
+      </div>
+    </form>
   </section>;
 }
 
@@ -6345,7 +7669,7 @@ function Profile() {
         </div>
         {!isAboutPage && <div className="profile-identity-actions">
           {isOwnProfile
-            ? <><Link className="btn secondary" to="/settings"><Icon name="settings" size={15} /> Editar perfil</Link><Link className="btn secondary" to="/creator"><Icon name="stats" size={15} /> Painel do criador</Link></>
+            ? <><Link className="btn secondary" to="/profile/edit"><Icon name="create" size={15} /> Editar perfil</Link><Link className="btn secondary" to="/creator"><Icon name="stats" size={15} /> Painel do criador</Link></>
             : <>
               {!profile.is_blocked && <>
                 <button className={profile.is_following ? "btn secondary" : "btn"} type="button" aria-pressed={profile.is_following} onClick={toggleFollow}>{profile.is_following ? "A seguir" : "Seguir"}</button>
@@ -7130,6 +8454,8 @@ function App() {
     <Route path="/events" element={<Events />} />
     <Route path="/notifications" element={<Notifications />} />
     <Route path="/settings" element={<Settings />} />
+    <Route path="/settings/:section" element={<Settings />} />
+    <Route path="/profile/edit" element={<EditProfile />} />
     <Route path="/moderation" element={<Moderation />} />
     <Route path="/stats" element={<Navigate to="/creator/insights" replace />} />
     <Route path="/creator" element={<CreatorDashboard />} />
@@ -7154,4 +8480,5 @@ function App() {
   </Routes></Layout>;
 }
 
+applyDevicePrefs(readDevicePrefs());
 createRoot(document.getElementById("root")).render(<BrowserRouter><App /></BrowserRouter>);

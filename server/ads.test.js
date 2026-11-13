@@ -1,6 +1,6 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
-const { AD_CPM_KZ, MAX_AD_DAYS, MIN_AD_BUDGET, impressionCost, parseAdInput } = require("./ads");
+const { AD_CPM_KZ, MAX_AD_DAYS, MIN_AD_BUDGET, groupAudience, impressionCost, parseAdInput } = require("./ads");
 
 const valid = { title: "  Loja   da Rita ", body: "Promoção", budget: "5000", days: 7 };
 
@@ -34,4 +34,16 @@ test("budget, duration, title and destination are validated", () => {
   ]) {
     assert.ok(parseAdInput(input, "rita").error, JSON.stringify(input).slice(0, 80));
   }
+});
+
+test("small audience groups are folded into «Outras» so nobody is identifiable", () => {
+  const rows = [
+    { province: "Luanda", people: 40 }, { province: "Huambo", people: 4 }, { province: "Benguela", people: 12 },
+    { province: null, people: 3 }, { province: "Namibe", people: 5 }
+  ];
+  assert.deepEqual(groupAudience(rows), [
+    { province: "Luanda", people: 40 }, { province: "Benguela", people: 12 }, { province: "Namibe", people: 5 }, { province: null, people: 7 }
+  ]);
+  assert.deepEqual(groupAudience([]), []);
+  assert.deepEqual(groupAudience([{ province: "Luanda", people: 2 }]), [{ province: null, people: 2 }]);
 });
