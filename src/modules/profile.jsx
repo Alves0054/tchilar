@@ -30,14 +30,16 @@ export function SubscriptionPanel({ profile, isOwnProfile, busy, onSubscribe, on
 }
 // Link externo de um perfil: mostra só o domínio e abre num separador novo sem passar o referrer.
 export function WebsiteLink({ href }) {
-  let label = href;
+  let url;
   try {
-    const url = new URL(href);
-    label = (url.hostname.replace(/^www\./, "") + url.pathname).replace(/\/$/, "");
+    url = new URL(href);
   } catch {
     return null;
   }
-  return <a className="profile-website" href={href} target="_blank" rel="noopener noreferrer nofollow ugc">{label}</a>;
+  // Só http(s): um "javascript:" gravado antes da validação do servidor nunca chega a ser link.
+  if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+  const label = (url.hostname.replace(/^www\./, "") + url.pathname).replace(/\/$/, "");
+  return <a className="profile-website" href={url.href} target="_blank" rel="noopener noreferrer nofollow ugc">{label}</a>;
 }
 export function ProfileStats({ profile }) {
   const stats = [
