@@ -1,4 +1,4 @@
-// Diretos (lives).
+﻿// Diretos (lives).
 //
 // Dois modos, escolhidos pela configuração do servidor:
 //   - "cdn"  (MEDIA_* configurado): quem emite envia o vídeo uma vez para o MediaMTX (OBS por RTMP/WHIP
@@ -88,11 +88,14 @@ function registerLiveRoutes(app, deps) {
     UPDATE lives SET status='ended', ended_at=NOW()
     WHERE status='live' AND host_seen_at < NOW() - make_interval(secs => $1)`, [HOST_TIMEOUT_SECONDS]);
 
-  const LIVE_FIELDS = `l.id,l.title,l.description,l.category,l.source,l.status,l.started_at,l.ended_at,l.peak_viewers,l.unique_viewers,
+  const LIVE_FIELDS = `l.id,l.title,l.description,l.category,l.source,l.status,l.started_at,l.ended_at,l.peak_viewers,l.unique_viewers,l.current_viewers,
     u.id AS host_id,u.username,u.display_name,u.avatar_url,u.partner_since IS NOT NULL AS is_verified,
     (SELECT COALESCE(SUM(s.amount),0) FROM star_ledger s WHERE s.live_id=l.id AND s.kind='gift_received')::int AS stars`;
 
-  const withViewers = live => live && ({ ...live, viewers: live.status === "live" ? presence.count(live.id) : 0 });
+  // Esta cópia da API conta o direto (o nginx manda sempre o mesmo direto para a mesma cópia)?
+  // Se não, usa o número que a outra cópia gravou há no máximo 15 s.
+  const viewersOf = live => (presence.lives.has(live.id) ? presence.count(live.id) : Number(live.current_viewers) || 0);
+  const withViewers = live => live && ({ ...live, viewers: live.status === "live" ? viewersOf(live) : 0, current_viewers: undefined });
 
   // Quem pode ver: o direto existe e não há bloqueio entre as duas pessoas.
   async function loadLive(id, viewerId) {
@@ -544,10 +547,11 @@ function registerLiveRoutes(app, deps) {
     }
     if (ticks % 3 === 0 && snapshot.length) {
       const ended = await pool.query(`
-        UPDATE lives l SET peak_viewers=GREATEST(l.peak_viewers,s.peak), unique_viewers=GREATEST(l.unique_viewers,s.uniq)
-        FROM unnest($1::int[], $2::int[], $3::int[]) AS s(id,peak,uniq)
+        UPDATE lives l SET peak_viewers=GREATEST(l.peak_viewers,s.peak), unique_viewers=GREATEST(l.unique_viewers,s.uniq),
+          current_viewers=CASE WHEN l.status='live' THEN s.now ELSE 0 END
+        FROM unnest($1::int[], $2::int[], $3::int[], $4::int[]) AS s(id,peak,uniq,now)
         WHERE l.id=s.id RETURNING l.id,l.status`,
-      [snapshot.map(item => item.liveId), snapshot.map(item => item.peak), snapshot.map(item => item.unique)]);
+      [snapshot.map(item => item.liveId), snapshot.map(item => item.peak), snapshot.map(item => item.unique), snapshot.map(item => item.viewers)]);
       for (const row of ended.rows) if (row.status === "ended") presence.forget(row.id);
     }
   };

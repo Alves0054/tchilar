@@ -90,6 +90,7 @@ function createPaybyrd({ apiKey, currency = "AOA", fetchImpl = fetch }) {
 
   async function call(method, path, body) {
     const response = await fetchImpl(`${base}${path}`, { method, headers, body: body ? JSON.stringify(body) : undefined });
+    /** @type {any} Resposta da Paybyrd (formato da API deles). */
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(`Paybyrd ${method} ${path} falhou (${response.status}) ${data.description || ""}`.trim());
     return data;

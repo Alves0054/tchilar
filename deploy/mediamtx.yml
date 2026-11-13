@@ -9,18 +9,22 @@ logLevel: info
 # Cada emissão e cada leitura é autorizada pela API do Biva (chave de transmissão, direto aberto).
 authMethod: http
 authHTTPAddress: http://127.0.0.1:4000/api/media/auth?secret=change-me
-# A API de controlo não pede autorização à app: só está acessível dentro da rede interna (sem porta pública).
-authHTTPExclude:
-  - action: api
-  - action: metrics
-  - action: pprof
+# Nada fica de fora da autorização: a API de controlo também passa pela app, que só aceita
+# o utilizador "biva-api" com o MEDIA_HOOK_SECRET (server/media-server.js).
+authHTTPExclude: []
 
+# API de controlo: sem porta pública (docker-compose.yml não a publica) e sempre autenticada.
 api: true
 apiAddress: :9997
+# Métricas e depuração desligadas: expunham dados internos sem necessidade.
+metrics: false
+pprof: false
+playback: false
 
 # Protocolos que não usamos ficam desligados (menos superfície exposta).
 rtsp: false
 srt: false
+moq: false
 
 # OBS / encoders / placas com RTMP: rtmp://<servidor>/live  +  chave "u<id>?key=sk_..."
 rtmp: true

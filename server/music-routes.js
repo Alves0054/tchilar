@@ -1,7 +1,6 @@
-// Músicas dos Reels: biblioteca da Biva (gerida pela equipa) e músicas carregadas por cada pessoa.
+﻿// Músicas dos Reels: biblioteca da Biva (gerida pela equipa) e músicas carregadas por cada pessoa.
 // O vídeo nunca é alterado: a publicação guarda { trackId, offset, volume, fade } em video_edit.music
 // e o leitor toca a música por cima, sincronizada com o vídeo.
-const path = require("path");
 const crypto = require("crypto");
 const multer = require("multer");
 

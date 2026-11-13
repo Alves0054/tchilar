@@ -9,8 +9,11 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const { Pool } = require("pg");
 const nodemailer = require("nodemailer");
-const { rateLimit } = require("express-rate-limit");
-const helmet = require("helmet");
+const { connectRateLimitStore, makeRateLimit } = require("./rate-limit");
+// Com REDIS_URL, os limites de pedidos são partilhados entre todas as cópias da API.
+connectRateLimitStore();
+// O helmet exporta a função também como "default" (é isso que os tipos dele descrevem).
+const { default: helmet } = require("helmet");
 const Stripe = require("stripe");
 const { runMigrations } = require("./migrate");
 const { optimizeUpload } = require("./images");
@@ -66,7 +69,7 @@ const mailTransport = process.env.SMTP_HOST
       : undefined
   })
   : null;
-const authRateLimit = rateLimit({
+const authRateLimit = makeRateLimit("auth", {
   windowMs: 15 * 60 * 1000,
   limit: 10,
   standardHeaders: "draft-8",
@@ -75,14 +78,14 @@ const authRateLimit = rateLimit({
 });
 // Ações de segurança com sessão iniciada (mudar palavra-passe, 2FA): limite próprio, para não gastar
 // as tentativas de login. 20 em 15 min chega para uso normal e torna inútil adivinhar códigos de 6 dígitos.
-const accountSecurityRateLimit = rateLimit({
+const accountSecurityRateLimit = makeRateLimit("accountSecurity", {
   windowMs: 15 * 60 * 1000,
   limit: 20,
   standardHeaders: "draft-8",
   legacyHeaders: false,
   message: { error: "Demasiadas tentativas. Tenta novamente daqui a 15 minutos." }
 });
-const recoveryRateLimit = rateLimit({
+const recoveryRateLimit = makeRateLimit("recovery", {
   windowMs: 60 * 60 * 1000,
   limit: 5,
   standardHeaders: "draft-8",
@@ -543,6 +546,27 @@ function optionalAuth(req, res, next) {
 
 app.get("/api/health", (_, res) => res.json({ ok: true, service: "biva" }));
 
+// Erros vindos do browser (páginas que falharam). Só regista: texto curto, sem tokens, com limite por IP.
+const clientErrorRateLimit = makeRateLimit("clientError", { windowMs: 15 * 60 * 1000, limit: 30, standardHeaders: "draft-8", legacyHeaders: false, message: { error: "Demasiados relatórios." } });
+app.post("/api/client-errors", clientErrorRateLimit, (req, res) => {
+  const body = isRecord(req.body) ? req.body : {};
+  const text = (value, max) => (typeof value === "string" ? value.slice(0, max) : null);
+  const reference = text(body.reference, 16);
+  if (!reference || !/^[0-9a-f]{4,16}$/.test(reference)) return res.status(400).json({ error: "Relatório inválido." });
+  console.error(JSON.stringify({
+    level: "error",
+    kind: "client",
+    at: new Date().toISOString(),
+    reference,
+    context: text(body.context, 20),
+    path: text(body.path, 200)?.split("?")[0] || null,
+    message: text(body.message, 500),
+    stack: text(body.stack, 4000),
+    userAgent: text(req.headers["user-agent"], 200)
+  }));
+  res.status(204).end();
+});
+
 app.get("/api/health/ready", async (_req, res) => {
   try {
     await pool.query("SELECT 1");
@@ -671,7 +695,7 @@ app.post("/api/auth/register", authRateLimit, async (req, res) => {
   }
 });
 
-const usernameCheckRateLimit = rateLimit({
+const usernameCheckRateLimit = makeRateLimit("usernameCheck", {
   windowMs: 60 * 1000,
   limit: 60,
   standardHeaders: "draft-8",
@@ -1057,12 +1081,12 @@ app.get("/api/posts", optionalAuth, async (req, res) => {
   }
   const r = await pool.query(`
     SELECT p.*, u.username, u.display_name, u.avatar_url, u.is_creator, u.partner_since IS NOT NULL AS is_verified,
-      (SELECT COALESCE(SUM(st.amount),0) FROM star_ledger st WHERE st.post_id=p.id AND st.kind='gift_received')::int AS stars,
+      p.star_count::int AS stars,
       g.name AS group_name, pg.name AS page_name,
-      (SELECT COUNT(*) FROM likes l WHERE l.post_id=p.id) AS likes,
+      p.like_count AS likes,
       EXISTS(SELECT 1 FROM likes l WHERE l.post_id=p.id AND l.user_id=$1) AS liked,
-      (SELECT COUNT(*) FROM comments c WHERE c.post_id=p.id) AS comments,
-      (SELECT COUNT(*) FROM posts sh WHERE sh.shared_post_id=p.id) AS shares,
+      p.comment_count AS comments,
+      p.share_count AS shares,
       sp.id AS shared_id, sp.body AS shared_body, sp.media_url AS shared_media_url, sp.media_type AS shared_media_type,
       sp.created_at AS shared_created_at, su.username AS shared_username, su.display_name AS shared_display_name,
       su.avatar_url AS shared_avatar_url,
@@ -1235,7 +1259,7 @@ app.post("/api/posts/:id/like", auth, async (req, res) => {
     }
     return true;
   });
-  const count = await pool.query("SELECT COUNT(*)::int AS count FROM likes WHERE post_id=$1", [id]);
+  const count = await pool.query("SELECT like_count AS count FROM posts WHERE id=$1", [id]);
   res.json({ liked, likes: count.rows[0].count });
 });
 
@@ -1462,10 +1486,10 @@ app.get("/api/auth/me/stats", auth, async (req, res) => {
       ORDER BY d`, [id]),
     pool.query(`
       SELECT p.id,LEFT(p.body,120) AS excerpt,p.media_type,p.created_at,
-        (SELECT COUNT(*) FROM likes l WHERE l.post_id=p.id)::int AS likes,
-        (SELECT COUNT(*) FROM comments c WHERE c.post_id=p.id)::int AS comments
+        p.like_count::int AS likes,
+        p.comment_count::int AS comments
       FROM posts p WHERE p.user_id=$1
-      ORDER BY (SELECT COUNT(*) FROM likes l WHERE l.post_id=p.id) + 2 * (SELECT COUNT(*) FROM comments c WHERE c.post_id=p.id) DESC, p.created_at DESC
+      ORDER BY p.like_count + 2 * p.comment_count DESC, p.created_at DESC
       LIMIT 5`, [id]),
     pool.query(`
       SELECT u.is_creator,u.subscription_price,
@@ -1911,7 +1935,7 @@ app.delete("/api/users/:id/block", auth, async (req, res) => {
   res.json({ blocked: false });
 });
 
-const reportRateLimit = rateLimit({
+const reportRateLimit = makeRateLimit("report", {
   windowMs: 60 * 60 * 1000,
   limit: 30,
   standardHeaders: "draft-8",
@@ -2237,7 +2261,7 @@ const growth = registerGrowthRoutes(app, {
 // Chave para cifrar os IBAN dos criadores (obrigatória em produção; ver README).
 const payoutKey = loadKey({ payoutKey: process.env.PAYOUT_ENCRYPTION_KEY, jwtSecret: JWT_SECRET, isProduction: !isDevelopment });
 registerLiveRoutes(app, { pool, auth, presenceAuth, optionalAuth, parseId, isRecord, cleanText, transaction, blockedBetween, rateLimit: accountSecurityRateLimit });
-const music = registerMusicRoutes(app, { pool, auth, optionalAuth, requireAdmin, parseId, isRecord, uploadDir, removeUpload, rateLimit });
+const music = registerMusicRoutes(app, { pool, auth, optionalAuth, requireAdmin, parseId, isRecord, uploadDir, removeUpload, rateLimit: options => makeRateLimit("music", options) });
 registerFinanceRoutes(app, { pool, auth, requireAdmin, parseId, isRecord, cleanText, transaction, payments, payoutKey });
 
 app.use((req, res) => {
@@ -2279,7 +2303,7 @@ app.use((error, _req, res, next) => {
 });
 
 // Erros fora dos pedidos (intervalos, webhooks em segundo plano): ficam registados com a pilha.
-process.on("unhandledRejection", reason => {
+process.on("unhandledRejection", (/** @type {any} */ reason) => {
   console.error(JSON.stringify({ level: "error", at: new Date().toISOString(), kind: "unhandledRejection",
     message: reason?.message || String(reason), stack: reason?.stack || null }));
 });

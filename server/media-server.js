@@ -55,7 +55,16 @@ function verifyPublishToken(token, userId, secret, now = Date.now()) {
 // Decide um pedido de autorização do MediaMTX.
 // lookups.publisher(userId) → { stream_key_hash, suspended_at } | null
 // lookups.liveOn(userId) → o direto aberto dessa pessoa (ou null)
+// A API de controlo do MediaMTX (listar e cortar emissões) só aceita a app do Biva:
+// utilizador fixo e o MEDIA_HOOK_SECRET como palavra-passe. Nunca fica aberta na rede interna.
+const MEDIA_API_USER = "biva-api";
+
 async function authorizeMedia(request, secret, lookups, now = Date.now()) {
+  if (request?.action === "api") {
+    return request.user === MEDIA_API_USER && safeEqual(request.password || "", secret)
+      ? { ok: true }
+      : { ok: false, reason: "API reservada à app" };
+  }
   const userId = userFromPath(request?.path);
   if (!userId) return { ok: false, reason: "caminho inválido" };
   const query = new URLSearchParams(String(request.query || ""));
@@ -97,13 +106,15 @@ const KICK_ENDPOINTS = { rtmpConn: "rtmpconns", webRTCSession: "webrtcsessions",
 
 function createMediaClient(config, fetchImpl = fetch) {
   const state = new Map();
+  const authorization = `Basic ${Buffer.from(`${MEDIA_API_USER}:${config.secret}`).toString("base64")}`;
+  const call = (url, options = {}) => fetchImpl(url, { ...options, headers: { ...(options.headers || {}), Authorization: authorization } });
   return {
     state,
     // Lê todos os caminhos de uma vez (uma chamada por ciclo, não por espectador).
     async refresh(now = Date.now()) {
-      const response = await fetchImpl(`${config.apiUrl}/v3/paths/list?itemsPerPage=1000`);
+      const response = await call(`${config.apiUrl}/v3/paths/list?itemsPerPage=1000`);
       if (!response.ok) throw new Error(`MediaMTX respondeu ${response.status}`);
-      const { items = [] } = await response.json();
+      const { items = [] } = /** @type {{ items?: any[] }} */ (await response.json());
       const seen = new Set();
       for (const item of items) {
         seen.add(item.name);
@@ -117,7 +128,7 @@ function createMediaClient(config, fetchImpl = fetch) {
       const source = state.get(path)?.source;
       const endpoint = source && KICK_ENDPOINTS[source.type];
       if (!endpoint) return false;
-      const response = await fetchImpl(`${config.apiUrl}/v3/${endpoint}/kick/${encodeURIComponent(source.id)}`, { method: "POST" });
+      const response = await call(`${config.apiUrl}/v3/${endpoint}/kick/${encodeURIComponent(source.id)}`, { method: "POST" });
       return response.ok;
     },
     hlsUrl: userId => `${config.hlsUrl}/${pathFor(userId)}/index.m3u8`,
@@ -126,6 +137,7 @@ function createMediaClient(config, fetchImpl = fetch) {
 }
 
 module.exports = {
+  MEDIA_API_USER,
   PUBLISH_TOKEN_TTL_SECONDS, authorizeMedia, createMediaClient, hashStreamKey, mediaConfig, newStreamKey,
   pathFor, publishToken, summarizePath, userFromPath, verifyPublishToken
 };

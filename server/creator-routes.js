@@ -127,8 +127,8 @@ function registerCreatorRoutes(app, deps) {
       pool.query(`
         SELECT p.id,LEFT(p.body,140) AS excerpt,p.media_url,p.media_type,p.created_at,p.is_exclusive,p.group_id,p.shared_post_id,
           (SELECT COUNT(*) FROM post_views v WHERE v.post_id=p.id)::int AS views,
-          (SELECT COUNT(*) FROM likes l WHERE l.post_id=p.id)::int AS likes,
-          (SELECT COUNT(*) FROM comments c WHERE c.post_id=p.id)::int AS comments,
+          p.like_count::int AS likes,
+          p.comment_count::int AS comments,
           (SELECT COUNT(*) FROM posts s WHERE s.shared_post_id=p.id)::int AS shares
         FROM posts p WHERE p.user_id=$1 ORDER BY p.created_at DESC LIMIT 4`, [id])
     ]);
@@ -148,8 +148,8 @@ function registerCreatorRoutes(app, deps) {
       SELECT p.id,LEFT(p.body,180) AS excerpt,p.media_url,p.media_type,p.created_at,p.is_exclusive,p.group_id,p.page_id,p.shared_post_id,p.hidden_at,
         g.name AS group_name, pg.name AS page_name,
         (SELECT COUNT(*) FROM post_views v WHERE v.post_id=p.id)::int AS views,
-        (SELECT COUNT(*) FROM likes l WHERE l.post_id=p.id)::int AS likes,
-        (SELECT COUNT(*) FROM comments c WHERE c.post_id=p.id)::int AS comments,
+        p.like_count::int AS likes,
+        p.comment_count::int AS comments,
         (SELECT COUNT(*) FROM posts s WHERE s.shared_post_id=p.id)::int AS shares
       FROM posts p LEFT JOIN social_groups g ON g.id=p.group_id LEFT JOIN pages pg ON pg.id=p.page_id
       WHERE p.user_id=$1 AND ($2::int IS NULL OR p.id < $2)
@@ -445,11 +445,11 @@ function registerCreatorRoutes(app, deps) {
     if (!picked.length) return res.json({ posts: [] });
     const posts = await pool.query(`
       SELECT p.*, u.username, u.display_name, u.avatar_url, u.is_creator, u.partner_since IS NOT NULL AS is_verified,
-        (SELECT COALESCE(SUM(st.amount),0) FROM star_ledger st WHERE st.post_id=p.id AND st.kind='gift_received')::int AS stars,
-        (SELECT COUNT(*) FROM likes l WHERE l.post_id=p.id) AS likes,
+        p.star_count::int AS stars,
+        p.like_count AS likes,
         EXISTS(SELECT 1 FROM likes l WHERE l.post_id=p.id AND l.user_id=$1) AS liked,
-        (SELECT COUNT(*) FROM comments c WHERE c.post_id=p.id) AS comments,
-        (SELECT COUNT(*) FROM posts sh WHERE sh.shared_post_id=p.id) AS shares,
+        p.comment_count AS comments,
+        p.share_count AS shares,
         ${POST_MUSIC_SQL}
       FROM posts p JOIN users u ON u.id=p.user_id WHERE p.id = ANY($2::int[])`, [viewer, picked.map(ad => ad.post_id)]);
     const byId = new Map(posts.rows.map(post => [post.id, post]));

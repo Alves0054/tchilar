@@ -130,3 +130,24 @@ test("reactions are counted in memory, only known kinds and not faster than the 
   reactions.forget(1);
   assert.equal(reactions.of(1).heart, 0);
 });
+
+test("the MediaMTX control API only accepts the app with the hook secret", async () => {
+  const { MEDIA_API_USER } = require("./media-server");
+  const secret = "s".repeat(32);
+  const lookups = { liveOn: async () => null, publisher: async () => null };
+  assert.equal((await authorizeMedia({ action: "api", user: MEDIA_API_USER, password: secret }, secret, lookups)).ok, true);
+  assert.equal((await authorizeMedia({ action: "api", user: MEDIA_API_USER, password: "errado" }, secret, lookups)).ok, false);
+  assert.equal((await authorizeMedia({ action: "api", user: "outro", password: secret }, secret, lookups)).ok, false);
+  assert.equal((await authorizeMedia({ action: "api" }, secret, lookups)).ok, false);
+  assert.equal((await authorizeMedia({ action: "metrics", user: MEDIA_API_USER, password: secret }, secret, lookups)).ok, false);
+  assert.equal((await authorizeMedia({ action: "pprof", user: MEDIA_API_USER, password: secret }, secret, lookups)).ok, false);
+});
+
+test("the media client authenticates every call to the control API", async () => {
+  const seen = [];
+  const fakeFetch = async (url, options = {}) => { seen.push(options.headers?.Authorization); return { ok: true, json: async () => ({ items: [] }) }; };
+  const client = createMediaClient({ apiUrl: "http://media:9997", hlsUrl: "http://media:8888", secret: "s".repeat(32) }, fakeFetch);
+  await client.refresh();
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0], `Basic ${Buffer.from(`biva-api:${"s".repeat(32)}`).toString("base64")}`);
+});

@@ -1,6 +1,6 @@
-// Editores de imagem do perfil: posicionar a capa e recortar/filtrar a foto de perfil.
+﻿// Editores de imagem do perfil: posicionar a capa e recortar/filtrar a foto de perfil.
 // Tudo corre no browser (canvas); o servidor volta a otimizar o resultado para WebP.
-import React, { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { FlipHorizontal2, Minus, Move, Plus, RotateCw, Undo2 } from "lucide-react";
 

@@ -54,8 +54,11 @@ services:
       MEDIA_WHIP_URL: ${MEDIA_WHIP_URL:-}
       MEDIA_RTMP_URL: ${MEDIA_RTMP_URL:-}
       MEDIA_HOOK_SECRET: ${MEDIA_HOOK_SECRET:-}
+      # Várias cópias da API (docker compose --profile scale up -d --scale app=3): limites partilhados no Redis.
+      REDIS_URL: ${REDIS_URL:-}
     ports:
-      - "127.0.0.1:4000:4000"
+      # Uma porta por cópia (até 4); o nginx reparte por elas.
+      - "127.0.0.1:4000-4003:4000"
     volumes:
       - biva-uploads:/app/uploads
     depends_on:
@@ -86,6 +89,13 @@ services:
       - "127.0.0.1:8889:8889"  # WHIP → nginx (HTTPS)
     depends_on:
       - app
+
+  # Só para várias cópias da API: guarda os limites de pedidos partilhados (nada que precise de cópia de segurança).
+  redis:
+    image: redis:7-alpine
+    profiles: ["scale"]
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "64mb", "--maxmemory-policy", "allkeys-lru"]
 
 volumes:
   biva-postgres:

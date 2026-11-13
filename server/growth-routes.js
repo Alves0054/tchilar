@@ -307,7 +307,7 @@ function registerGrowthRoutes(app, deps) {
   // Classificação: por gostos (desempate pela participação mais antiga).
   const rankingSql = `
     SELECT e.post_id,e.created_at,u.username,u.display_name,u.avatar_url,LEFT(p.body,140) AS excerpt,p.media_url,p.media_type,
-      (SELECT COUNT(*) FROM likes l WHERE l.post_id=p.id)::int AS likes
+      p.like_count::int AS likes
     FROM challenge_entries e JOIN posts p ON p.id=e.post_id JOIN users u ON u.id=e.user_id
     WHERE e.challenge_id=$1 AND p.hidden_at IS NULL AND u.suspended_at IS NULL
     ORDER BY likes DESC, e.created_at ASC`;

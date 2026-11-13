@@ -596,3 +596,23 @@ test("internal errors return a reference and log the stack without the query str
     queryMock = null;
   }
 });
+
+test("browser error reports are logged with their reference and validated", async () => {
+  const logged = [];
+  const original = console.error;
+  console.error = message => logged.push(message);
+  try {
+    const ok = await fetch(`${baseUrl}/api/client-errors`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reference: "ab12cd34", context: "render", message: "x is undefined", stack: "at Feed", path: "/live?access=segredo" })
+    });
+    assert.equal(ok.status, 204);
+    const entry = JSON.parse(logged.find(line => typeof line === "string" && line.includes("ab12cd34")));
+    assert.equal(entry.kind, "client");
+    assert.equal(entry.path, "/live");
+    const bad = await fetch(`${baseUrl}/api/client-errors`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reference: "<script>" }) });
+    assert.equal(bad.status, 400);
+  } finally {
+    console.error = original;
+  }
+});

@@ -191,6 +191,41 @@ No Biva: **Diretos → Começar um direto → OBS ou programa → Gerar chave**.
 keyframes a cada 2 s. Cria o direto no Biva e depois carrega em «Iniciar transmissão» no OBS.
 A chave só é mostrada uma vez e é guardada apenas como hash; terminar o direto corta a emissão.
 
+### 6.5 Segurança do MediaMTX
+
+A API de controlo do MediaMTX (porta 9997) não tem porta pública e só aceita a app do Biva
+(utilizador `biva-api` com o `MEDIA_HOOK_SECRET`). As métricas, o `pprof` e os protocolos que
+não usamos (RTSP, SRT, MoQ) estão desligados em `deploy/mediamtx.yml`.
+
+### 6.6 Imagem sem root
+
+A API corre como o utilizador `node` dentro do contentor (não como root). Numa instalação nova não é
+preciso fazer nada. Se já tinhas a Biva instalada antes desta versão, dá uma vez a pasta das fotos
+ao novo utilizador:
+
+```
+docker compose run --rm --user root app chown -R node:node /app/uploads
+```
+
+## 7. Várias cópias da API (crescer)
+
+Uma cópia aguenta bem o início. Quando o CPU do servidor passar muitas vezes dos 70 %:
+
+1. No `.env`: `REDIS_URL=redis://redis:6379` (os limites de tentativas passam a ser partilhados;
+   sem isto, cada cópia dava a cada pessoa as suas próprias tentativas de login).
+2. Arranca com 3 cópias: `docker compose --profile scale up -d --scale app=3`
+   (ficam nas portas 4000, 4001 e 4002 do próprio servidor).
+3. Em `/etc/nginx/sites-available/biva`, acrescenta as cópias nos **dois** blocos `upstream`:
+   ```
+   server 127.0.0.1:4001;
+   server 127.0.0.1:4002;
+   ```
+   e `nginx -t && systemctl reload nginx`.
+
+Os diretos continuam certos com várias cópias: o nginx manda sempre o mesmo direto para a mesma
+cópia (contagem de espectadores, modo lento e reações), e a lista de diretos lê da base de dados os
+números que as outras cópias gravam a cada 15 s.
+
 ## Opção: base de dados na Supabase
 
 Em vez do PostgreSQL do docker compose:
