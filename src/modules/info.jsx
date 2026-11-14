@@ -10,7 +10,7 @@ export function InfoPage({ kicker, title, intro, draft, children }) {
       <p className="feed-section-kicker">{kicker}</p>
       <h1>{title}</h1>
       {intro && <p className="info-intro">{intro}</p>}
-      {draft && <p className="info-draft" role="note"><Icon name="info" size={15} /> Rascunho: este texto tem de ser revisto por um jurista antes de o Biva abrir ao público.</p>}
+      {draft && <p className="info-draft" role="note"><Icon name="info" size={15} /> Rascunho: este texto tem de ser revisto por um jurista antes de o Tchilar abrir ao público.</p>}
     </header>
     <div className="info-body card">{children}</div>
     <InfoLinks />
@@ -18,9 +18,9 @@ export function InfoPage({ kicker, title, intro, draft, children }) {
 }
 export function About() {
   return <InfoPage kicker="Sobre" title="Conecta. Partilha. Vive."
-    intro="O Biva é o lugar para estares perto de quem importa: as tuas pessoas, as tuas ideias e a tua comunidade, num espaço seguro e teu.">
-    <img className="about-logo" src="/biva-logo-full.png" alt="Biva — conecta, partilha, vive" />
-    <h2>O que podes fazer no Biva</h2>
+    intro="O Tchilar é o lugar para estares perto de quem importa: as tuas pessoas, as tuas ideias e a tua comunidade, num espaço seguro e teu.">
+    <img className="about-logo" src="/tchilar-logo-full.png" alt="Tchilar — conecta, partilha, vive" />
+    <h2>O que podes fazer no Tchilar</h2>
     <ul>
       <li><strong>Partilhar momentos</strong> com texto, fotografias, vídeos e stories que desaparecem em 24 horas.</li>
       <li><strong>Estar perto de quem importa</strong>: amigos, pessoas que segues, grupos, páginas e eventos.</li>
@@ -71,7 +71,7 @@ export function Terms() {
     <h2>1. A tua conta</h2>
     <p>Precisas de um email válido, de dados verdadeiros e de ter pelo menos 13 anos. És responsável pela segurança da tua palavra-passe e pelo que é publicado com a tua conta. Não podes fazer-te passar por outra pessoa nem criar contas para obter vantagens (por exemplo, prémios de convites).</p>
     <h2>2. O teu conteúdo</h2>
-    <p>O que publicas continua a ser teu. Ao publicar, dás ao Biva autorização para alojar e mostrar esse conteúdo às pessoas que o podem ver, enquanto ele estiver publicado — incluindo quando alguém o partilha. Só podes publicar conteúdo sobre o qual tens direitos.</p>
+    <p>O que publicas continua a ser teu. Ao publicar, dás ao Tchilar autorização para alojar e mostrar esse conteúdo às pessoas que o podem ver, enquanto ele estiver publicado — incluindo quando alguém o partilha. Só podes publicar conteúdo sobre o qual tens direitos.</p>
     <h2>3. O que não é permitido</h2>
     <ul>
       <li>Assédio, ameaças, discurso de ódio ou incitamento à violência.</li>
@@ -85,12 +85,12 @@ export function Terms() {
     <h2>4. Moderação</h2>
     <p>Podemos esconder conteúdo, apagar comentários ou suspender contas que violem estes termos. As decisões são tomadas pela equipa de moderação a partir das denúncias da comunidade.</p>
     <h2>5. Pagamentos</h2>
-    <p>Os pagamentos são processados por prestadores de pagamento externos; o Biva nunca vê os dados do teu cartão. Os preços são em kwanzas (Kz).</p>
+    <p>Os pagamentos são processados por prestadores de pagamento externos; o Tchilar nunca vê os dados do teu cartão. Os preços são em kwanzas (Kz).</p>
     <ul>
       <li><strong>Subscrições:</strong> mensais, renovam-se automaticamente até serem canceladas. Ao cancelar, manténs o acesso até ao fim do período pago. O conteúdo exclusivo é da responsabilidade de cada criador.</li>
       <li><strong>Estrelas:</strong> compram-se em pacotes e servem para apoiar criadores. As estrelas compradas não são reembolsáveis nem convertíveis em dinheiro por quem as comprou.</li>
       <li><strong>Promoções e anúncios:</strong> pagas antes de serem revistas. Se a equipa recusar uma promoção, o valor é devolvido. O orçamento é gasto à medida que as pessoas veem a promoção; o que não for gasto até ao fim do prazo não é devolvido. Aplicam-se as <Link to="/publicidade">Regras de publicidade</Link>.</li>
-      <li><strong>Campanhas com marcas:</strong> a marca paga através do Biva quando o criador aceita a proposta. O Biva fica com 15%.</li>
+      <li><strong>Campanhas com marcas:</strong> a marca paga através do Tchilar quando o criador aceita a proposta. O Tchilar fica com 15%.</li>
     </ul>
     <h2>6. Ganhos dos criadores</h2>
     <p>Os criadores podem ganhar dinheiro com o Programa de Parceiros (a partir de 10 000 seguidores e 10 000 visualizações em 28 dias), com as estrelas recebidas (70% do valor) e com campanhas de marcas (85% do valor). Os ganhos podem ser levantados por transferência bancária a partir de 5 000 Kz. Ganhos obtidos com fraude (visualizações, seguidores ou estrelas falsas) podem ser anulados, e a conta suspensa.</p>
@@ -129,12 +129,12 @@ export function Privacy() {
       <li><strong>Apagamento:</strong> Definições → Apagar conta. A conta e o conteúdo são apagados de imediato. Os registos de pagamentos e levantamentos são guardados durante o prazo legal. Podem ficar cópias de segurança durante um período limitado.</li>
     </ul>
     <h2>Contacto</h2>
-    <p>Para questões de privacidade, contacta a equipa responsável pelo Biva. (Falta indicar aqui o contacto, o responsável pelo tratamento e o registo na Agência de Proteção de Dados.)</p>
+    <p>Para questões de privacidade, contacta a equipa responsável pelo Tchilar. (Falta indicar aqui o contacto, o responsável pelo tratamento e o registo na Agência de Proteção de Dados.)</p>
   </InfoPage>;
 }
 export function AdRules() {
   return <InfoPage kicker="Publicidade" title="Regras de publicidade" draft
-    intro="O que pode e não pode ser promovido no Biva. Todas as promoções são revistas pela equipa antes de aparecerem.">
+    intro="O que pode e não pode ser promovido no Tchilar. Todas as promoções são revistas pela equipa antes de aparecerem.">
     <h2>Como funciona a revisão</h2>
     <p>Depois de pagares, a promoção fica <strong>em revisão</strong> (normalmente menos de 24 horas). Se for aprovada, entra no ar e o prazo começa a contar. Se for recusada, explicamos o motivo e devolvemos o valor pago.</p>
     <h2>Não é permitido promover</h2>

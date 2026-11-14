@@ -62,7 +62,7 @@ function createPayments({ stripe, isProduction, appUrl, currency, pool, proxypay
       const paymentId = pending.rows[0].id;
       try {
         const created = await paybyrd.createExpressPayment({
-          amountKz, phone: number, orderRef: `biva-${paymentId}`, redirectUrl: new URL(successPath, appUrl).toString()
+          amountKz, phone: number, orderRef: `tchilar-${paymentId}`, redirectUrl: new URL(successPath, appUrl).toString()
         });
         await pool.query("UPDATE local_payments SET provider_ref=$2, expires_at=$3 WHERE id=$1",
           [paymentId, created.transactionId, created.expiresAt || new Date(Date.now() + 10 * 60_000)]);
@@ -100,6 +100,18 @@ function createPayments({ stripe, isProduction, appUrl, currency, pool, proxypay
   async function settle(paymentId) {
     const result = await pool.query(
       "UPDATE local_payments SET status='paid', paid_at=NOW() WHERE id=$1 AND status='pending' RETURNING purpose, ref_id, method",
+      [paymentId]);
+    if (!result.rowCount) return false;
+    const row = result.rows[0];
+    await fulfill(row.purpose, row.ref_id, { localPaymentId: paymentId, method: row.method });
+    return true;
+  }
+
+  // A equipa confirma à mão um pagamento que o fornecedor não confirmou (ex.: a pessoa mostra o comprovativo
+  // do banco e a referência já tinha expirado). Entrega o produto uma única vez, como o settle.
+  async function confirmManually(paymentId) {
+    const result = await pool.query(
+      "UPDATE local_payments SET status='paid', paid_at=NOW() WHERE id=$1 AND status<>'paid' RETURNING purpose, ref_id, method",
       [paymentId]);
     if (!result.rowCount) return false;
     const row = result.rows[0];
@@ -202,7 +214,7 @@ function createPayments({ stripe, isProduction, appUrl, currency, pool, proxypay
   }
 
   return {
-    mode, methods, register, start, fulfill, refund, handleCheckoutSession,
+    mode, methods, register, start, fulfill, refund, handleCheckoutSession, confirmManually,
     handleProxyPayPayment, pollProxyPay, refreshExpressByTransaction, status, simulateReference, proxypay, paybyrd
   };
 }

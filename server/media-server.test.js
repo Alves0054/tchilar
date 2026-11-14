@@ -149,5 +149,5 @@ test("the media client authenticates every call to the control API", async () =>
   const client = createMediaClient({ apiUrl: "http://media:9997", hlsUrl: "http://media:8888", secret: "s".repeat(32) }, fakeFetch);
   await client.refresh();
   assert.equal(seen.length, 1);
-  assert.equal(seen[0], `Basic ${Buffer.from(`biva-api:${"s".repeat(32)}`).toString("base64")}`);
+  assert.equal(seen[0], `Basic ${Buffer.from(`tchilar-api:${"s".repeat(32)}`).toString("base64")}`);
 });

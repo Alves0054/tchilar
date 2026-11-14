@@ -1,11 +1,11 @@
-// Lint do Biva: apanha variáveis por definir, imports em falta e erros nas regras dos hooks do React.
+// Lint do Tchilar: apanha variáveis por definir, imports em falta e erros nas regras dos hooks do React.
 import js from "@eslint/js";
 import globals from "globals";
 import react from "eslint-plugin-react";
 import reactHooks from "eslint-plugin-react-hooks";
 
 export default [
-  { ignores: ["dist/**", "node_modules/**", "uploads/**", ".playwright-mcp/**"] },
+  { ignores: ["dist/**", "node_modules/**", "uploads/**", ".playwright-mcp/**", ".claude/**", "release/**", "mobile/**"] },
   js.configs.recommended,
   {
     files: ["src/**/*.{js,jsx}"],

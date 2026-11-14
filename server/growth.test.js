@@ -10,7 +10,7 @@ test("star packs cost 10 Kz per star and creators keep 70%", () => {
   assert.equal(starsValueKz(1), 7);
 });
 
-test("brand campaigns keep a 15% commission for Biva", () => {
+test("brand campaigns keep a 15% commission for Tchilar", () => {
   assert.deepEqual(campaignSplit(100_000), { commission: 15_000, net: 85_000 });
   assert.deepEqual(campaignSplit(5_000), { commission: 750, net: 4_250 });
 });

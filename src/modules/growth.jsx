@@ -1,7 +1,7 @@
 import { useContext, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { Avatar, Icon, UserContext, api, formatCount, formatPrice } from "./core.jsx";
+import { Avatar, Icon, UserContext, api, formatCount, formatPrice, PUBLIC_URL } from "./core.jsx";
 import { relativeTime } from "./feed.jsx";
 import { ContentThumb, PaymentDialog, PersonLine, VerifiedBadge, canBoost, postKind } from "./shared.jsx";
 
@@ -42,8 +42,8 @@ export function StarsPage() {
   return <div className="page narrow growth-page">
     <header className="growth-hero card">
       <span className="growth-hero-icon tone-star"><Icon name="star" size={28} /></span>
-      <div><p className="feed-section-kicker">Estrelas Biva</p><h1>Apoia quem gostas</h1>
-        <p>Oferece estrelas nas publicações dos teus criadores favoritos. Cada estrela vale {data ? formatPrice(data.price_kz) : "10 Kz"}; o criador recebe 70% e o Biva fica com 30%.</p></div>
+      <div><p className="feed-section-kicker">Estrelas Tchilar</p><h1>Apoia quem gostas</h1>
+        <p>Oferece estrelas nas publicações dos teus criadores favoritos. Cada estrela vale {data ? formatPrice(data.price_kz) : "10 Kz"}; o criador recebe 70% e o Tchilar fica com 30%.</p></div>
       <div className="growth-balance"><small>O teu saldo</small><strong><Icon name="star" size={20} /> {data ? formatCount(data.balance) : "…"}</strong></div>
     </header>
     {paying && <PaymentDialog title={`Comprar ${formatCount(paying.pack.stars + paying.pack.bonus)} estrelas`} amountKz={paying.pack.price} onPay={paying.onPay}
@@ -95,7 +95,7 @@ export function BrandsPage() {
     <header className="growth-hero card">
       <span className="growth-hero-icon tone-brand"><Icon name="brand" size={28} /></span>
       <div><p className="feed-section-kicker">Marketplace de marcas</p><h1>Encontra criadores para a tua marca</h1>
-        <p>Filtra por província, área e número de seguidores e envia uma proposta de campanha. Pagas pelo Biva quando o criador aceitar; o Biva fica com 15%.</p></div>
+        <p>Filtra por província, área e número de seguidores e envia uma proposta de campanha. Pagas pelo Tchilar quando o criador aceitar; o Tchilar fica com 15%.</p></div>
     </header>
     <div className="brand-filters card" role="search">
       <label>Província<select value={filters.province} onChange={event => setFilters({ ...filters, province: event.target.value })}>
@@ -148,7 +148,7 @@ export function ProposalDialog({ creator, onClose, onSent }) {
       <label>Título da campanha<input value={form.title} maxLength={100} required onChange={event => setForm({ ...form, title: event.target.value })} placeholder="Ex.: Lançamento da nova coleção" /></label>
       <label>O que pedes ao criador<textarea rows={5} value={form.brief} maxLength={2000} required onChange={event => setForm({ ...form, brief: event.target.value })} placeholder="Ex.: 1 vídeo de 30 s e 2 publicações a mostrar o produto, durante a próxima semana." /></label>
       <label>Orçamento (Kz)<input type="number" min="5000" step="1000" required value={form.budget} onChange={event => setForm({ ...form, budget: event.target.value })} /></label>
-      <p className="muted proposal-split">O criador recebe {formatPrice(Math.round(budget * 0.85))}; o Biva fica com {formatPrice(Math.round(budget * 0.15))} (15%).</p>
+      <p className="muted proposal-split">O criador recebe {formatPrice(Math.round(budget * 0.85))}; o Tchilar fica com {formatPrice(Math.round(budget * 0.15))} (15%).</p>
       {error && <p className="error" role="alert">{error}</p>}
       <div className="modal-actions">
         <button className="btn secondary" type="button" onClick={onClose} disabled={busy}>Cancelar</button>
@@ -166,7 +166,7 @@ export function ChallengesPage() {
   const [myPosts, setMyPosts] = useState([]);
   const [picking, setPicking] = useState(false);
   const [creating, setCreating] = useState(false);
-  const [form, setForm] = useState({ title: "", description: "", prize: "", prizeStars: "0", sponsor: "Biva", days: "30" });
+  const [form, setForm] = useState({ title: "", description: "", prize: "", prizeStars: "0", sponsor: "Tchilar", days: "30" });
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const loadList = () => api("/challenges").then(result => setList(result.challenges)).catch(loadError => setError(loadError.message));
@@ -240,7 +240,7 @@ export function ChallengesPage() {
           <span className={`status-pill ${item.is_open ? "is-ok" : "is-off"}`}>{deadline(item)}</span>
           <strong>{item.title}</strong>
           {item.prize && <span className="challenge-prize"><Icon name="gift" size={14} /> {item.prize}{item.prize_stars ? ` · ${formatCount(item.prize_stars)} estrelas` : ""}</span>}
-          <small>{item.sponsor !== "Biva" ? `Patrocinado por ${item.sponsor} · ` : ""}{formatCount(item.entries)} {item.entries === 1 ? "participação" : "participações"}{item.my_post_id ? " · estás a participar" : ""}</small>
+          <small>{item.sponsor !== "Tchilar" ? `Patrocinado por ${item.sponsor} · ` : ""}{formatCount(item.entries)} {item.entries === 1 ? "participação" : "participações"}{item.my_post_id ? " · estás a participar" : ""}</small>
         </Link>)}
       </section>
       <section className="challenge-detail" aria-label="Detalhe do desafio">
@@ -276,11 +276,11 @@ export function InvitePage() {
   useEffect(() => { if (user) api("/referrals").then(setData).catch(() => {}); }, [user?.id]);
   if (!authReady) return <div className="page narrow"><div className="empty card">A carregar...</div></div>;
   if (!user) return <div className="page narrow"><div className="empty card">Entra na tua conta para convidares amigos. <Link to="/login">Entrar</Link></div></div>;
-  const link = `${window.location.origin}/register?convite=${encodeURIComponent(user.username)}`;
+  const link = `${PUBLIC_URL}/register?convite=${encodeURIComponent(user.username)}`;
   const copy = async () => {
     try { await navigator.clipboard.writeText(link); setCopied(true); window.setTimeout(() => setCopied(false), 2500); } catch { setCopied(false); }
   };
-  const share = () => navigator.share?.({ title: "Vem para o Biva", text: "Junta-te a mim no Biva!", url: link }).catch(() => {});
+  const share = () => navigator.share?.({ title: "Vem para o Tchilar", text: "Junta-te a mim no Tchilar!", url: link }).catch(() => {});
   return <div className="page narrow growth-page">
     <header className="growth-hero card">
       <span className="growth-hero-icon tone-gift"><Icon name="gift" size={28} /></span>
@@ -312,7 +312,7 @@ export function AcademyPage() {
   return <div className="page narrow growth-page">
     <header className="growth-hero card">
       <span className="growth-hero-icon tone-academy"><Icon name="academy" size={28} /></span>
-      <div><p className="feed-section-kicker">Academia Biva</p><h1>Cresce como criador</h1>
+      <div><p className="feed-section-kicker">Academia Tchilar</p><h1>Cresce como criador</h1>
         <p>Guias curtos para chegares aos 10 mil seguidores e entrares no Programa de Parceiros.</p></div>
     </header>
     <div className="academy-grid">{ACADEMY_GUIDES.map(([title, icon, tips], index) => <article className="creator-card academy-card" key={title}>

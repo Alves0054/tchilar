@@ -5,7 +5,7 @@ import react from "@vitejs/plugin-react";
 export default defineConfig(() => ({
   plugins: [react()],
   build: {
-    // Bibliotecas que mudam pouco ficam num ficheiro próprio: o browser guarda-o em cache entre versões do Biva.
+    // Bibliotecas que mudam pouco ficam num ficheiro próprio: o browser guarda-o em cache entre versões do Tchilar.
     rollupOptions: {
       output: {
         manualChunks: id => {

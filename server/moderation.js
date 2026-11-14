@@ -26,7 +26,7 @@ function blockedBetween(meParam, otherColumn) {
 // Esconder cedo protege a comunidade; esconder demasiado cedo deixa grupos de pessoas
 // silenciar alguém só com denúncias coordenadas.
 function shouldAutoHide({ openReports, reasons, authorAgeDays }) {
-  // TODO(tu): define a regra de ocultação automática do Biva.
+  // TODO(tu): define a regra de ocultação automática do Tchilar.
   // Ponto de partida conservador: nunca esconde sozinha; tudo espera por um moderador.
   void openReports; void reasons; void authorAgeDays;
   return false;

@@ -21,7 +21,8 @@ services:
     restart: unless-stopped
     environment:
       NODE_ENV: ${NODE_ENV:-production}
-      SERVE_CLIENT: "true"
+      # false quando o site está numa hospedagem à parte (npm run release).
+      SERVE_CLIENT: ${SERVE_CLIENT:-true}
       PORT: 4000
       DATABASE_URL: postgresql://biva:${POSTGRES_PASSWORD}@database:5432/biva
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}

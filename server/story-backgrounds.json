@@ -1,0 +1,22 @@
+{
+  "colors": [
+    { "key": "oceano", "label": "Oceano", "css": "linear-gradient(160deg, #0077B6, #00B4D8)" },
+    { "key": "noite", "label": "Noite de Luanda", "css": "linear-gradient(160deg, #03233A, #0077B6)" },
+    { "key": "coral", "label": "Coral", "css": "linear-gradient(160deg, #FF6B6B, #FFB86B)" },
+    { "key": "lagoa", "label": "Lagoa", "css": "linear-gradient(160deg, #00B4D8, #2EC4A6)" },
+    { "key": "por-do-sol", "label": "Pôr do sol", "css": "linear-gradient(160deg, #7A2E5F, #FF6B6B 55%, #FFB86B)" },
+    { "key": "palmeira", "label": "Palmeira", "css": "linear-gradient(160deg, #1E8A5A, #2EC4A6)" },
+    { "key": "tinta", "label": "Azul-escuro", "css": "#03233A" },
+    { "key": "vermelho", "label": "Vermelho", "css": "#E05252" }
+  ],
+  "themes": [
+    { "key": "biva", "label": "Tchilar", "image": "/story-backgrounds/biva.svg" },
+    { "key": "luanda", "label": "Marginal de Luanda", "image": "/story-backgrounds/luanda.svg" },
+    { "key": "ilha", "label": "Ilha e mar", "image": "/story-backgrounds/ilha.svg" },
+    { "key": "kizomba", "label": "Kizomba", "image": "/story-backgrounds/kizomba.svg" },
+    { "key": "futebol", "label": "Futebol", "image": "/story-backgrounds/futebol.svg" },
+    { "key": "embondeiro", "label": "Embondeiro", "image": "/story-backgrounds/embondeiro.svg" },
+    { "key": "festa", "label": "Festa", "image": "/story-backgrounds/festa.svg" },
+    { "key": "estrelas", "label": "Estrelas Tchilar", "image": "/story-backgrounds/estrelas.svg" }
+  ]
+}

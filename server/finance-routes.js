@@ -1,6 +1,8 @@
 // Rotas de dinheiro: levantamentos dos criadores, revisão das promoções e área financeira
 // do administrador. Registadas a partir de index.js.
+const { logAdminAction } = require("./admin-routes");
 const { campaignSplit, starsValueKz } = require("./growth");
+const { groupAccessValueKz } = require("./groups");
 const { MIN_PAYOUT_KZ, partnerEarnings } = require("./promotions");
 const {
   MIN_WITHDRAWAL_KZ, decrypt, encrypt, isValidAngolanIban, maskIban, normalizeIban, parseWithdrawal, payoutBalance
@@ -16,6 +18,7 @@ const EARNINGS_SQL = `
       WHERE p.user_id=u.id AND u.partner_since IS NOT NULL AND v.viewed_on >= GREATEST(u.partner_since::date, date_trunc('month', CURRENT_DATE)::date))::int AS partner_views_this_month,
     (SELECT COALESCE(SUM(amount),0) FROM star_ledger WHERE user_id=u.id AND kind='gift_received')::int AS stars_received,
     (SELECT COALESCE(SUM(budget),0) FROM brand_campaigns WHERE creator_id=u.id AND status='completed')::float AS campaigns_gross,
+    (SELECT COALESCE(SUM(amount_kz),0) FROM group_access_purchases WHERE owner_id=u.id AND status='paid' AND refund_status IS NULL)::float AS groups_gross,
     (SELECT COALESCE(SUM(amount),0) FROM payout_requests WHERE user_id=u.id AND status IN ('requested','paid'))::float AS withdrawn
   FROM users u WHERE u.id=$1`;
 
@@ -23,18 +26,22 @@ function earningsFrom(row) {
   const partnerKz = partnerEarnings(row.partner_views);
   const starsKz = starsValueKz(row.stars_received);
   const campaignsKz = campaignSplit(row.campaigns_gross).net;
+  const groupsKz = groupAccessValueKz(row.groups_gross);
   return {
-    sources: { partnerKz, starsKz, campaignsKz },
+    sources: { partnerKz, starsKz, campaignsKz, groupsKz },
     accruing: { partnerKz: partnerEarnings(row.partner_views_this_month) },
     withdrawn: row.withdrawn,
-    ...payoutBalance({ partnerKz, starsKz, campaignsKz, withdrawnKz: row.withdrawn })
+    ...payoutBalance({ partnerKz, starsKz, campaignsKz, groupsKz, withdrawnKz: row.withdrawn })
   };
 }
 
 const formatIban = iban => iban.replace(/(.{4})/g, "$1 ").trim();
 
 function registerFinanceRoutes(app, deps) {
-  const { pool, auth, requireAdmin, parseId, isRecord, cleanText, transaction, payments, payoutKey } = deps;
+  const { pool, auth, requireRole, parseId, isRecord, cleanText, transaction, payments, payoutKey } = deps;
+  // Promoções: revê quem trata do conteúdo ou do dinheiro; levantamentos e finanças só o dinheiro.
+  const reviewAds = requireRole("moderation", "finance");
+  const financeOnly = requireRole("finance");
 
   const notify = (db, userId, actorId, type, text) => db.query(
     "INSERT INTO notifications(user_id,actor_id,type,text) VALUES($1,$2,$3,$4)", [userId, actorId, type, text]);
@@ -111,7 +118,7 @@ function registerFinanceRoutes(app, deps) {
   // ---------------------------------------------------------------------------------------------
   // Revisão das promoções (administrador)
   // ---------------------------------------------------------------------------------------------
-  app.get("/api/admin/ads", auth, requireAdmin, async (req, res) => {
+  app.get("/api/admin/ads", auth, reviewAds, async (req, res) => {
     const status = ["in_review", "active", "rejected", "all"].includes(req.query.status) ? req.query.status : "in_review";
     const result = await pool.query(`
       SELECT a.id,a.post_id,a.title,a.body,a.link_url,a.image_url,a.budget::float AS budget,a.days,a.status,a.paid_at,a.review_note,
@@ -124,7 +131,7 @@ function registerFinanceRoutes(app, deps) {
     res.json({ ads: result.rows });
   });
 
-  app.post("/api/admin/ads/:id/approve", auth, requireAdmin, async (req, res) => {
+  app.post("/api/admin/ads/:id/approve", auth, reviewAds, async (req, res) => {
     const id = parseId(req.params.id);
     if (!id) return res.status(400).json({ error: "Promoção inválida." });
     // O prazo começa a contar quando é aprovada, não quando foi paga.
@@ -133,11 +140,12 @@ function registerFinanceRoutes(app, deps) {
         reviewed_by=$2, reviewed_at=NOW(), review_note=''
       WHERE id=$1 AND status='in_review' RETURNING owner_id,title`, [id, req.user.id]);
     if (!result.rowCount) return res.status(409).json({ error: "Esta promoção já não está em revisão." });
+    await logAdminAction(pool, req.user.id, "ad_approve", "ad", id);
     await notify(pool, result.rows[0].owner_id, null, "ad", `A tua promoção «${result.rows[0].title}» foi aprovada e já está no ar.`);
     res.json({ status: "active" });
   });
 
-  app.post("/api/admin/ads/:id/reject", auth, requireAdmin, async (req, res) => {
+  app.post("/api/admin/ads/:id/reject", auth, reviewAds, async (req, res) => {
     const id = parseId(req.params.id);
     const note = cleanText(req.body?.note);
     if (!id) return res.status(400).json({ error: "Promoção inválida." });
@@ -147,6 +155,7 @@ function registerFinanceRoutes(app, deps) {
       WHERE id=$1 AND status='in_review' RETURNING owner_id,title,stripe_payment_intent,budget::float AS budget`, [id, req.user.id, note]);
     if (!claimed.rowCount) return res.status(409).json({ error: "Esta promoção já não está em revisão." });
     const ad = claimed.rows[0];
+    await logAdminAction(pool, req.user.id, "ad_reject", "ad", id, note);
     const refund = await payments.refund({ paymentIntent: ad.stripe_payment_intent });
     await pool.query("UPDATE ads SET refund_status=$2 WHERE id=$1", [id, refund.status]);
     const refundText = refund.status === "refunded" ? " O valor foi devolvido." : refund.status === "not_needed" ? "" : " A equipa vai devolver-te o valor pago.";
@@ -157,7 +166,7 @@ function registerFinanceRoutes(app, deps) {
   // ---------------------------------------------------------------------------------------------
   // Levantamentos (administrador)
   // ---------------------------------------------------------------------------------------------
-  app.get("/api/admin/payouts", auth, requireAdmin, async (req, res) => {
+  app.get("/api/admin/payouts", auth, financeOnly, async (req, res) => {
     if (!payoutKey) return needKey(res);
     const status = ["requested", "paid", "rejected"].includes(req.query.status) ? req.query.status : "requested";
     const result = await pool.query(`
@@ -174,7 +183,7 @@ function registerFinanceRoutes(app, deps) {
     });
   });
 
-  app.post("/api/admin/payouts/:id/:action", auth, requireAdmin, async (req, res) => {
+  app.post("/api/admin/payouts/:id/:action", auth, financeOnly, async (req, res) => {
     const id = parseId(req.params.id);
     const action = req.params.action;
     if (!id || !["paid", "reject"].includes(action)) return res.status(400).json({ error: "Pedido inválido." });
@@ -187,6 +196,7 @@ function registerFinanceRoutes(app, deps) {
       WHERE id=$1 AND status='requested' RETURNING user_id, amount::float AS amount`,
     [id, action === "paid" ? "paid" : "rejected", text, req.user.id]);
     if (!result.rowCount) return res.status(409).json({ error: "Este pedido já foi processado." });
+    await logAdminAction(pool, req.user.id, action === "paid" ? "payout_paid" : "payout_reject", "payout", id, text);
     const row = result.rows[0];
     if (row.user_id) {
       await notify(pool, row.user_id, null, "payout", action === "paid"
@@ -199,17 +209,21 @@ function registerFinanceRoutes(app, deps) {
   // ---------------------------------------------------------------------------------------------
   // Resumo financeiro (administrador)
   // ---------------------------------------------------------------------------------------------
-  app.get("/api/admin/finance", auth, requireAdmin, async (req, res) => {
+  app.get("/api/admin/finance", auth, financeOnly, async (req, res) => {
     const result = await pool.query(`
       SELECT
         -- Promoções pagas e não recusadas (as recusadas são devolvidas ou nunca foram cobradas).
-        (SELECT COALESCE(SUM(budget),0) FROM ads WHERE paid_at IS NOT NULL AND status <> 'rejected')::float AS promotions_revenue,
-        (SELECT COALESCE(SUM(budget),0) FROM ads WHERE refund_status='manual')::float AS refunds_to_do,
+        (SELECT COALESCE(SUM(budget),0) FROM ads WHERE paid_at IS NOT NULL AND status <> 'rejected' AND refund_status IS NULL)::float AS promotions_revenue,
+        ((SELECT COALESCE(SUM(budget),0) FROM ads WHERE refund_status IN ('manual','failed'))
+          + (SELECT COALESCE(SUM(amount_kz),0) FROM star_purchases WHERE refund_status IN ('manual','failed'))
+          + (SELECT COALESCE(SUM(amount_kz),0) FROM group_access_purchases WHERE refund_status IN ('manual','failed'))
+          + (SELECT COALESCE(SUM(budget),0) FROM brand_campaigns WHERE refund_status IN ('manual','failed')))::float AS refunds_to_do,
         (SELECT COUNT(*) FROM ads WHERE status='in_review')::int AS promotions_in_review,
-        (SELECT COALESCE(SUM(amount_kz),0) FROM star_purchases WHERE status='paid')::float AS stars_sold,
+        (SELECT COALESCE(SUM(amount_kz),0) FROM star_purchases WHERE status='paid' AND refund_status IS NULL)::float AS stars_sold,
         (SELECT COALESCE(SUM(amount),0) FROM star_ledger WHERE kind='gift_received')::int AS stars_gifted,
         (SELECT COALESCE(SUM(budget),0) FROM brand_campaigns WHERE status IN ('paid','completed'))::float AS campaigns_gross,
         (SELECT COALESCE(SUM(budget),0) FROM brand_campaigns WHERE status='completed')::float AS campaigns_completed,
+        (SELECT COALESCE(SUM(amount_kz),0) FROM group_access_purchases WHERE status='paid' AND refund_status IS NULL)::float AS groups_sold,
         (SELECT COALESCE(SUM(amount),0) FROM payout_requests WHERE status='requested')::float AS payouts_requested,
         (SELECT COUNT(*) FROM payout_requests WHERE status='requested')::int AS payouts_requested_count,
         (SELECT COALESCE(SUM(amount),0) FROM payout_requests WHERE status='paid')::float AS payouts_paid,
@@ -218,13 +232,15 @@ function registerFinanceRoutes(app, deps) {
             AND v.viewed_on < date_trunc('month', CURRENT_DATE)::date)::int AS partner_views`);
     const row = result.rows[0];
     const campaignsCommission = campaignSplit(row.campaigns_gross).commission;
-    const owedToCreators = starsValueKz(row.stars_gifted) + campaignSplit(row.campaigns_completed).net + partnerEarnings(row.partner_views);
+    const owedToCreators = starsValueKz(row.stars_gifted) + campaignSplit(row.campaigns_completed).net + partnerEarnings(row.partner_views)
+      + groupAccessValueKz(row.groups_sold);
     res.json({
-      income: { promotions: row.promotions_revenue, stars: row.stars_sold, campaigns: row.campaigns_gross },
-      biva_share: {
+      income: { promotions: row.promotions_revenue, stars: row.stars_sold, campaigns: row.campaigns_gross, groups: row.groups_sold },
+      tchilar_share: {
         promotions: row.promotions_revenue,
         stars: Math.round((row.stars_sold - starsValueKz(row.stars_gifted)) * 100) / 100,
-        campaigns_commission: campaignsCommission
+        campaigns_commission: campaignsCommission,
+        groups: Math.round((row.groups_sold - groupAccessValueKz(row.groups_sold)) * 100) / 100
       },
       creators: {
         earned: Math.round(owedToCreators * 100) / 100,

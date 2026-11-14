@@ -1,0 +1,13 @@
+# Imagem só da API (o site fica numa hospedagem à parte). Usada pela pasta release/servidor,
+# onde este ficheiro passa a chamar-se Dockerfile. Não compila o frontend nem leva ferramentas de teste.
+FROM node:24-alpine
+WORKDIR /app
+ENV NODE_ENV=production
+COPY package*.json ./
+RUN npm ci --omit=dev --ignore-scripts && npm rebuild sharp
+COPY server ./server
+# A pasta das fotos e vídeos pertence ao utilizador "node" (um volume novo herda este dono).
+RUN mkdir -p /app/uploads && chown -R node:node /app
+USER node
+EXPOSE 4000
+CMD ["node", "server/index.js"]

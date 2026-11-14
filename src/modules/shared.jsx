@@ -56,8 +56,8 @@ export function SponsoredSlot() {
   useSeenOnce(slotRef, Boolean(ad?.id), () => recordAdImpression(ad.id));
   if (ad === undefined) return null;
   if (!ad) return <Link className="home-sponsor" to="/creator/anuncios?novo=1">
-    <span className="home-sponsor-art" aria-hidden="true"><img src="/biva-logo.png" alt="" /></span>
-    <span><strong>Anuncia no Biva</strong><small>Mostra o teu perfil ou o teu negócio a mais pessoas. Cria um anúncio no painel do criador.</small></span>
+    <span className="home-sponsor-art" aria-hidden="true"><img src="/tchilar-logo.png" alt="" /></span>
+    <span><strong>Anuncia no Tchilar</strong><small>Mostra o teu perfil ou o teu negócio a mais pessoas. Cria um anúncio no painel do criador.</small></span>
   </Link>;
   const open = async event => {
     event.preventDefault();
@@ -67,7 +67,7 @@ export function SponsoredSlot() {
     else window.open(url, "_blank", "noopener,noreferrer");
   };
   return <a className="home-sponsor" ref={slotRef} href={ad.link_url} onClick={open} rel={ad.link_url.startsWith("/") ? undefined : "noopener noreferrer sponsored"}>
-    <span className="home-sponsor-art" aria-hidden="true"><img src={ad.image_url ? `${API_BASE}${ad.image_url}` : "/biva-logo.png"} alt="" /></span>
+    <span className="home-sponsor-art" aria-hidden="true"><img src={ad.image_url ? `${API_BASE}${ad.image_url}` : "/tchilar-logo.png"} alt="" /></span>
     <span><strong>{ad.title}</strong><small>{ad.body || ad.advertiser}</small><small className="home-sponsor-by">{ad.advertiser}</small></span>
   </a>;
 }
@@ -77,7 +77,7 @@ export function SponsoredSlot() {
 
 export function VerifiedBadge({ show }) {
   if (!show) return null;
-  return <span className="verified-badge" title="Parceiro verificado do Biva" aria-label="Parceiro verificado"><Icon name="verified" size={15} /></span>;
+  return <span className="verified-badge" title="Parceiro verificado do Tchilar" aria-label="Parceiro verificado"><Icon name="verified" size={15} /></span>;
 }
 // Botão "Estrelas" numa publicação de outra pessoa: escolhe quantas oferecer.
 export function StarGiftButton({ post, onGifted }) {
@@ -192,7 +192,7 @@ export function CreatorPartnerships() {
         <div className="ad-item-title"><strong>{campaign.title}</strong><span className={`status-pill ${pill}`}>{label}</span></div>
         <small>{side === "received" ? "De" : "Para"} {other.display_name} · {relativeTime(campaign.created_at)}</small>
         <p>{campaign.brief}</p>
-        <small>{formatPrice(campaign.budget)} · {side === "received" ? `recebes ${formatPrice(campaign.net)}` : `o criador recebe ${formatPrice(campaign.net)}`} (comissão do Biva: {formatPrice(campaign.commission)})</small>
+        <small>{formatPrice(campaign.budget)} · {side === "received" ? `recebes ${formatPrice(campaign.net)}` : `o criador recebe ${formatPrice(campaign.net)}`} (comissão do Tchilar: {formatPrice(campaign.commission)})</small>
       </div>
       <div className="ad-actions">
         {side === "received" && campaign.status === "proposed" && <><button className="btn" type="button" onClick={() => act(campaign, "accept")}>Aceitar</button><button className="btn secondary" type="button" onClick={() => act(campaign, "decline")}>Recusar</button></>}
@@ -206,7 +206,7 @@ export function CreatorPartnerships() {
     {paying && <PaymentDialog title={`Pagar a campanha «${paying.campaign.title}»`} amountKz={paying.campaign.budget} onPay={paying.onPay}
       onDone={() => { setNotice("Campanha paga. O criador já pode começar."); load(); }} onClose={() => { setPaying(null); load(); }} />}
     <section className="creator-card" aria-labelledby="partnerships-title">
-      <div className="creator-card-head"><div><h2 id="partnerships-title">Parcerias com marcas</h2><p>Propostas de campanhas pagas. O Biva fica com 15% de cada campanha.</p></div>
+      <div className="creator-card-head"><div><h2 id="partnerships-title">Parcerias com marcas</h2><p>Propostas de campanhas pagas. O Tchilar fica com 15% de cada campanha.</p></div>
         <Link className="btn secondary" to="/marcas"><Icon name="brand" size={16} /> Marketplace de marcas</Link></div>
       {notice && <p className="success" role="status">{notice}</p>}
       {error && <p className="error" role="alert">{error}</p>}
@@ -362,7 +362,7 @@ export const INFO_LINKS = [["/about", "Sobre"], ["/help", "Ajuda"], ["/terms", "
 export function InfoLinks() {
   return <nav className="info-links" aria-label="Informação">
     {INFO_LINKS.map(([to, label]) => <Link key={to} to={to}>{label}</Link>)}
-    <span>© {new Date().getFullYear()} Biva</span>
+    <span>© {new Date().getFullYear()} Tchilar</span>
   </nav>;
 }
 // Repete `callback` a cada `ms` enquanto o separador do browser estiver visível.

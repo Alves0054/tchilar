@@ -6,7 +6,7 @@ $initdb = Join-Path $bin "initdb.exe"
 $pgCtl = Join-Path $bin "pg_ctl.exe"
 $psql = Join-Path $bin "psql.exe"
 $pgIsReady = Join-Path $bin "pg_isready.exe"
-$dataRoot = Join-Path $env:LOCALAPPDATA "Biva\PostgreSQL17"
+$dataRoot = Join-Path $env:LOCALAPPDATA "Tchilar\PostgreSQL17"
 $dataPath = Join-Path $dataRoot "data"
 $logPath = Join-Path $dataRoot "postgres.log"
 $passwordFile = Join-Path $dataRoot "init-password.tmp"
@@ -55,11 +55,11 @@ try {
   }
 
   $env:PGPASSWORD = $adminPassword
-  & $psql -X -w -v ON_ERROR_STOP=1 -h 127.0.0.1 -p $port -U biva_local_admin -d postgres -c "CREATE ROLE biva LOGIN PASSWORD '$sqlPassword'"
+  & $psql -X -w -v ON_ERROR_STOP=1 -h 127.0.0.1 -p $port -U biva_local_admin -d postgres -c "CREATE ROLE tchilar LOGIN PASSWORD '$sqlPassword'"
   if ($LASTEXITCODE -ne 0) {
     throw "Nao foi possivel criar o utilizador local da aplicacao."
   }
-  & $psql -X -w -v ON_ERROR_STOP=1 -h 127.0.0.1 -p $port -U biva_local_admin -d postgres -c "CREATE DATABASE biva OWNER biva"
+  & $psql -X -w -v ON_ERROR_STOP=1 -h 127.0.0.1 -p $port -U biva_local_admin -d postgres -c "CREATE DATABASE tchilar OWNER tchilar"
   if ($LASTEXITCODE -ne 0) {
     throw "Nao foi possivel criar a base de dados local da aplicacao."
   }
@@ -91,8 +91,8 @@ try {
     Pop-Location
   }
 
-  Write-Host "Base de dados Biva pronta. A instancia anterior do PostgreSQL nao foi alterada."
-  Write-Host "Podes iniciar os servicos com a tarefa 'Iniciar Biva (frontend + API)'."
+  Write-Host "Base de dados Tchilar pronta. A instancia anterior do PostgreSQL nao foi alterada."
+  Write-Host "Podes iniciar os servicos com a tarefa 'Iniciar Tchilar (frontend + API)'."
 } finally {
   if (Test-Path -LiteralPath $passwordFile) {
     Remove-Item -LiteralPath $passwordFile -Force

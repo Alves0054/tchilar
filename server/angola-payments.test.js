@@ -53,7 +53,7 @@ test("ProxyPay references are created with the v2 headers, a generated id and th
 test("Multicaixa Express payments are sent to Paybyrd with the phone number and AOA", async () => {
   const { impl, calls } = fakeFetch([{ status: 201, body: { transactionId: "t-1", status: "Processing", multicaixaExpress: { qrCodeUrl: "https://qr", deeplinkRedirect: "https://dl", expiresAt: "2026-11-12T10:00:00Z" } } }]);
   const paybyrd = createPaybyrd({ apiKey: "pk", fetchImpl: impl });
-  const created = await paybyrd.createExpressPayment({ amountKz: 5000, phone: "923456789", orderRef: "biva-1" });
+  const created = await paybyrd.createExpressPayment({ amountKz: 5000, phone: "923456789", orderRef: "tchilar-1" });
   assert.deepEqual(created, { transactionId: "t-1", state: "pending", qrCodeUrl: "https://qr", deeplink: "https://dl", expiresAt: "2026-11-12T10:00:00Z" });
   assert.equal(calls[0].url, "https://gateway.paybyrd.com/api/v2/payment");
   assert.equal(calls[0].headers["x-api-key"], "pk");

@@ -12,6 +12,7 @@ import { installGlobalErrorReporting, PageErrorBoundary } from "./modules/errors
 
 // Áreas carregadas só quando se abrem (o JavaScript inicial fica muito mais pequeno).
 const AdminPage = lazy(() => import("./modules/admin.jsx").then(module => ({ default: module.AdminPage })));
+const Receipt = lazy(() => import("./modules/payments.jsx").then(module => ({ default: module.Receipt })));
 const Moderation = lazy(() => import("./modules/admin.jsx").then(module => ({ default: module.Moderation })));
 const Create = lazy(() => import("./modules/create.jsx").then(module => ({ default: module.Create })));
 const CreatorDashboard = lazy(() => import("./modules/creator.jsx").then(module => ({ default: module.CreatorDashboard })));
@@ -78,14 +79,17 @@ function App() {
     <Route path="/live" element={<LivePage />} />
     <Route path="/live/:liveId" element={<LivePage />} />
     <Route path="/publicidade" element={<AdRules />} />
+    <Route path="/recibos/:kind/:id" element={<Receipt />} />
     <Route path="/admin" element={<AdminPage />} />
     <Route path="/admin/:tab" element={<AdminPage />} />
+    <Route path="/admin/:tab/:itemId" element={<AdminPage />} />
     <Route path="/creator/:section" element={<CreatorDashboard />} />
     <Route path="/about" element={<About />} />
     <Route path="/help" element={<Help />} />
     <Route path="/terms" element={<Terms />} />
     <Route path="/privacy" element={<Privacy />} />
     <Route path="/u/:username/about" element={<Profile />} />
+    <Route path="/u/:username/media" element={<Profile />} />
     <Route path="/u/:username" element={<Profile />} />
   </Routes></Suspense></PageErrorBoundary></Layout>;
 }

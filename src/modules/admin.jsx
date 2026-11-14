@@ -3,22 +3,84 @@ import { Link, NavLink, useParams } from "react-router-dom";
 import { API_BASE, Icon, UserContext, api, formatClock, formatPrice } from "./core.jsx";
 import { relativeTime } from "./feed.jsx";
 import { MUSIC_GENRE_LABELS, audioDuration } from "./shared.jsx";
+import { AdminPayments } from "./payments.jsx";
+import { AdminActions, AdminOverview, AdminUserDetail, AdminUsers } from "./admin-panel.jsx";
+import { AdminBroadcasts, AdminContent, AdminDataRequests, PaymentAttempts, ROLE_LABELS, canSee, downloadWithSession } from "./admin-ops.jsx";
+
+// Áreas do painel, por grupo, e quem as vê. "super" vê todas; sem lista de funções, qualquer pessoa da equipa.
+const ADMIN_SECTIONS = [
+  { label: "Geral", items: [
+    { slug: "painel", label: "Painel", icon: "grid", hint: "O que está por fazer e os números do dia a dia.", roles: [] },
+    { slug: "registo", label: "Registo", icon: "pages", hint: "Tudo o que a equipa fez no painel.", roles: ["super"] }
+  ] },
+  { label: "Dinheiro", items: [
+    { slug: "pagamentos", label: "Pagamentos", icon: "card", hint: "Pagamentos confirmados, recibos e reembolsos.", roles: ["finance"] },
+    { slug: "por-resolver", label: "Por resolver", icon: "help", hint: "Pagamentos que ficaram a meio.", roles: ["finance"] },
+    { slug: "levantamentos", label: "Levantamentos", icon: "gift", hint: "Pagar os criadores, um a um ou em lote.", roles: ["finance"] },
+    { slug: "financas", label: "Finanças", icon: "stats", hint: "Entradas, parte do Tchilar e dívida aos criadores.", roles: ["finance"] }
+  ] },
+  { label: "Pessoas", items: [
+    { slug: "utilizadores", label: "Utilizadores", icon: "groups", hint: "Procura uma conta e vê a ficha completa.", roles: [] },
+    { slug: "dados", label: "Pedidos de dados", icon: "lock", hint: "Cópias, correções e contas a apagar (Lei n.º 22/11).", roles: ["super"] },
+    { slug: "avisos", label: "Avisos", icon: "notifications", hint: "Mensagens para toda a gente ou para um grupo.", roles: ["super"] }
+  ] },
+  { label: "Conteúdo", items: [
+    { slug: "moderacao", label: "Moderação", icon: "shield", hint: "Procura e esconde conteúdo sem esperar por denúncias.", roles: ["moderation"] },
+    { slug: "promocoes", label: "Promoções", icon: "ad", hint: "Aprova ou recusa anúncios pagos.", roles: ["finance", "moderation"] },
+    { slug: "musicas", label: "Músicas", icon: "sound", hint: "Biblioteca de músicas com licença.", roles: ["moderation"] }
+  ] }
+];
 
 export function AdminPage() {
   const { user, authReady } = useContext(UserContext);
-  const { tab = "promocoes" } = useParams();
+  const { tab = "painel", itemId } = useParams();
+  const nav = useRef(null);
+  // No telemóvel o menu é uma faixa que desliza: mostra a área aberta.
+  useEffect(() => {
+    const active = nav.current?.querySelector("a.is-active");
+    if (active && nav.current.scrollWidth > nav.current.clientWidth) {
+      nav.current.scrollTo({ left: active.offsetLeft - nav.current.clientWidth / 2 + active.clientWidth / 2 });
+    }
+  }, [tab, authReady]);
   if (!authReady) return <div className="page narrow"><div className="empty card">A carregar...</div></div>;
-  if (!user?.is_admin) return <div className="page narrow"><div className="empty card">Só a equipa do Biva tem acesso a esta área.</div></div>;
-  const tabs = [["promocoes", "Promoções"], ["levantamentos", "Levantamentos"], ["financas", "Finanças"], ["musicas", "Músicas"]];
-  return <div className="page growth-page admin-page">
-    <header className="admin-head"><h1>Administração</h1>
-      <nav className="feed-tabs" aria-label="Áreas da administração">{tabs.map(([slug, label]) => <NavLink key={slug} to={`/admin/${slug}`} className={({ isActive }) => isActive || (tab === slug) ? "is-active" : ""}>{label}</NavLink>)}
-        <Link to="/moderation">Denúncias</Link></nav>
-    </header>
-    {tab === "promocoes" && <AdminPromotions />}
-    {tab === "levantamentos" && <AdminPayouts />}
-    {tab === "financas" && <AdminFinance />}
-    {tab === "musicas" && <AdminMusic />}
+  if (!user?.is_admin) return <div className="page narrow"><div className="empty card">Só a equipa do Tchilar tem acesso a esta área.</div></div>;
+  const role = user.admin_role || "super";
+  const sections = ADMIN_SECTIONS
+    .map(section => ({ ...section, items: section.items.filter(item => !item.roles.length || canSee(role, ...item.roles)) }))
+    .filter(section => section.items.length);
+  const current = sections.flatMap(section => section.items).find(item => item.slug === tab);
+  return <div className="admin-shell">
+    <aside className="admin-nav" aria-label="Áreas da administração" ref={nav}>
+      <div className="admin-nav-title"><strong>Administração</strong><span className="admin-role-badge">{ROLE_LABELS[role]}</span></div>
+      {sections.map(section => <div className="admin-nav-group" key={section.label}>
+        <h2>{section.label}</h2>
+        {section.items.map(item => <NavLink key={item.slug} to={`/admin/${item.slug}`} className={() => item.slug === tab ? "is-active" : ""}>
+          <Icon name={item.icon} size={18} /><span>{item.label}</span>
+        </NavLink>)}
+        {section.label === "Conteúdo" && canSee(role, "moderation") && <Link to="/moderation"><Icon name="flag" size={18} /><span>Denúncias</span></Link>}
+      </div>)}
+    </aside>
+    <div className="admin-main">
+      <header className="admin-main-head">
+        <h1>{current?.label || "Administração"}</h1>
+        {current && <p>{current.hint}</p>}
+      </header>
+    {!current && <section className="creator-card"><p className="muted">A tua função na equipa ({ROLE_LABELS[role]}) não dá acesso a esta área.</p></section>}
+    {current && <>
+      {tab === "painel" && <AdminOverview />}
+      {tab === "pagamentos" && <AdminPayments />}
+      {tab === "por-resolver" && <PaymentAttempts />}
+      {tab === "utilizadores" && (itemId ? <AdminUserDetail userId={itemId} canManageTeam={role === "super"} canModerate={canSee(role, "moderation")} /> : <AdminUsers />)}
+      {tab === "moderacao" && <AdminContent />}
+      {tab === "avisos" && <AdminBroadcasts />}
+      {tab === "dados" && <AdminDataRequests />}
+      {tab === "registo" && <AdminActions />}
+      {tab === "promocoes" && <AdminPromotions />}
+      {tab === "levantamentos" && <AdminPayouts />}
+      {tab === "financas" && <AdminFinance />}
+      {tab === "musicas" && <AdminMusic />}
+    </>}
+    </div>
   </div>;
 }
 // Biblioteca de músicas: a equipa carrega faixas com licença (ou aprova músicas das pessoas),
@@ -72,7 +134,7 @@ export function AdminMusic() {
   return <div className="admin-music">
     <form className="card admin-music-form" onSubmit={upload}>
       <h2>Adicionar à biblioteca</h2>
-      <p className="muted">Só músicas que a Biva pode usar: compostas para a Biva, com autorização escrita do artista, ou com licença livre (por exemplo, Pixabay Music ou Creative Commons CC0). Regista sempre a licença.</p>
+      <p className="muted">Só músicas que a Tchilar pode usar: compostas para a Tchilar, com autorização escrita do artista, ou com licença livre (por exemplo, Pixabay Music ou Creative Commons CC0). Regista sempre a licença.</p>
       <input ref={fileInput} className="sr-only" type="file" accept="audio/*" tabIndex={-1} aria-hidden="true" onChange={event => { pick(event.target.files?.[0]); event.target.value = ""; }} />
       <button type="button" className="music-upload-button" onClick={() => fileInput.current.click()}><Icon name="sound" size={16} />{form.file ? form.file.name : "Escolher ficheiro de áudio (até 15 MB)"}</button>
       <div className="admin-music-fields">
@@ -165,8 +227,31 @@ export function AdminPayouts() {
   const [status, setStatus] = useState("requested");
   const [payouts, setPayouts] = useState(null);
   const [error, setError] = useState("");
+  const [selected, setSelected] = useState([]);
+  const [notice, setNotice] = useState("");
   const load = () => api(`/admin/payouts?status=${status}`).then(result => setPayouts(result.payouts)).catch(loadError => setError(loadError.message));
-  useEffect(() => { setPayouts(null); load(); }, [status]);
+  useEffect(() => { setPayouts(null); setSelected([]); load(); }, [status]);
+  const toggle = id => setSelected(current => current.includes(id) ? current.filter(item => item !== id) : [...current, id]);
+  // Lote: descarrega o ficheiro para o banco; depois de o banco processar, marca os escolhidos com a referência do lote.
+  const exportBatch = async () => {
+    setError(""); setNotice("");
+    try {
+      await downloadWithSession("/admin/payouts.csv", `tchilar-levantamentos-${new Date().toISOString().slice(0, 10)}.csv`);
+      setNotice("Ficheiro descarregado. Depois de o banco processar, escolhe os pagos e marca-os com a referência do lote.");
+    } catch (exportError) { setError(exportError.message); }
+  };
+  const payBatch = async () => {
+    const total = payouts.filter(payout => selected.includes(payout.id)).reduce((sum, payout) => sum + payout.amount, 0);
+    const reference = window.prompt(`Marcar ${selected.length} levantamentos como pagos (${formatPrice(total)}).\nReferência do lote no banco:`);
+    if (!reference) return;
+    setError(""); setNotice("");
+    try {
+      const result = await api("/admin/payouts/batch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids: selected, reference }) });
+      setNotice(`${result.paid.length} marcados como pagos.${result.skipped.length ? ` ${result.skipped.length} já não estavam por pagar.` : ""}`);
+      setPayouts(current => current.filter(item => !result.paid.includes(item.id)));
+      setSelected([]);
+    } catch (batchError) { setError(batchError.message); }
+  };
   const settle = async (payout, action) => {
     const value = window.prompt(action === "paid" ? `Referência da transferência de ${formatPrice(payout.amount)} para ${payout.holder_name}:` : "Motivo da recusa (o criador vai ver):");
     if (!value) return;
@@ -182,10 +267,19 @@ export function AdminPayouts() {
       <label className="period-select"><select value={status} onChange={event => setStatus(event.target.value)}>
         <option value="requested">Por pagar</option><option value="paid">Pagos</option><option value="rejected">Recusados</option>
       </select><Icon name="chevronDown" size={16} /></label></div>
+    {status === "requested" && payouts?.length > 0 && <div className="admin-batch">
+      <button className="btn secondary" type="button" onClick={exportBatch}><Icon name="arrowDown" size={16} />Ficheiro para o banco</button>
+      <label className="admin-check"><input type="checkbox" checked={selected.length === payouts.length}
+        onChange={event => setSelected(event.target.checked ? payouts.map(payout => payout.id) : [])} />Escolher todos</label>
+      <button className="btn" type="button" disabled={!selected.length} onClick={payBatch}>Marcar {selected.length || ""} como pagos</button>
+    </div>}
     {error && <p className="error" role="alert">{error}</p>}
+    {notice && <p className="prefs-saved" role="status"><Icon name="check" size={14} />{notice}</p>}
     {!payouts && !error && <div className="creator-loading">A carregar...</div>}
     {payouts && !payouts.length && <p className="muted">Nada para mostrar.</p>}
     {payouts?.length > 0 && <ul className="ad-list">{payouts.map(payout => <li className="payout-item admin-payout" key={payout.id}>
+      {payout.status === "requested" && <input className="admin-payout-check" type="checkbox" aria-label={`Escolher o levantamento de ${payout.holder_name}`}
+        checked={selected.includes(payout.id)} onChange={() => toggle(payout.id)} />}
       <span><strong>{formatPrice(payout.amount)}</strong> para {payout.display_name ? <Link to={`/u/${payout.username}`}>{payout.display_name}</Link> : "conta apagada"}
         <small>Titular: {payout.holder_name} · {payout.bank_name}</small>
         <small className="admin-iban">IBAN: {payout.iban}</small>
@@ -204,8 +298,8 @@ export function AdminFinance() {
   if (error) return <section className="creator-card"><p className="error" role="alert">{error}</p></section>;
   if (!data) return <section className="creator-card"><div className="creator-loading">A calcular...</div></section>;
   const groups = [
-    ["Entradas (pagas por clientes)", [["Promoções", data.income.promotions], ["Estrelas vendidas", data.income.stars], ["Campanhas pagas", data.income.campaigns]]],
-    ["Parte do Biva", [["Promoções", data.biva_share.promotions], ["Estrelas (30% + não oferecidas)", data.biva_share.stars], ["Comissão de campanhas (15%)", data.biva_share.campaigns_commission]]],
+    ["Entradas (pagas por clientes)", [["Promoções", data.income.promotions], ["Estrelas vendidas", data.income.stars], ["Campanhas pagas", data.income.campaigns], ["Entradas em grupos secretos", data.income.groups || 0]]],
+    ["Parte do Tchilar", [["Promoções", data.tchilar_share.promotions], ["Estrelas (30% + não oferecidas)", data.tchilar_share.stars], ["Comissão de campanhas (15%)", data.tchilar_share.campaigns_commission], ["Grupos secretos (30%)", data.tchilar_share.groups || 0]]],
     ["Criadores", [["Ganhos acumulados", data.creators.earned], [`Levantamentos por pagar (${data.creators.requested_count})`, data.creators.requested], ["Já pagos", data.creators.paid], ["Ainda em dívida", data.creators.still_owed]]]
   ];
   return <>

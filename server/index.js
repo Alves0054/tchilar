@@ -1,4 +1,4 @@
-﻿require("dotenv").config();
+require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const path = require("path");
@@ -19,6 +19,10 @@ const { runMigrations } = require("./migrate");
 const { optimizeUpload } = require("./images");
 const { activatePaidAd, registerCreatorRoutes } = require("./creator-routes");
 const { registerGrowthRoutes } = require("./growth-routes");
+const { registerHomeRoutes } = require("./home-routes");
+const { registerPaymentRoutes } = require("./payment-records");
+const { logAdminAction, registerAdminRoutes } = require("./admin-routes");
+const { registerAdminOperations } = require("./admin-operations");
 const { registerLiveRoutes } = require("./live-routes");
 const { createPayments } = require("./payments");
 const { createPaybyrd, createProxyPay } = require("./angola-payments");
@@ -26,8 +30,11 @@ const { registerFinanceRoutes } = require("./finance-routes");
 const { decrypt, encrypt, loadKey } = require("./payouts");
 const { generateSecret, otpauthUri, verifyCode } = require("./totp");
 const { parseVideoEdit } = require("./video-edit");
-const { canReach, readPreferences, updatePreferences } = require("./preferences");
+const { canReach, onlineSql, readPreferences, updatePreferences } = require("./preferences");
 const { POST_MUSIC_SQL, registerMusicRoutes } = require("./music-routes");
+const { parseBirthDate } = require("./growth");
+const { adultSql, parseAccessPrice, sameGroupName } = require("./groups");
+const { parseGroupPrivacy, parseGroupTopic, parsePageType, parseStoryBackground } = require("./community-types");
 const QRCode = require("qrcode");
 const { MODERATION_ACTIONS, REPORT_REASONS, blockedBetween, shouldAutoHide } = require("./moderation");
 const {
@@ -146,6 +153,7 @@ app.use((_req, res, next) => {
   next();
 });
 
+// A app de telemóvel (React Native) não é um browser: não envia Origin e o CORS não se aplica a ela.
 app.use(cors({ origin: allowedOrigins }));
 
 // A Stripe assina o corpo original do pedido: este endpoint tem de ler o corpo em bruto,
@@ -253,7 +261,7 @@ const imageUpload = multer({
 });
 
 // Campos da própria conta devolvidos ao cliente (nunca inclui password_hash nem auth_version).
-const OWN_ACCOUNT_FIELDS = "id,username,email,display_name,bio,avatar_url,cover_url,cover_position,location,website,profession,is_creator,subscription_price,email_verified,is_admin,created_at";
+const OWN_ACCOUNT_FIELDS = "id,username,email,display_name,bio,avatar_url,cover_url,cover_position,location,website,profession,is_creator,subscription_price,email_verified,is_admin,admin_role,created_at";
 
 // Apaga um ficheiro de /uploads de forma segura (ignora valores vazios e ficheiros já removidos).
 async function removeUpload(mediaUrl) {
@@ -364,15 +372,23 @@ const BLOCKED_ERROR = "Não é possível interagir com esta conta.";
 
 // Administradores só entram no painel com a verificação em dois passos ativa: uma palavra-passe roubada
 // não chega para suspender contas, aprovar levantamentos ou ver denúncias.
-function requireAdmin(req, res, next) {
-  if (!req.user?.isAdmin) return res.status(403).json({ error: "Só a equipa de moderação pode aceder." });
-  pool.query("SELECT totp_enabled_at FROM users WHERE id=$1", [req.user.id]).then(result => {
-    if (!result.rows[0]?.totp_enabled_at) {
-      return res.status(403).json({ error: "Ativa a verificação em dois passos nas Definições para usar o painel de administração.", twoFactorSetupRequired: true });
+// Funções na equipa: "super" pode tudo; "finance" trata do dinheiro; "moderation" das pessoas e do conteúdo.
+// requireRole("finance") deixa passar finance e super; requireAdmin deixa passar qualquer função.
+function requireRole(...roles) {
+  return (req, res, next) => {
+    if (!req.user?.isAdmin) return res.status(403).json({ error: "Só a equipa do Tchilar pode aceder." });
+    if (req.user.adminRole !== "super" && roles.length && !roles.includes(req.user.adminRole)) {
+      return res.status(403).json({ error: "A tua função na equipa não dá acesso a esta área." });
     }
-    next();
-  }).catch(next);
+    pool.query("SELECT totp_enabled_at FROM users WHERE id=$1", [req.user.id]).then(result => {
+      if (!result.rows[0]?.totp_enabled_at) {
+        return res.status(403).json({ error: "Ativa a verificação em dois passos nas Definições para usar o painel de administração.", twoFactorSetupRequired: true });
+      }
+      next();
+    }).catch(next);
+  };
 }
+const requireAdmin = requireRole();
 
 // Só aceita tokens HS256 assinados por nós (nunca "none" nem outro algoritmo).
 const JWT_VERIFY = { algorithms: ["HS256"] };
@@ -388,7 +404,7 @@ function sign(user) {
 // O bcrypt só lê os primeiros 72 bytes, por isso recusamos mais do que isso em vez de cortar em silêncio.
 const COMMON_PASSWORDS = new Set([
   "12345678", "123456789", "1234567890", "12341234", "87654321", "11111111", "00000000",
-  "password", "password1", "palavrapasse", "qwertyuiop", "abcdefgh", "iloveyou", "angola123", "biva1234"
+  "password", "password1", "palavrapasse", "qwertyuiop", "abcdefgh", "iloveyou", "angola123", "tchilar1234"
 ]);
 function passwordProblem(password) {
   if (typeof password !== "string" || password.length < 8) return "A palavra-passe deve ter pelo menos 8 caracteres.";
@@ -423,7 +439,7 @@ async function sendAccountEmail(email, purpose, token) {
     console.info(`[dev] Link de ${purpose === "verify_email" ? "confirmação" : "recuperação"} para ${email}: ${url}`);
     return exposeDevAuthLinks ? url.toString() : null;
   }
-  const subject = purpose === "verify_email" ? "Confirma o teu email — Biva" : "Redefine a palavra-passe — Biva";
+  const subject = purpose === "verify_email" ? "Confirma o teu email — Tchilar" : "Redefine a palavra-passe — Tchilar";
   const instruction = purpose === "verify_email"
     ? "Confirma o teu endereço de email"
     : "Redefine a tua palavra-passe";
@@ -434,6 +450,13 @@ async function sendAccountEmail(email, purpose, token) {
     text: `${instruction} através desta ligação (válida por 1 hora): ${url.toString()}`
   });
   return null;
+}
+
+// Email de texto simples (avisos da equipa). Devolve false quando não há SMTP configurado.
+async function sendPlainEmail(to, subject, text) {
+  if (!mailTransport) return false;
+  await mailTransport.sendMail({ from: process.env.SMTP_FROM, to, subject, text });
+  return true;
 }
 
 function signMedia(filename) {
@@ -473,7 +496,19 @@ function serializePost(post) {
   };
 }
 
-const SESSION_SQL = "SELECT auth_version,suspended_at,is_admin FROM users WHERE id=$1";
+const SESSION_SQL = "SELECT auth_version,suspended_at,is_admin,admin_role FROM users WHERE id=$1";
+
+// Presença: guarda "visto agora" no máximo uma vez por minuto por pessoa (em memória, por cópia da API),
+// para não escrever na base de dados a cada pedido. Falhar aqui nunca impede o pedido.
+const PRESENCE_WRITE_MS = 60 * 1000;
+const lastPresenceWrite = new Map();
+function touchPresence(userId) {
+  const now = Date.now();
+  if (now - (lastPresenceWrite.get(userId) || 0) < PRESENCE_WRITE_MS) return;
+  lastPresenceWrite.set(userId, now);
+  if (lastPresenceWrite.size > 50000) lastPresenceWrite.clear();
+  pool.query("UPDATE users SET last_seen_at=NOW() WHERE id=$1", [userId]).catch(() => lastPresenceWrite.delete(userId));
+}
 
 function auth(req, res, next) {
   const authorization = req.headers.authorization || "";
@@ -490,9 +525,10 @@ function auth(req, res, next) {
       return res.status(401).json({ error: "Sessão inválida ou expirada." });
     }
     if (result.rows[0].suspended_at) {
-      return res.status(403).json({ error: "A tua conta está suspensa. Contacta a equipa do Biva." });
+      return res.status(403).json({ error: "A tua conta está suspensa. Contacta a equipa do Tchilar." });
     }
-    req.user = { ...claims, isAdmin: result.rows[0].is_admin === true };
+    req.user = { ...claims, isAdmin: result.rows[0].is_admin === true, adminRole: result.rows[0].is_admin ? result.rows[0].admin_role || "super" : null };
+    touchPresence(claims.id);
     next();
   }).catch(next);
 }
@@ -513,7 +549,7 @@ function presenceAuth(req, res, next) {
     if (!row || Number(row.auth_version) !== Number(claims.version || 0) || row.suspended_at) {
       return res.status(401).json({ error: "Sessão inválida ou expirada." });
     }
-    req.user = { ...claims, isAdmin: row.is_admin === true };
+    req.user = { ...claims, isAdmin: row.is_admin === true, adminRole: row.is_admin ? row.admin_role || "super" : null };
     next();
   };
   const cached = presenceSessions.get(claims.id);
@@ -536,7 +572,7 @@ function optionalAuth(req, res, next) {
     }
     return pool.query(SESSION_SQL, [claims.id]).then(result => {
       if (result.rowCount && Number(result.rows[0].auth_version) === Number(claims.version || 0) && !result.rows[0].suspended_at) {
-        req.user = { ...claims, isAdmin: result.rows[0].is_admin === true };
+        req.user = { ...claims, isAdmin: result.rows[0].is_admin === true, adminRole: result.rows[0].is_admin ? result.rows[0].admin_role || "super" : null };
       }
       next();
     }).catch(next);
@@ -544,7 +580,7 @@ function optionalAuth(req, res, next) {
   next();
 }
 
-app.get("/api/health", (_, res) => res.json({ ok: true, service: "biva" }));
+app.get("/api/health", (_, res) => res.json({ ok: true, service: "tchilar" }));
 
 // Erros vindos do browser (páginas que falharam). Só regista: texto curto, sem tokens, com limite por IP.
 const clientErrorRateLimit = makeRateLimit("clientError", { windowMs: 15 * 60 * 1000, limit: 30, standardHeaders: "draft-8", legacyHeaders: false, message: { error: "Demasiados relatórios." } });
@@ -672,14 +708,18 @@ app.post("/api/auth/register", authRateLimit, async (req, res) => {
     if (body.displayName.length > 100 || body.email.length > 160 || body.username.length > 40) {
       return res.status(400).json({ error: "Um ou mais campos excedem o limite permitido." });
     }
+    // A data de nascimento é obrigatória e fica fixa: é ela que decide o acesso aos grupos +18.
+    if (!body.birthDate) return res.status(400).json({ error: "Indica a tua data de nascimento." });
+    const birth = parseBirthDate(body.birthDate);
+    if (birth.error) return res.status(400).json({ error: birth.error });
     const hash = await bcrypt.hash(password, 12);
     // Convite: o nome de utilizador de quem convidou (opcional; ignorado se não existir).
     const invite = typeof body.invite === "string" ? body.invite.trim().toLowerCase().slice(0, 40) : "";
     const referrer = invite ? await pool.query("SELECT id FROM users WHERE username=$1", [invite]) : { rows: [] };
     const result = await pool.query(
-      `INSERT INTO users(username,email,password_hash,display_name,is_creator,subscription_price,email_verified,referred_by)
-       VALUES($1,$2,$3,$4,$5,$6,FALSE,$7) RETURNING id,username,email,display_name,is_creator,subscription_price,email_verified`,
-      [username.toLowerCase(), email.toLowerCase(), hash, displayName, isCreator, subscriptionPrice, referrer.rows[0]?.id || null]
+      `INSERT INTO users(username,email,password_hash,display_name,is_creator,subscription_price,email_verified,referred_by,birth_date)
+       VALUES($1,$2,$3,$4,$5,$6,FALSE,$7,$8) RETURNING id,username,email,display_name,is_creator,subscription_price,email_verified`,
+      [username.toLowerCase(), email.toLowerCase(), hash, displayName, isCreator, subscriptionPrice, referrer.rows[0]?.id || null, birth.value]
     );
     const user = result.rows[0];
     const verificationToken = await createAuthToken(user.id, "verify_email");
@@ -727,7 +767,7 @@ app.post("/api/auth/login", authRateLimit, async (req, res) => {
   }
   delete user.password_hash;
   if (user.suspended_at) {
-    return res.status(403).json({ error: "A tua conta está suspensa. Contacta a equipa do Biva." });
+    return res.status(403).json({ error: "A tua conta está suspensa. Contacta a equipa do Tchilar." });
   }
   delete user.suspended_at;
   if (!user.email_verified) {
@@ -1066,7 +1106,7 @@ app.get("/api/posts", optionalAuth, async (req, res) => {
   if ((rawUsername !== undefined && (typeof rawUsername !== "string" || !username || username.length > 40))
     || (rawGroupId !== undefined && (typeof rawGroupId !== "string" || !groupId))
     || (rawPageId !== undefined && (typeof rawPageId !== "string" || !pageId))
-    || (rawMediaType !== undefined && (typeof rawMediaType !== "string" || !["image", "video"].includes(mediaType)))) {
+    || (rawMediaType !== undefined && (typeof rawMediaType !== "string" || !["image", "video", "media"].includes(mediaType)))) {
     return res.status(400).json({ error: "Filtro de publicações inválido." });
   }
   if (groupId !== null && pageId !== null) {
@@ -1100,7 +1140,7 @@ app.get("/api/posts", optionalAuth, async (req, res) => {
     WHERE ($2::text IS NULL OR u.username=$2)
       AND ($3::int IS NULL OR p.group_id=$3)
       AND ($4::int IS NULL OR p.page_id=$4)
-      AND ($5::text IS NULL OR p.media_type=$5)
+      AND ($5::text IS NULL OR p.media_type=$5 OR ($5='media' AND p.media_type IN ('image','video')))
       AND (p.group_id IS NULL OR EXISTS(
         SELECT 1 FROM group_members gm WHERE gm.group_id=p.group_id AND gm.user_id=$1
       ))
@@ -1128,7 +1168,7 @@ app.get("/api/posts", optionalAuth, async (req, res) => {
 
 app.get("/api/stories", auth, async (req, res) => {
   const result = await pool.query(`
-    SELECT s.id,s.user_id,s.body,s.media_url,s.media_type,s.created_at,s.expires_at,
+    SELECT s.id,s.user_id,s.body,s.media_url,s.media_type,s.background,s.created_at,s.expires_at,
       u.username,u.display_name,u.avatar_url
     FROM stories s JOIN users u ON u.id=s.user_id
     WHERE s.expires_at>NOW() AND NOT ${blockedBetween("$1", "s.user_id")}
@@ -1150,14 +1190,17 @@ app.post("/api/stories", auth, upload.single("media"), optimizeUpload("story"), 
   const body = cleanText(bodyData.body);
   if (body.length > 500) return res.status(400).json({ error: "O story não pode exceder 500 caracteres." });
   if (!body && !req.file) return res.status(400).json({ error: "Escreve uma mensagem ou escolhe uma fotografia." });
+  // O fundo só conta para stories de texto: com foto ou vídeo, a imagem é o fundo.
+  const background = parseStoryBackground(bodyData.background);
+  if (background.error) return res.status(400).json({ error: background.error });
 
   const mediaUrl = req.file ? `/uploads/${req.file.filename}` : "";
   const mediaType = req.file?.mimetype?.startsWith("video") ? "video" : req.file ? "image" : "";
   const result = await pool.query(`
-    INSERT INTO stories(user_id,body,media_url,media_type)
-    VALUES($1,$2,$3,$4)
-    RETURNING id,user_id,body,media_url,media_type,created_at,expires_at
-  `, [req.user.id, body, mediaUrl, mediaType]);
+    INSERT INTO stories(user_id,body,media_url,media_type,background)
+    VALUES($1,$2,$3,$4,$5)
+    RETURNING id,user_id,body,media_url,media_type,background,created_at,expires_at
+  `, [req.user.id, body, mediaUrl, mediaType, req.file ? null : background.value]);
   const story = result.rows[0];
   res.status(201).json({
     story: {
@@ -1320,10 +1363,10 @@ app.get("/api/users/search", auth, async (req, res) => {
 app.get("/api/friends", auth, async (req, res) => {
   const [friends, requests, suggestions] = await Promise.all([
     pool.query(`
-      SELECT u.id,u.username,u.display_name,u.avatar_url
+      SELECT u.id,u.username,u.display_name,u.avatar_url,${onlineSql("u")} AS online
       FROM friendships f JOIN users u ON u.id=CASE WHEN f.user_a_id=$1 THEN f.user_b_id ELSE f.user_a_id END
       WHERE f.user_a_id=$1 OR f.user_b_id=$1
-      ORDER BY u.display_name`, [req.user.id]),
+      ORDER BY online DESC, u.display_name`, [req.user.id]),
     pool.query(`
       SELECT r.id,r.created_at,u.id AS user_id,u.username,u.display_name,u.avatar_url
       FROM friend_requests r JOIN users u ON u.id=r.requester_id
@@ -1446,6 +1489,11 @@ app.get("/api/users/:username", optionalAuth, async (req, res) => {
         SELECT 1 FROM friendships f
         WHERE (f.user_a_id=$2 AND f.user_b_id=u.id) OR (f.user_a_id=u.id AND f.user_b_id=$2)
       ) AS is_friend,
+      EXISTS(SELECT 1 FROM friend_requests r WHERE r.status='pending' AND r.requester_id=$2 AND r.addressee_id=u.id) AS friend_request_sent,
+      -- "Online" só para amigos (e só se a pessoa não escondeu a atividade).
+      (${onlineSql("u")} AND EXISTS(
+        SELECT 1 FROM friendships f
+        WHERE (f.user_a_id=$2 AND f.user_b_id=u.id) OR (f.user_a_id=u.id AND f.user_b_id=$2))) AS online,
       s.current_period_end AS subscription_period_end,
       s.cancel_at_period_end AS subscription_canceling,
       (s.subscriber_id IS NOT NULL AND ${ACTIVE_SUBSCRIPTION_SQL}) AS is_subscribed
@@ -1466,6 +1514,34 @@ app.get("/api/users/:username", optionalAuth, async (req, res) => {
       [user.id, req.user.id]).catch(error => console.error("Profile view not recorded:", error.code || error.name));
   }
   res.json({ user });
+});
+
+// Amigos de um perfil (até 9 para o cartão "Amigos"): primeiro os que também são amigos de quem vê.
+// Quem bloqueou ou foi bloqueado por quem vê não aparece; o perfil bloqueado/suspenso dá 404 como acima.
+app.get("/api/users/:username/friends", optionalAuth, async (req, res) => {
+  const viewerId = req.user?.id || 0;
+  const owner = await pool.query(
+    `SELECT u.id FROM users u WHERE u.username=$1 AND u.suspended_at IS NULL AND NOT ${blockedBetween("$2", "u.id")}`,
+    [req.params.username, viewerId]);
+  if (!owner.rowCount) return res.status(404).json({ error: "Utilizador não encontrado." });
+  const ownerId = owner.rows[0].id;
+  const friendsOf = param => `SELECT CASE WHEN f.user_a_id=${param} THEN f.user_b_id ELSE f.user_a_id END
+    FROM friendships f WHERE f.user_a_id=${param} OR f.user_b_id=${param}`;
+  const result = await pool.query(`
+    SELECT u.id,u.username,u.display_name,u.avatar_url,
+      (u.id IN (${friendsOf("$2")})) AS mutual,
+      COUNT(*) OVER()::int AS total,
+      COUNT(*) FILTER (WHERE u.id IN (${friendsOf("$2")})) OVER()::int AS mutual_total
+    FROM users u
+    WHERE u.id IN (${friendsOf("$1")}) AND u.suspended_at IS NULL AND NOT ${blockedBetween("$2", "u.id")}
+    ORDER BY mutual DESC, u.display_name
+    LIMIT 9`, [ownerId, viewerId]);
+  const rows = result.rows;
+  res.json({
+    friends: rows.map(({ total: _total, mutual_total: _mutualTotal, ...friend }) => friend),
+    total: rows[0]?.total || 0,
+    mutual: viewerId && viewerId !== ownerId ? rows[0]?.mutual_total || 0 : 0
+  });
 });
 
 // Estatísticas privadas da própria conta (últimos 30 dias + melhores publicações).
@@ -1595,7 +1671,7 @@ app.post("/api/subscriptions/:creatorId", auth, async (req, res) => {
         currency: subscriptionCurrency,
         unit_amount: Math.round(price * 100),
         recurring: { interval: "month" },
-        product_data: { name: `Subscrição de ${creator.display_name} no Biva` }
+        product_data: { name: `Subscrição de ${creator.display_name} no Tchilar` }
       }
     }],
     metadata,
@@ -1629,19 +1705,56 @@ app.delete("/api/subscriptions/:creatorId", auth, async (req, res) => {
   res.json({ canceled: true, accessUntil: subscription.current_period_end });
 });
 
+// Campos de um grupo vistos por quem não é membro (sem a lista de membros dos grupos secretos).
+const GROUP_FIELDS = `g.id,g.name,g.description,g.created_at,g.is_secret,g.access_price::float AS access_price,
+  g.topic,g.requires_approval,
+  u.username AS owner_username,u.display_name AS owner_name,u.avatar_url AS owner_avatar,
+  (SELECT COUNT(*) FROM group_members m WHERE m.group_id=g.id)::int AS member_count,
+  (SELECT COUNT(*) FROM posts po WHERE po.group_id=g.id AND po.hidden_at IS NULL)::int AS post_count`;
+
+// Idade de quem pede: os grupos secretos são só para maiores de 18 (sem data de nascimento conta como menor).
+async function viewerAge(userId) {
+  if (!userId) return { adult: false, hasBirthDate: false };
+  const result = await pool.query(`SELECT birth_date IS NOT NULL AS has_birth_date, ${adultSql("birth_date")} AS adult FROM users WHERE id=$1`, [userId]);
+  return { adult: Boolean(result.rows[0]?.adult), hasBirthDate: Boolean(result.rows[0]?.has_birth_date) };
+}
+
+// Os grupos secretos nunca aparecem na lista: só os vê quem já é membro (e é maior de idade).
 app.get("/api/groups", optionalAuth, async (req, res) => {
-  const result = await pool.query(`
-    SELECT g.id,g.name,g.description,g.created_at,u.username AS owner_username,
-      u.display_name AS owner_name,u.avatar_url AS owner_avatar,
-      (SELECT COUNT(*) FROM group_members m WHERE m.group_id=g.id)::int AS member_count,
-      (SELECT COUNT(*) FROM posts po WHERE po.group_id=g.id AND po.hidden_at IS NULL)::int AS post_count,
+  const viewerId = req.user?.id || 0;
+  const [result, viewer] = await Promise.all([pool.query(`
+    SELECT ${GROUP_FIELDS},
       (SELECT COALESCE(json_agg(x), '[]'::json) FROM (
         SELECT mu.username, mu.display_name, mu.avatar_url FROM group_members m JOIN users mu ON mu.id=m.user_id
         WHERE m.group_id=g.id ORDER BY m.joined_at LIMIT 5) x) AS member_preview,
-      EXISTS(SELECT 1 FROM group_members m WHERE m.group_id=g.id AND m.user_id=$1) AS is_member
+      EXISTS(SELECT 1 FROM group_members m WHERE m.group_id=g.id AND m.user_id=$1) AS is_member,
+      EXISTS(SELECT 1 FROM group_join_requests r WHERE r.group_id=g.id AND r.user_id=$1) AS has_requested,
+      CASE WHEN g.owner_id=$1 THEN (SELECT COUNT(*) FROM group_join_requests r WHERE r.group_id=g.id)::int ELSE 0 END AS pending_requests
     FROM social_groups g JOIN users u ON u.id=g.owner_id
-    ORDER BY g.created_at DESC LIMIT 100`, [req.user?.id || 0]);
-  res.json({ groups: result.rows });
+    WHERE g.hidden_at IS NULL AND (NOT g.is_secret OR (
+      EXISTS(SELECT 1 FROM group_members m WHERE m.group_id=g.id AND m.user_id=$1)
+      AND EXISTS(SELECT 1 FROM users me WHERE me.id=$1 AND ${adultSql("me.birth_date")})))
+    ORDER BY g.created_at DESC LIMIT 100`, [viewerId]), viewerAge(req.user?.id)]);
+  res.json({ groups: result.rows, viewer });
+});
+
+// Procura de grupos secretos: só pelo nome exato e só para maiores de 18. Para um menor (ou sem data
+// de nascimento) a resposta é sempre vazia, sem dizer se o grupo existe.
+const groupSearchRateLimit = makeRateLimit("groupSearch", {
+  windowMs: 60 * 1000, limit: 30, standardHeaders: "draft-8", legacyHeaders: false,
+  message: { error: "Demasiadas pesquisas. Espera um minuto." }
+});
+app.get("/api/groups/secret", auth, groupSearchRateLimit, async (req, res) => {
+  const name = typeof req.query.name === "string" ? req.query.name.trim() : "";
+  const viewer = await viewerAge(req.user.id);
+  if (!viewer.adult || name.length < 3 || name.length > 100) return res.json({ groups: [], viewer });
+  const result = await pool.query(`
+    SELECT ${GROUP_FIELDS}, '[]'::json AS member_preview,
+      EXISTS(SELECT 1 FROM group_members m WHERE m.group_id=g.id AND m.user_id=$2) AS is_member
+    FROM social_groups g JOIN users u ON u.id=g.owner_id
+    WHERE g.is_secret AND g.hidden_at IS NULL AND lower(g.name)=lower($1)
+    ORDER BY g.created_at DESC LIMIT 10`, [name, req.user.id]);
+  res.json({ groups: result.rows, viewer });
 });
 
 app.post("/api/groups", auth, async (req, res) => {
@@ -1652,10 +1765,27 @@ app.post("/api/groups", auth, async (req, res) => {
   if ((body.description !== undefined && typeof body.description !== "string") || description.length > 2000) {
     return res.status(400).json({ error: "A descrição excede 2000 caracteres." });
   }
+  const privacy = parseGroupPrivacy(body);
+  if (privacy.error) return res.status(400).json({ error: privacy.error });
+  const topic = parseGroupTopic(body.topic);
+  if (topic.error) return res.status(400).json({ error: topic.error });
+  const isSecret = privacy.value === "secret";
+  const requiresApproval = privacy.value === "private";
+  let accessPrice = null;
+  if (isSecret) {
+    if (!(await viewerAge(req.user.id)).adult) {
+      return res.status(403).json({ error: "Só maiores de 18 anos podem criar grupos secretos. Confirma a tua data de nascimento nas Definições." });
+    }
+    if (name.length < 3) return res.status(400).json({ error: "O nome de um grupo secreto deve ter pelo menos 3 caracteres." });
+    const price = parseAccessPrice(body.accessPrice);
+    if (price.error) return res.status(400).json({ error: price.error });
+    accessPrice = price.value;
+  }
   const group = await transaction(async client => {
     const result = await client.query(
-      "INSERT INTO social_groups(owner_id,name,description) VALUES($1,$2,$3) RETURNING id,name,description,created_at",
-      [req.user.id, name, description]);
+      `INSERT INTO social_groups(owner_id,name,description,is_secret,access_price,topic,requires_approval) VALUES($1,$2,$3,$4,$5,$6,$7)
+       RETURNING id,name,description,created_at,is_secret,access_price::float AS access_price,topic,requires_approval`,
+      [req.user.id, name, description, isSecret, accessPrice, topic.value, requiresApproval]);
     await client.query(
       "INSERT INTO group_members(group_id,user_id) VALUES($1,$2)",
       [result.rows[0].id, req.user.id]);
@@ -1667,8 +1797,23 @@ app.post("/api/groups", auth, async (req, res) => {
 app.post("/api/groups/:groupId/join", auth, async (req, res) => {
   const groupId = parseId(req.params.groupId);
   if (!groupId) return res.status(400).json({ error: "Grupo inválido." });
-  const group = await pool.query("SELECT owner_id FROM social_groups WHERE id=$1", [groupId]);
-  if (!group.rowCount) return res.status(404).json({ error: "Grupo não encontrado." });
+  const group = await pool.query("SELECT owner_id,is_secret,requires_approval FROM social_groups WHERE id=$1 AND hidden_at IS NULL", [groupId]);
+  // Num grupo secreto só se entra pagando (POST /access); a resposta não revela que o grupo existe.
+  if (!group.rowCount || group.rows[0].is_secret) return res.status(404).json({ error: "Grupo não encontrado." });
+  // Num grupo privado fica um pedido à espera do dono (quem já é membro não pede outra vez).
+  if (group.rows[0].requires_approval && group.rows[0].owner_id !== req.user.id) {
+    const member = await pool.query("SELECT 1 FROM group_members WHERE group_id=$1 AND user_id=$2", [groupId, req.user.id]);
+    if (member.rowCount) return res.json({ joined: true });
+    const request = await pool.query(
+      "INSERT INTO group_join_requests(group_id,user_id) VALUES($1,$2) ON CONFLICT DO NOTHING RETURNING group_id",
+      [groupId, req.user.id]);
+    if (request.rowCount) {
+      await pool.query(`
+        INSERT INTO notifications(user_id,actor_id,type,text)
+        VALUES($1,$2,'group_join','Pediu para entrar no teu grupo privado.')`, [group.rows[0].owner_id, req.user.id]);
+    }
+    return res.status(202).json({ requested: true });
+  }
   const result = await pool.query(
     "INSERT INTO group_members(group_id,user_id) VALUES($1,$2) ON CONFLICT DO NOTHING RETURNING group_id",
     [groupId, req.user.id]);
@@ -1680,14 +1825,60 @@ app.post("/api/groups/:groupId/join", auth, async (req, res) => {
   res.json({ joined: true });
 });
 
+// Entrada paga num grupo secreto. Pede o nome exato (além do número), para que só entre quem o conhece.
+app.post("/api/groups/:groupId/access", auth, async (req, res) => {
+  const groupId = parseId(req.params.groupId);
+  const body = isRecord(req.body) ? req.body : {};
+  if (!groupId) return res.status(400).json({ error: "Grupo inválido." });
+  const viewer = await viewerAge(req.user.id);
+  const group = await pool.query("SELECT id,name,owner_id,is_secret,access_price FROM social_groups WHERE id=$1 AND hidden_at IS NULL", [groupId]);
+  const found = group.rows[0];
+  if (!viewer.adult || !found?.is_secret || !sameGroupName(body.name, found.name)) {
+    return res.status(404).json({ error: "Grupo não encontrado." });
+  }
+  const member = await pool.query("SELECT 1 FROM group_members WHERE group_id=$1 AND user_id=$2", [groupId, req.user.id]);
+  if (member.rowCount) return res.status(409).json({ error: "Já és membro deste grupo." });
+  const user = await pool.query("SELECT email FROM users WHERE id=$1", [req.user.id]);
+  const purchase = await pool.query(
+    "INSERT INTO group_access_purchases(group_id,user_id,owner_id,amount_kz) VALUES($1,$2,$3,$4) RETURNING id",
+    [groupId, req.user.id, found.owner_id, found.access_price]);
+  const id = purchase.rows[0].id;
+  const result = await payments.start({
+    purpose: "group_access", refId: id, amountKz: Number(found.access_price), userId: req.user.id, email: user.rows[0]?.email,
+    method: body.method, phone: body.phone, name: `Entrada no grupo ${found.name}`,
+    successPath: `/groups/${groupId}?pagamento=sucesso`, cancelPath: "/groups?pagamento=cancelado",
+    onSession: sessionId => pool.query("UPDATE group_access_purchases SET stripe_session_id=$2 WHERE id=$1", [id, sessionId])
+  });
+  if (result.error) return res.status(503).json({ error: result.error });
+  res.status(201).json(result);
+});
+
+// Pagamento confirmado: a pessoa passa a membro (se o grupo ainda existir) e o dono é avisado.
+payments.register("group_access", async (purchaseId, details) => {
+  await transaction(async client => {
+    const purchase = await client.query(
+      `UPDATE group_access_purchases SET status='paid', paid_at=NOW(), stripe_payment_intent=$2
+       WHERE id=$1 AND status='pending' RETURNING group_id,user_id,owner_id`,
+      [purchaseId, details.paymentIntent || null]);
+    const paid = purchase.rows[0];
+    if (!paid?.group_id) return;
+    await client.query("INSERT INTO group_members(group_id,user_id) VALUES($1,$2) ON CONFLICT DO NOTHING", [paid.group_id, paid.user_id]);
+    if (paid.owner_id && paid.owner_id !== paid.user_id) {
+      await client.query("INSERT INTO notifications(user_id,actor_id,type,text) VALUES($1,$2,'group_join','Pagou a entrada e juntou-se ao teu grupo secreto.')",
+        [paid.owner_id, paid.user_id]);
+    }
+  });
+});
+
 app.get("/api/pages", optionalAuth, async (req, res) => {
   const result = await pool.query(`
-    SELECT p.id,p.name,p.category,p.description,p.created_at,u.username AS owner_username,
+    SELECT p.id,p.name,p.page_type,p.category,p.description,p.created_at,u.username AS owner_username,
       u.display_name AS owner_name,u.avatar_url AS owner_avatar,
       (SELECT COUNT(*) FROM page_followers f WHERE f.page_id=p.id)::int AS follower_count,
       (SELECT COUNT(*) FROM posts po WHERE po.page_id=p.id AND po.hidden_at IS NULL)::int AS post_count,
       (p.owner_id=$1 OR EXISTS(SELECT 1 FROM page_followers f WHERE f.page_id=p.id AND f.user_id=$1)) AS is_following
     FROM pages p JOIN users u ON u.id=p.owner_id
+    WHERE p.hidden_at IS NULL
     ORDER BY p.created_at DESC LIMIT 100`, [req.user?.id || 0]);
   res.json({ pages: result.rows });
 });
@@ -1695,20 +1886,18 @@ app.get("/api/pages", optionalAuth, async (req, res) => {
 app.post("/api/pages", auth, async (req, res) => {
   const body = isRecord(req.body) ? req.body : {};
   const name = cleanText(body.name);
-  const category = body.category === undefined ? "Comunidade" : cleanText(body.category);
+  const kind = parsePageType(body.pageType, body.category);
   const description = cleanText(body.description);
   if (!name || name.length > 100) return res.status(400).json({ error: "O nome da página é obrigatório e deve ter até 100 caracteres." });
-  if ((body.category !== undefined && typeof body.category !== "string") || category.length > 60) {
-    return res.status(400).json({ error: "A categoria deve ter até 60 caracteres." });
-  }
+  if (kind.error) return res.status(400).json({ error: kind.error });
   if ((body.description !== undefined && typeof body.description !== "string") || description.length > 2000) {
     return res.status(400).json({ error: "A descrição excede 2000 caracteres." });
   }
   const page = await transaction(async client => {
     const result = await client.query(`
-      INSERT INTO pages(owner_id,name,category,description) VALUES($1,$2,$3,$4)
-      RETURNING id,name,category,description,created_at`,
-    [req.user.id, name, category || "Comunidade", description]);
+      INSERT INTO pages(owner_id,name,page_type,category,description) VALUES($1,$2,$3,$4,$5)
+      RETURNING id,name,page_type,category,description,created_at`,
+    [req.user.id, name, kind.type, kind.category, description]);
     await client.query("INSERT INTO page_followers(page_id,user_id) VALUES($1,$2)", [result.rows[0].id, req.user.id]);
     return result.rows[0];
   });
@@ -1718,7 +1907,7 @@ app.post("/api/pages", auth, async (req, res) => {
 app.post("/api/pages/:pageId/follow", auth, async (req, res) => {
   const pageId = parseId(req.params.pageId);
   if (!pageId) return res.status(400).json({ error: "Página inválida." });
-  const page = await pool.query("SELECT owner_id FROM pages WHERE id=$1", [pageId]);
+  const page = await pool.query("SELECT owner_id FROM pages WHERE id=$1 AND hidden_at IS NULL", [pageId]);
   if (!page.rowCount) return res.status(404).json({ error: "Página não encontrada." });
   if (page.rows[0].owner_id === req.user.id) return res.json({ following: true });
   const result = await pool.query(
@@ -1988,7 +2177,7 @@ app.post("/api/reports", reportRateLimit, auth, async (req, res) => {
   res.status(201).json({ reported: true, message: "Obrigado. A equipa de moderação vai analisar a denúncia." });
 });
 
-app.get("/api/admin/reports", auth, requireAdmin, async (req, res) => {
+app.get("/api/admin/reports", auth, requireRole("moderation"), async (req, res) => {
   const status = req.query.status === undefined ? "open" : req.query.status;
   if (!["open", "resolved", "dismissed"].includes(status)) return res.status(400).json({ error: "Estado inválido." });
   const result = await pool.query(`
@@ -2010,7 +2199,7 @@ app.get("/api/admin/reports", auth, requireAdmin, async (req, res) => {
   res.json({ reports: result.rows, reasons: REPORT_REASONS });
 });
 
-app.post("/api/admin/reports/:id/resolve", auth, requireAdmin, async (req, res) => {
+app.post("/api/admin/reports/:id/resolve", auth, requireRole("moderation"), async (req, res) => {
   const id = parseId(req.params.id);
   const action = isRecord(req.body) ? req.body.action : undefined;
   if (!id || !MODERATION_ACTIONS.includes(action)) return res.status(400).json({ error: "Ação inválida." });
@@ -2028,9 +2217,10 @@ app.post("/api/admin/reports/:id/resolve", auth, requireAdmin, async (req, res) 
     if (action === "delete_comment") await client.query("DELETE FROM comments WHERE id=$1", [targetId]);
     if (action === "suspend_user") {
       // auth_version+1 termina as sessões abertas da conta suspensa.
-      await client.query("UPDATE users SET suspended_at=NOW(),auth_version=auth_version+1 WHERE id=$1 AND is_admin=FALSE", [targetUserId]);
+      await client.query("UPDATE users SET suspended_at=NOW(),suspended_reason='Denúncia #' || $2::text,auth_version=auth_version+1 WHERE id=$1 AND is_admin=FALSE", [targetUserId, id]);
     }
-    if (action === "unsuspend_user") await client.query("UPDATE users SET suspended_at=NULL WHERE id=$1", [targetUserId]);
+    if (action === "unsuspend_user") await client.query("UPDATE users SET suspended_at=NULL, suspended_reason=NULL WHERE id=$1", [targetUserId]);
+    await logAdminAction(client, req.user.id, `report_${action}`, "report", id);
     // Resolve de uma vez todas as denúncias abertas sobre o mesmo alvo.
     await client.query(`
       UPDATE reports SET status=$1,action=$2,resolved_by=$3,resolved_at=NOW()
@@ -2085,7 +2275,49 @@ app.post("/api/groups/:groupId/leave", auth, async (req, res) => {
     return res.status(409).json({ error: "És o responsável pelo grupo: apaga o grupo em vez de sair." });
   }
   await pool.query("DELETE FROM group_members WHERE group_id=$1 AND user_id=$2", [groupId, req.user.id]);
+  // Sair também retira um pedido de entrada que ainda esteja à espera.
+  await pool.query("DELETE FROM group_join_requests WHERE group_id=$1 AND user_id=$2", [groupId, req.user.id]);
   res.json({ left: true });
+});
+
+// Pedidos de entrada num grupo privado: só o dono os vê e decide.
+async function ownedGroup(groupId, userId) {
+  const result = await pool.query("SELECT id,name FROM social_groups WHERE id=$1 AND owner_id=$2", [groupId, userId]);
+  return result.rows[0] || null;
+}
+
+app.get("/api/groups/:groupId/requests", auth, async (req, res) => {
+  const groupId = parseId(req.params.groupId);
+  if (!groupId || !(await ownedGroup(groupId, req.user.id))) return res.status(404).json({ error: "Grupo não encontrado." });
+  const result = await pool.query(`
+    SELECT u.id,u.username,u.display_name,u.avatar_url,r.created_at
+    FROM group_join_requests r JOIN users u ON u.id=r.user_id
+    WHERE r.group_id=$1 AND NOT ${blockedBetween("$2", "u.id")}
+    ORDER BY r.created_at`, [groupId, req.user.id]);
+  res.json({ requests: result.rows });
+});
+
+app.post("/api/groups/:groupId/requests/:userId", auth, async (req, res) => {
+  const groupId = parseId(req.params.groupId);
+  const userId = parseId(req.params.userId);
+  const body = isRecord(req.body) ? req.body : {};
+  if (!groupId || !userId || typeof body.approve !== "boolean") return res.status(400).json({ error: "Pedido inválido." });
+  const group = await ownedGroup(groupId, req.user.id);
+  if (!group) return res.status(404).json({ error: "Grupo não encontrado." });
+  const handled = await transaction(async client => {
+    const removed = await client.query(
+      "DELETE FROM group_join_requests WHERE group_id=$1 AND user_id=$2 RETURNING user_id", [groupId, userId]);
+    if (!removed.rowCount) return false;
+    if (body.approve) {
+      await client.query("INSERT INTO group_members(group_id,user_id) VALUES($1,$2) ON CONFLICT DO NOTHING", [groupId, userId]);
+      await client.query(`
+        INSERT INTO notifications(user_id,actor_id,type,text)
+        VALUES($1,$2,'group_join',$3)`, [userId, req.user.id, `Aceitou o teu pedido para entrar em «${group.name}».`]);
+    }
+    return true;
+  });
+  if (!handled) return res.status(404).json({ error: "Este pedido já não existe." });
+  res.json({ approved: body.approve });
 });
 
 app.delete("/api/groups/:groupId", auth, async (req, res) => {
@@ -2103,7 +2335,7 @@ app.delete("/api/groups/:groupId", auth, async (req, res) => {
 app.delete("/api/pages/:pageId/follow", auth, async (req, res) => {
   const pageId = parseId(req.params.pageId);
   if (!pageId) return res.status(400).json({ error: "Página inválida." });
-  const page = await pool.query("SELECT owner_id FROM pages WHERE id=$1", [pageId]);
+  const page = await pool.query("SELECT owner_id FROM pages WHERE id=$1 AND hidden_at IS NULL", [pageId]);
   if (!page.rowCount) return res.status(404).json({ error: "Página não encontrada." });
   if (page.rows[0].owner_id === req.user.id) {
     return res.status(409).json({ error: "És o responsável pela página: apaga a página em vez de deixar de a seguir." });
@@ -2133,8 +2365,8 @@ app.delete("/api/events/:eventId", auth, async (req, res) => {
 });
 
 // Exportação dos dados pessoais (RGPD, direito de acesso/portabilidade).
-app.get("/api/auth/me/export", auth, async (req, res) => {
-  const id = req.user.id;
+// Também usada pela equipa para responder a pedidos de dados (admin-routes.js).
+async function buildUserExport(id) {
   const q = (sql, values = [id]) => pool.query(sql, values).then(result => result.rows);
   const [account, posts, comments, likes, messages, friends, following, groups, pages, events, subscriptions, stories,
     audience, stars, starPurchases, promotions, campaigns, payoutAccount, payouts, invitedBy] = await Promise.all([
@@ -2168,8 +2400,7 @@ app.get("/api/auth/me/export", auth, async (req, res) => {
     q("SELECT amount,bank_name,iban_last4,status,reference,note,created_at,processed_at FROM payout_requests WHERE user_id=$1 ORDER BY created_at"),
     q("SELECT r.username FROM users u JOIN users r ON r.id=u.referred_by WHERE u.id=$1")
   ]);
-  res.set("Content-Disposition", `attachment; filename="biva-dados-${account[0]?.username || id}.json"`);
-  res.json({
+  return {
     exportedAt: new Date().toISOString(),
     account: account[0] || null,
     posts, comments, likes, messages, friends, following, groups, pages, events, subscriptions, stories,
@@ -2178,8 +2409,49 @@ app.get("/api/auth/me/export", auth, async (req, res) => {
     stars, starPurchases, promotions, campaigns,
     payoutAccount: payoutAccount[0] || null,
     payouts
-  });
+  };
+}
+app.get("/api/auth/me/export", auth, async (req, res) => {
+  const data = await buildUserExport(req.user.id);
+  res.set("Content-Disposition", `attachment; filename="tchilar-dados-${data.account?.username || req.user.id}.json"`);
+  res.json(data);
 });
+
+// Apaga a conta e tudo o que lhe pertence: cancela as subscrições pagas na Stripe e remove os ficheiros.
+// Também usada pela equipa para cumprir um pedido de apagamento (admin-routes.js).
+async function deleteAccount(userId, profile) {
+  const paid = await pool.query(`
+    SELECT provider_subscription_id FROM subscriptions
+    WHERE (subscriber_id=$1 OR creator_id=$1) AND provider='stripe' AND provider_subscription_id IS NOT NULL
+      AND status<>'canceled'`, [userId]);
+  if (paid.rowCount && !stripe) {
+    return { status: 503, error: "Não é possível cancelar as subscrições pagas agora. Tenta mais tarde." };
+  }
+  for (const row of paid.rows) {
+    try {
+      await stripe.subscriptions.cancel(row.provider_subscription_id);
+    } catch (error) {
+      // Já cancelada/inexistente na Stripe: segue em frente; outro erro impede apagar para não continuar a cobrar.
+      if (error?.code !== "resource_missing") {
+        console.error("Stripe cancel failed:", error?.code || error?.name);
+        return { status: 502, error: "Não foi possível cancelar uma subscrição paga. Tenta novamente." };
+      }
+    }
+  }
+  const files = await pool.query(`
+    SELECT media_url FROM posts WHERE media_url<>'' AND (
+      user_id=$1
+      OR group_id IN (SELECT id FROM social_groups WHERE owner_id=$1)
+      OR page_id IN (SELECT id FROM pages WHERE owner_id=$1))
+    UNION SELECT media_url FROM stories WHERE user_id=$1 AND media_url<>''`, [userId]);
+  await pool.query("DELETE FROM users WHERE id=$1", [userId]);
+  await Promise.all([
+    ...files.rows.map(row => removeUpload(row.media_url)),
+    removeUpload(profile.avatar_url),
+    removeUpload(profile.cover_url)
+  ]);
+  return { deleted: true };
+}
 
 // Apagar a conta: exige a palavra-passe, cancela subscrições pagas e remove os ficheiros.
 app.delete("/api/auth/me", accountSecurityRateLimit, auth, async (req, res) => {
@@ -2192,40 +2464,13 @@ app.delete("/api/auth/me", accountSecurityRateLimit, auth, async (req, res) => {
   if (!(await bcrypt.compare(body.password, account.rows[0].password_hash))) {
     return res.status(401).json({ error: "Palavra-passe incorreta." });
   }
-  const paid = await pool.query(`
-    SELECT provider_subscription_id FROM subscriptions
-    WHERE (subscriber_id=$1 OR creator_id=$1) AND provider='stripe' AND provider_subscription_id IS NOT NULL
-      AND status<>'canceled'`, [req.user.id]);
-  if (paid.rowCount && !stripe) {
-    return res.status(503).json({ error: "Não é possível cancelar as subscrições pagas agora. Tenta mais tarde." });
-  }
-  for (const row of paid.rows) {
-    try {
-      await stripe.subscriptions.cancel(row.provider_subscription_id);
-    } catch (error) {
-      // Já cancelada/inexistente na Stripe: segue em frente; outro erro impede apagar para não continuar a cobrar.
-      if (error?.code !== "resource_missing") {
-        console.error("Stripe cancel failed:", error?.code || error?.name);
-        return res.status(502).json({ error: "Não foi possível cancelar uma subscrição paga. Tenta novamente." });
-      }
-    }
-  }
-  const files = await pool.query(`
-    SELECT media_url FROM posts WHERE media_url<>'' AND (
-      user_id=$1
-      OR group_id IN (SELECT id FROM social_groups WHERE owner_id=$1)
-      OR page_id IN (SELECT id FROM pages WHERE owner_id=$1))
-    UNION SELECT media_url FROM stories WHERE user_id=$1 AND media_url<>''`, [req.user.id]);
-  await pool.query("DELETE FROM users WHERE id=$1", [req.user.id]);
-  await Promise.all([
-    ...files.rows.map(row => removeUpload(row.media_url)),
-    removeUpload(account.rows[0].avatar_url),
-    removeUpload(account.rows[0].cover_url)
-  ]);
+  const outcome = await deleteAccount(req.user.id, account.rows[0]);
+  if (outcome.error) return res.status(outcome.status).json({ error: outcome.error });
   res.json({ deleted: true });
 });
 
-if (process.env.NODE_ENV === "production" || process.env.SERVE_CLIENT === "true") {
+// O servidor entrega também o site, a menos que o site esteja numa hospedagem à parte (SERVE_CLIENT=false).
+if ((process.env.NODE_ENV === "production" && process.env.SERVE_CLIENT !== "false") || process.env.SERVE_CLIENT === "true") {
   const clientBuild = path.join(__dirname, "..", "dist");
   app.use(express.static(clientBuild, { index: false }));
   app.use((req, res, next) => {
@@ -2261,8 +2506,15 @@ const growth = registerGrowthRoutes(app, {
 // Chave para cifrar os IBAN dos criadores (obrigatória em produção; ver README).
 const payoutKey = loadKey({ payoutKey: process.env.PAYOUT_ENCRYPTION_KEY, jwtSecret: JWT_SECRET, isProduction: !isDevelopment });
 registerLiveRoutes(app, { pool, auth, presenceAuth, optionalAuth, parseId, isRecord, cleanText, transaction, blockedBetween, rateLimit: accountSecurityRateLimit });
-const music = registerMusicRoutes(app, { pool, auth, optionalAuth, requireAdmin, parseId, isRecord, uploadDir, removeUpload, rateLimit: options => makeRateLimit("music", options) });
-registerFinanceRoutes(app, { pool, auth, requireAdmin, parseId, isRecord, cleanText, transaction, payments, payoutKey });
+const music = registerMusicRoutes(app, { pool, auth, optionalAuth, requireAdmin: requireRole("moderation"), parseId, isRecord, uploadDir, removeUpload, rateLimit: options => makeRateLimit("music", options) });
+registerFinanceRoutes(app, { pool, auth, requireRole, parseId, isRecord, cleanText, transaction, payments, payoutKey });
+registerHomeRoutes(app, { pool, auth, blockedBetween });
+registerPaymentRoutes(app, { pool, auth, requireAdmin: requireRole("finance"), parseId });
+registerAdminRoutes(app, { pool, auth, requireAdmin, requireRole, parseId, cleanText, transaction });
+registerAdminOperations(app, {
+  pool, auth, requireAdmin, requireRole, parseId, cleanText, isRecord, transaction, payments, payoutKey,
+  buildUserExport, deleteAccount, sendPlainEmail
+});
 
 app.use((req, res) => {
   res.status(404).json({ error: "Rota não encontrada." });
@@ -2360,4 +2612,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { app, initDb, pool, startServer };
+module.exports = { app, initDb, payments, pool, startServer };

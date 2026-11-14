@@ -2,7 +2,7 @@
 // segmentação das promoções e desafios. Sem Express, para poderem ser testadas sozinhas.
 
 // ---------------------------------------------------------------------------------------------
-// Estrelas Biva
+// Estrelas Tchilar
 // ---------------------------------------------------------------------------------------------
 const STAR_PRICE_KZ = 10;                       // 1 estrela custa 10 Kz
 const STAR_PACKS = [                            // pacotes à venda; os maiores trazem estrelas de bónus
@@ -12,7 +12,7 @@ const STAR_PACKS = [                            // pacotes à venda; os maiores 
   { stars: 1000, bonus: 100 }
 ];
 const GIFT_AMOUNTS = [1, 5, 10, 50, 100];      // quantidades que se podem oferecer de uma vez
-const STAR_CREATOR_SHARE = 0.7;                 // o criador recebe 70% do valor; o Biva fica com 30%
+const STAR_CREATOR_SHARE = 0.7;                 // o criador recebe 70% do valor; o Tchilar fica com 30%
 
 const packPrice = pack => pack.stars * STAR_PRICE_KZ;
 // Valor em Kz que o criador recebe por um número de estrelas.
@@ -28,7 +28,7 @@ const referralQualifies = ({ emailVerified, posts }) => Boolean(emailVerified) &
 // ---------------------------------------------------------------------------------------------
 // Marketplace de marcas
 // ---------------------------------------------------------------------------------------------
-const CAMPAIGN_COMMISSION = 0.15;               // o Biva fica com 15% de cada campanha
+const CAMPAIGN_COMMISSION = 0.15;               // o Tchilar fica com 15% de cada campanha
 const MIN_CAMPAIGN_KZ = 5_000;
 const MAX_CAMPAIGN_KZ = 50_000_000;
 

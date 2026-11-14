@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 1920" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <pattern id="grass" width="1080" height="240" patternUnits="userSpaceOnUse"><rect width="1080" height="120" fill="#1E8A5A"/><rect y="120" width="1080" height="120" fill="#23995F"/></pattern>
+  </defs>
+  <rect width="1080" height="1920" fill="url(#grass)"/>
+  <g fill="none" stroke="#FFFFFF" stroke-width="10" opacity=".55">
+    <rect x="80" y="120" width="920" height="1680"/>
+    <path d="M80 960h920"/>
+    <circle cx="540" cy="960" r="170"/>
+    <rect x="300" y="120" width="480" height="260"/>
+    <rect x="300" y="1540" width="480" height="260"/>
+  </g>
+  <circle cx="540" cy="960" r="12" fill="#FFFFFF" opacity=".7"/>
+  <g transform="translate(800 1660)">
+    <circle r="90" fill="#FFFFFF"/>
+    <path fill="#03233A" d="M0-34l32 23-12 38h-40l-12-38z"/>
+    <path fill="none" stroke="#03233A" stroke-width="6" d="M0-34V-88M32-11l50-18M20 27l32 44M-20 27l-32 44M-32-11l-50-18"/>
+  </g>
+  <rect width="1080" height="1920" fill="#03233A" opacity=".12"/>
+</svg>

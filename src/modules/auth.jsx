@@ -1,4 +1,4 @@
-import { useContext, useEffect, useState } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Icon, UserContext, api } from "./core.jsx";
@@ -73,20 +73,20 @@ export function SwapLink({ to, onClick, ...props }) {
 }
 export function EntryShowcase({ mode }) {
   return <div className="entry-showcase">
-    <Link className="entry-logo" to="/" aria-label="Biva, página inicial"><img src="/biva-logo.png" alt="" /></Link>
+    <Link className="entry-logo" to="/" aria-label="Tchilar, página inicial"><img src="/tchilar-logo.png" alt="" /></Link>
     <div className="entry-collage" aria-hidden="true">
       <figure className="entry-card entry-card-story">
         <span className="entry-story-bars"><i /><i /><i /></span>
-        <img src="/biva-community-selfie.jpg" alt="" />
+        <img src="/tchilar-community-selfie.jpg" alt="" />
         <span className="entry-chip entry-chip-time"><Icon name="events" size={14} /> 19:30</span>
       </figure>
       <figure className="entry-card entry-card-photo">
         <span className="entry-card-badge"><Icon name="camera" size={14} /></span>
-        <img src="/biva-community-friends.jpg" alt="" />
+        <img src="/tchilar-community-friends.jpg" alt="" />
       </figure>
       <figure className="entry-card entry-card-post">
         <span className="entry-card-badge entry-card-badge-accent"><Icon name="groups" size={14} /></span>
-        <img src="/biva-community-join.jpg" alt="" />
+        <img src="/tchilar-community-join.jpg" alt="" />
         <span className="entry-lines"><i /><i /></span>
       </figure>
       <span className="entry-avatar"><span>M</span></span>
@@ -98,11 +98,22 @@ export function EntryShowcase({ mode }) {
       : <>Junta-te<br />a quem<br /><span>te inspira.</span></>}</h2>
   </div>;
 }
+// Idade em anos completos numa data AAAA-MM-DD (null se a data for inválida).
+export function ageFromBirthDate(value, now = new Date()) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value || "")) return null;
+  const [year, month, day] = value.split("-").map(Number);
+  let age = now.getFullYear() - year;
+  if (now.getMonth() + 1 < month || (now.getMonth() + 1 === month && now.getDate() < day)) age -= 1;
+  return age;
+}
+const MIN_SIGNUP_AGE = 13;
+const isoDay = date => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+
 export function Auth({ mode }) {
   const isLogin = mode === "login";
   const navigate = useNavigate();
   const { refreshUser } = useContext(UserContext);
-  const [form, setForm] = useState({ firstName: "", lastName: "", username: "", email: "", password: "", isCreator: false });
+  const [form, setForm] = useState({ firstName: "", lastName: "", username: "", birthDate: "", email: "", password: "", isCreator: false });
   const [authParams] = useSearchParams();
   const invite = (authParams.get("convite") || "").trim().toLowerCase();
   const [usernameTouched, setUsernameTouched] = useState(false);
@@ -151,15 +162,19 @@ export function Auth({ mode }) {
       if (!form.firstName.trim()) errors.firstName = "Escreve o teu nome próprio.";
       if (!USERNAME_PATTERN.test(form.username.trim().toLowerCase())) errors.username = "Usa 3 a 40 letras minúsculas, números, pontos ou underscores.";
       else if (usernameStatus === "taken") errors.username = "Este nome de utilizador já está a ser usado. Experimenta outro.";
+      const age = ageFromBirthDate(form.birthDate);
+      if (age === null) errors.birthDate = "Indica a tua data de nascimento.";
+      else if (age < MIN_SIGNUP_AGE) errors.birthDate = `Tens de ter pelo menos ${MIN_SIGNUP_AGE} anos para criar uma conta.`;
+      else if (age > 120) errors.birthDate = "Confirma o ano de nascimento.";
       if (form.password.length < PASSWORD_MIN) errors.password = `A palavra-passe precisa de pelo menos ${PASSWORD_MIN} caracteres.`;
     } else if (!form.password) {
       errors.password = "Escreve a tua palavra-passe.";
     }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) errors.email = "Escreve um email válido, por exemplo nome@exemplo.com.";
     setFieldErrors(errors);
-    const first = ["firstName", "username", "email", "password"].find(key => errors[key]);
+    const first = ["firstName", "username", "birthDate", "email", "password"].find(key => errors[key]);
     if (first) {
-      const ids = { firstName: "first-name", username: "username", email: "email", password: "password" };
+      const ids = { firstName: "first-name", username: "username", birthDate: "birth-date", email: "email", password: "password" };
       window.requestAnimationFrame(() => document.getElementById(ids[first])?.focus());
     }
     return !first;
@@ -191,6 +206,7 @@ export function Auth({ mode }) {
           email: form.email.trim(),
           password: form.password,
           isCreator: form.isCreator,
+          birthDate: form.birthDate,
           ...(invite && { invite }),
           displayName: `${form.firstName} ${form.lastName}`.trim()
         })
@@ -241,13 +257,13 @@ export function Auth({ mode }) {
   }[usernameStatus];
   const fieldError = key => fieldErrors[key] && <p className="entry-hint entry-hint-error" id={`${key}-error`}>{fieldErrors[key]}</p>;
 
-  const heading = sentTo ? "Confirma o teu email" : isLogin ? "Entrar no Biva" : "Criar conta no Biva";
+  const heading = sentTo ? "Confirma o teu email" : isLogin ? "Entrar no Tchilar" : "Criar conta no Tchilar";
 
   return <section className={`entry entry-${mode}`}>
     <EntryShowcase mode={mode} />
     <div className="entry-main">
       <div className="entry-panel">
-        <Link className="entry-mobile-logo" to="/" aria-label="Biva, página inicial"><img src="/biva-logo-full.png" alt="Biva" /></Link>
+        <Link className="entry-mobile-logo" to="/" aria-label="Tchilar, página inicial"><img src="/tchilar-logo-full.png" alt="Tchilar" /></Link>
         <header className="entry-head">
           {!isLogin && <SwapLink className="entry-back" to="/login" aria-label="Voltar a entrar"><Icon name="previous" size={22} /></SwapLink>}
           <h1>{heading}</h1>
@@ -285,8 +301,17 @@ export function Auth({ mode }) {
               {fieldErrors.username
                 ? <p className="entry-hint entry-hint-error" id="username-status">{fieldErrors.username}</p>
                 : <p className={`entry-hint${usernameMessage?.[1] ? ` entry-hint-${usernameMessage[1]}` : ""}`} id="username-status" aria-live="polite">
-                  {usernameMessage ? usernameMessage[0] : "É o teu endereço no Biva."}
+                  {usernameMessage ? usernameMessage[0] : "É o teu endereço no Tchilar."}
                 </p>}
+            </div>}
+
+            {!isLogin && <div className="entry-field">
+              <EntryInput id="birth-date" label="Data de nascimento" required type="date" autoComplete="bday"
+                min="1900-01-01" max={isoDay(new Date())}
+                value={form.birthDate} onChange={event => update("birthDate", event.target.value)}
+                invalid={!!fieldErrors.birthDate} describedBy={fieldErrors.birthDate ? "birthDate-error" : "birth-date-help"} />
+              {fieldErrors.birthDate ? fieldError("birthDate")
+                : <p className="entry-hint" id="birth-date-help">Não aparece no teu perfil. Decide o acesso a conteúdos para maiores de 18 e não pode ser mudada depois.</p>}
             </div>}
 
             <div className="entry-field">
@@ -315,7 +340,7 @@ export function Auth({ mode }) {
             {isLogin && needsCode && <div className="entry-field entry-two-factor">
               <EntryInput id="two-factor-code" label="Código de 6 dígitos" required inputMode="numeric" autoComplete="one-time-code" maxLength={6} pattern="[0-9]{6}"
                 value={twoFactorCode} onChange={event => setTwoFactorCode(event.target.value.replace(/\D/g, "").slice(0, 6))} describedBy="two-factor-help" />
-              <p className="entry-hint" id="two-factor-help">Abre a tua app de autenticação (Google Authenticator, Authy...) e escreve o código do Biva.</p>
+              <p className="entry-hint" id="two-factor-help">Abre a tua app de autenticação (Google Authenticator, Authy...) e escreve o código do Tchilar.</p>
             </div>}
 
             {!isLogin && <label className="entry-creator">
@@ -344,32 +369,96 @@ export function Auth({ mode }) {
           </form>}
 
         <footer className="entry-foot">
-          <span className="entry-wordmark"><img src="/biva-logo.png" alt="" /> biva</span>
+          <span className="entry-wordmark"><img src="/tchilar-logo.png" alt="" /> tchilar</span>
           <InfoLinks />
         </footer>
       </div>
     </div>
   </section>;
 }
+const VERIFY_VIEWS = {
+  checking: { icon: "mail", title: "A confirmar o teu email", text: "Só um momento..." },
+  done: { icon: "check", title: "Email confirmado", text: "A tua conta está ativa. Já podes entrar e começar a partilhar." },
+  failed: { icon: "close", title: "Esta ligação já não serve", text: "As ligações de confirmação só funcionam uma vez e durante uma hora. Pede uma nova abaixo." },
+  // Demasiados pedidos (429): a ligação pode estar boa, por isso não se diz que expirou.
+  limited: { icon: "events", title: "Tenta daqui a pouco", text: "Fizeste vários pedidos seguidos. Espera alguns minutos e abre a ligação outra vez." }
+};
 export function VerifyEmail() {
   const [searchParams] = useSearchParams();
-  const [status, setStatus] = useState("A confirmar o email...");
+  const [state, setState] = useState("checking");
   const [error, setError] = useState("");
+  const [email, setEmail] = useState("");
+  const [notice, setNotice] = useState("");
+  const [busy, setBusy] = useState(false);
+  const requested = useRef("");
 
   useEffect(() => {
     const token = searchParams.get("token");
     if (!token) {
       setError("A ligação de confirmação está incompleta.");
+      setState("failed");
       return;
     }
+    // O token só vale uma vez: em modo estrito o React corre o efeito duas vezes, e o segundo pedido falharia.
+    if (requested.current === token) return;
+    requested.current = token;
     api("/auth/verify-email", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ token })
-    }).then(result => setStatus(result.message)).catch(verifyError => setError(verifyError.message));
+    }).then(() => setState("done")).catch(verifyError => {
+      if (verifyError.status === 429) return setState("limited");
+      setError(verifyError.status === 400 ? "" : verifyError.message);
+      setState("failed");
+    });
   }, [searchParams]);
 
-  return <section className="auth page"><div className="auth-card"><div className="eyebrow">BIVA</div><h1>Confirmação de email</h1>{error ? <p className="error">{error}</p> : <p className="success">{status}</p>}<Link className="btn full" to="/login">Ir para iniciar sessão</Link></div></section>;
+  const resend = async event => {
+    event.preventDefault();
+    setBusy(true);
+    setNotice("");
+    try {
+      const result = await api("/auth/verify-email/resend", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim() })
+      });
+      setNotice(result.message);
+    } catch (resendError) {
+      setNotice(resendError.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const view = VERIFY_VIEWS[state];
+  return <section className="entry entry-login">
+    <EntryShowcase mode="login" />
+    <div className="entry-main">
+      <div className="entry-panel">
+        <Link className="entry-mobile-logo" to="/" aria-label="Tchilar, página inicial"><img src="/tchilar-logo-full.png" alt="Tchilar" /></Link>
+        <div className={`entry-form entry-sent entry-verify entry-verify-${state}`} role="status" aria-live="polite" aria-busy={state === "checking"}>
+          <span className="entry-sent-icon" aria-hidden="true"><Icon name={view.icon} size={30} /></span>
+          <h1>{view.title}</h1>
+          <p className="entry-sub">{view.text}</p>
+          {state === "done" && <Link className="entry-btn entry-btn-primary" to="/login">Entrar no Tchilar</Link>}
+          {state === "limited" && <Link className="entry-btn entry-btn-outline" to="/login">Voltar a entrar</Link>}
+          {state === "failed" && <form className="entry-verify-resend" onSubmit={resend}>
+            {error && <p className="entry-hint entry-hint-error">{error}</p>}
+            <EntryInput id="verify-email" label="Email da conta" required type="email" autoComplete="email" inputMode="email"
+              value={email} onChange={event => setEmail(event.target.value)} />
+            <button className="entry-btn entry-btn-primary" type="submit" disabled={busy || !email.trim()}>{busy ? "A enviar..." : "Enviar nova ligação"}</button>
+            {notice && <p className="entry-notice">{notice}</p>}
+            <Link className="entry-link" to="/login">Voltar a entrar</Link>
+          </form>}
+        </div>
+        <footer className="entry-foot">
+          <span className="entry-wordmark"><img src="/tchilar-logo.png" alt="" /> tchilar</span>
+          <InfoLinks />
+        </footer>
+      </div>
+    </div>
+  </section>;
 }
 export function ForgotPassword() {
   const [email, setEmail] = useState("");
@@ -398,7 +487,7 @@ export function ForgotPassword() {
     }
   };
 
-  return <section className="auth page"><form className="auth-card" onSubmit={submit}><div className="eyebrow">BIVA</div><h1>Recuperar acesso.</h1><p className="muted">Indica o email da tua conta para receber uma ligação de redefinição.</p><input required type="email" placeholder="Email" value={email} onChange={event => setEmail(event.target.value)} />{error && <p className="error">{error}</p>}{notice && <p className="success">{notice}</p>}{resetUrl && <a className="btn full" href={resetUrl}>Redefinir palavra-passe</a>}<button className="btn full" disabled={busy}>{busy ? "A enviar..." : "Enviar ligação"}</button><p className="muted"><Link to="/login">Voltar ao início de sessão</Link></p></form></section>;
+  return <section className="auth page"><form className="auth-card" onSubmit={submit}><div className="eyebrow">TCHILAR</div><h1>Recuperar acesso.</h1><p className="muted">Indica o email da tua conta para receber uma ligação de redefinição.</p><input required type="email" placeholder="Email" value={email} onChange={event => setEmail(event.target.value)} />{error && <p className="error">{error}</p>}{notice && <p className="success">{notice}</p>}{resetUrl && <a className="btn full" href={resetUrl}>Redefinir palavra-passe</a>}<button className="btn full" disabled={busy}>{busy ? "A enviar..." : "Enviar ligação"}</button><p className="muted"><Link to="/login">Voltar ao início de sessão</Link></p></form></section>;
 }
 export function ResetPassword() {
   const [searchParams] = useSearchParams();
@@ -428,5 +517,5 @@ export function ResetPassword() {
     }
   };
 
-  return <section className="auth page"><form className="auth-card" onSubmit={submit}><div className="eyebrow">BIVA</div><h1>Nova palavra-passe.</h1><input required minLength={PASSWORD_MIN} type="password" autoComplete="new-password" placeholder="Nova palavra-passe" value={password} onChange={event => setPassword(event.target.value)} />{error && <p className="error">{error}</p>}{notice && <p className="success">{notice}</p>}<button className="btn full" disabled={busy}>{busy ? "A guardar..." : "Atualizar palavra-passe"}</button></form></section>;
+  return <section className="auth page"><form className="auth-card" onSubmit={submit}><div className="eyebrow">TCHILAR</div><h1>Nova palavra-passe.</h1><input required minLength={PASSWORD_MIN} type="password" autoComplete="new-password" placeholder="Nova palavra-passe" value={password} onChange={event => setPassword(event.target.value)} />{error && <p className="error">{error}</p>}{notice && <p className="success">{notice}</p>}<button className="btn full" disabled={busy}>{busy ? "A guardar..." : "Atualizar palavra-passe"}</button></form></section>;
 }

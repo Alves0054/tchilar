@@ -1,8 +1,8 @@
-// Regras de negócio do Programa de Parceiros (o Biva paga aos criadores) e do patrocínio
+// Regras de negócio do Programa de Parceiros (o Tchilar paga aos criadores) e do patrocínio
 // automático (quem paga é promovido). Sem Express, para poderem ser testadas sozinhas.
 
 // ---------------------------------------------------------------------------------------------
-// Programa de Parceiros Biva
+// Programa de Parceiros Tchilar
 // ---------------------------------------------------------------------------------------------
 
 // Só monetiza quem cumprir TODAS estas condições.
@@ -12,7 +12,7 @@ const PARTNER_RULES = {
   viewsWindowDays: 28 // as visualizações contam nos últimos 28 dias
 };
 
-// Quanto o Biva paga por cada 1000 visualizações qualificadas (em Kz) e o mínimo para transferir.
+// Quanto o Tchilar paga por cada 1000 visualizações qualificadas (em Kz) e o mínimo para transferir.
 const PARTNER_RPM_KZ = 200;
 const MIN_PAYOUT_KZ = 5_000;
 

@@ -70,7 +70,7 @@ function verifyCode(secret, code, { lastStep = null, now = Date.now() } = {}) {
 }
 
 // Endereço que as apps de autenticação leem do código QR.
-function otpauthUri({ secret, account, issuer = "Biva" }) {
+function otpauthUri({ secret, account, issuer = "Tchilar" }) {
   const label = encodeURIComponent(`${issuer}:${account}`);
   const params = new URLSearchParams({ secret, issuer, algorithm: "SHA1", digits: String(DIGITS), period: String(STEP_SECONDS) });
   return `otpauth://totp/${label}?${params}`;

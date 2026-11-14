@@ -33,7 +33,7 @@ function createPool() {
 }
 
 async function withMigrations(files, operation) {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "biva-migrations-"));
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "tchilar-migrations-"));
   try {
     for (const [filename, sql] of Object.entries(files)) {
       fs.writeFileSync(path.join(directory, filename), sql);

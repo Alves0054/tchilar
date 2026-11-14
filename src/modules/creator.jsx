@@ -172,7 +172,7 @@ export function InsightsCard({ data, error, days, onDays, full = false }) {
 export function ProfileStatusCard({ profile }) {
   if (!profile) return <section className="creator-card"><h2>Estado do perfil</h2><div className="creator-loading">A verificar...</div></section>;
   const problem = profile.suspended_at
-    ? ["block", "A tua conta está suspensa. Contacta a equipa do Biva."]
+    ? ["block", "A tua conta está suspensa. Contacta a equipa do Tchilar."]
     : profile.hidden_posts > 0
       ? ["report", `${profile.hidden_posts} ${profile.hidden_posts === 1 ? "publicação escondida" : "publicações escondidas"} pela moderação.`]
       : null;
@@ -424,8 +424,8 @@ export function PartnerProgramCard() {
   return <section className="creator-card partner-card" aria-labelledby="partner-title">
     <div className="creator-card-head">
       <div>
-        <h2 id="partner-title"><Icon name="spark" size={18} /> Programa de Parceiros Biva</h2>
-        <p>O Biva paga-te <strong>{formatPrice(data.rpm)}</strong> por cada 1000 visualizações das tuas publicações.</p>
+        <h2 id="partner-title"><Icon name="spark" size={18} /> Programa de Parceiros Tchilar</h2>
+        <p>O Tchilar paga-te <strong>{formatPrice(data.rpm)}</strong> por cada 1000 visualizações das tuas publicações.</p>
       </div>
       {data.partner_since && <span className={`status-pill ${data.earning ? "is-ok" : "is-warning"}`}>{data.earning ? "Parceiro ativo" : "Ganhos em pausa"}</span>}
     </div>
@@ -433,7 +433,7 @@ export function PartnerProgramCard() {
     {!data.partner_since || !data.earning ? <>
       <p className="partner-intro">{data.partner_since
         ? "Deixaste de cumprir uma das regras. Os ganhos voltam assim que voltares a cumpri-las."
-        : "Para começares a ganhar dinheiro com o Biva tens de cumprir todas estas regras:"}</p>
+        : "Para começares a ganhar dinheiro com o Tchilar tens de cumprir todas estas regras:"}</p>
       <ul className="partner-checks">
         {data.checks.map(check => <li key={check.key} className={check.met ? "is-met" : ""}>
           <span className="partner-check-icon" aria-hidden="true"><Icon name={check.met ? "check" : "close"} size={14} /></span>
@@ -482,7 +482,7 @@ export function AdPreview({ ad, imageSrc, advertiser }) {
   return <div className="ad-preview-frame">
     <span className="home-heading">Patrocinado</span>
     <div className="home-sponsor ad-preview" aria-label="Pré-visualização do anúncio">
-      <span className="home-sponsor-art">{imageSrc ? <img src={imageSrc} alt="" /> : <img src="/biva-logo.png" alt="" />}</span>
+      <span className="home-sponsor-art">{imageSrc ? <img src={imageSrc} alt="" /> : <img src="/tchilar-logo.png" alt="" />}</span>
       <span>
         <strong className={ad.title ? "" : "is-placeholder"}>{ad.title || "Título do anúncio"}</strong>
         <small className={ad.body ? "" : "is-placeholder"}>{ad.body || "O texto do teu anúncio aparece aqui."}</small>
@@ -771,7 +771,7 @@ export function CreatorAds() {
     <section className="creator-card" aria-labelledby="ads-full-title">
       <div className="creator-card-head">
         <div><h2 id="ads-full-title">Anúncios e publicações impulsionadas</h2>
-          <p>Pagas uma vez e o Biva mostra a tua promoção a quem ainda não a viu: {formatPrice(cost * 1000)} por cada 1000 pessoas alcançadas.</p></div>
+          <p>Pagas uma vez e o Tchilar mostra a tua promoção a quem ainda não a viu: {formatPrice(cost * 1000)} por cada 1000 pessoas alcançadas.</p></div>
         {!creating && <button className="btn" type="button" onClick={openForm}><Icon name="plus" size={16} /> Criar promoção</button>}
       </div>
       {notice && <p className="success" role="status">{notice}</p>}
@@ -860,7 +860,7 @@ export function CreatorAds() {
               <label>Idade mínima<input type="number" min="13" max="100" placeholder="Qualquer" value={form.minAge} onChange={event => update("minAge", event.target.value)} /></label>
               <label>Idade máxima<input type="number" min="13" max="100" placeholder="Qualquer" value={form.maxAge} onChange={event => update("maxAge", event.target.value)} /></label>
             </div>
-            <small className="muted">{targeted ? `Só vê quem ${form.provinces.length ? `está em ${form.provinces.join(", ")}` : "tem a idade indicada"}${form.provinces.length && (form.minAge || form.maxAge) ? " e tem a idade indicada" : ""} (quem indicou a província e a idade nas Definições).` : "Sem filtros: o Biva mostra a toda a gente."}</small>
+            <small className="muted">{targeted ? `Só vê quem ${form.provinces.length ? `está em ${form.provinces.join(", ")}` : "tem a idade indicada"}${form.provinces.length && (form.minAge || form.maxAge) ? " e tem a idade indicada" : ""} (quem indicou a província e a idade nas Definições).` : "Sem filtros: o Tchilar mostra a toda a gente."}</small>
           </fieldset>
           <p className="ad-review-note"><Icon name="shield" size={15} /> <span>Depois do pagamento, a equipa revê a promoção (normalmente em menos de 24 horas). Se for recusada, devolvemos o valor. Lê as <Link to="/publicidade">Regras de publicidade</Link>.</span></p>
         </div>
@@ -898,7 +898,7 @@ export function CreatorAds() {
       {!ads && !error && <div className="creator-loading">A carregar...</div>}
       {ads && !ads.length && !creating && <div className="ads-empty">
         <span className="ad-kind-icon"><Icon name="bolt" size={22} /></span>
-        <div><strong>Ainda não criaste nenhuma promoção</strong><p className="muted">Escolhe uma publicação de que gostas, define quanto queres gastar e o Biva mostra-a a mais pessoas.</p></div>
+        <div><strong>Ainda não criaste nenhuma promoção</strong><p className="muted">Escolhe uma publicação de que gostas, define quanto queres gastar e o Tchilar mostra-a a mais pessoas.</p></div>
         <button className="btn" type="button" onClick={openForm}><Icon name="plus" size={16} /> Criar a primeira</button>
       </div>}
       {ads && ads.length > 0 && <>
@@ -1027,12 +1027,13 @@ export function CreatorEarnings() {
   const sources = [
     ["Programa de Parceiros", data.sources.partnerKz, "spark", data.accruing.partnerKz > 0 ? `+${formatPrice(data.accruing.partnerKz)} a acumular este mês` : "Meses já fechados"],
     ["Estrelas recebidas", data.sources.starsKz, "star", "70% do valor das estrelas"],
-    ["Campanhas com marcas", data.sources.campaignsKz, "brand", "85% das campanhas concluídas"]
+    ["Campanhas com marcas", data.sources.campaignsKz, "brand", "85% das campanhas concluídas"],
+    ["Grupos secretos", data.sources.groupsKz || 0, "lock", "70% das entradas pagas"]
   ];
   const hasPending = data.requests.some(request => request.status === "requested");
   return <>
     <section className="creator-card" aria-labelledby="earnings-title">
-      <div className="creator-card-head"><div><h2 id="earnings-title">Ganhos</h2><p>Tudo o que ganhaste no Biva e o que já podes levantar.</p></div></div>
+      <div className="creator-card-head"><div><h2 id="earnings-title">Ganhos</h2><p>Tudo o que ganhaste no Tchilar e o que já podes levantar.</p></div></div>
       {notice && <p className="success" role="status">{notice}</p>}
       {error && <p className="error" role="alert">{error}</p>}
       <div className="earnings-sources">{sources.map(([label, value, icon, hint]) => <div className="stat-box earnings-source" key={label}>

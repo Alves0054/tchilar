@@ -2,6 +2,7 @@ import { useContext, useEffect, useRef, useState } from "react";
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { Avatar, Icon, ThemeContext, UserContext, api, token } from "./core.jsx";
 import { InfoLinks, usePolling } from "./shared.jsx";
+import { MessagesPanel, NotificationsPanel } from "./topbar-panels.jsx";
 
 export function Layout({ children }) {
   // Preferência guardada: "light", "dark" ou "system" (segue o telemóvel/computador).
@@ -72,7 +73,7 @@ export function Layout({ children }) {
   const authPage = !user && ["/", "/login", "/register", "/verify-email", "/forgot-password", "/reset-password"].includes(location.pathname);
   return <ThemeContext.Provider value={{ theme, themePreference, setTheme }}><UserContext.Provider value={{ user, refreshUser, authReady }}>
     <div className={`app ${authPage ? "app-public" : "app-community"}`}>
-      {!authPage && <TopBar user={user} unreadCount={unreadCount} unreadMessages={unreadMessages}
+      {!authPage && <TopBar user={user} unreadCount={unreadCount} unreadMessages={unreadMessages} onBadgesChange={refreshBadges}
         onLogout={() => { localStorage.removeItem("token"); setUser(null); setUnreadCount(0); setUnreadMessages(0); }} />}
       {authError && !authPage && <p className="global-error">{authError}</p>}
       <main className={authPage ? "auth-page-main" : ""}>{children}</main>
@@ -119,7 +120,7 @@ export function SearchBox({ user }) {
 
   return <div className="topbar-search" ref={box}>
     <Icon name="search" size={17} />
-    <input type="search" aria-label="Pesquisar pessoas no Biva" placeholder="Pesquisar no Biva" value={query}
+    <input type="search" aria-label="Pesquisar pessoas no Tchilar" placeholder="Pesquisar no Tchilar" value={query}
       onChange={event => { setQuery(event.target.value); setOpen(true); }}
       onFocus={() => setOpen(true)}
       onKeyDown={event => { if (event.key === "Enter" && results[0]) go(results[0]); }} />
@@ -141,7 +142,7 @@ export const NAV_ITEMS = [
   ["/groups", "groups", "Grupos"],
   ["/events", "events", "Eventos"]
 ];
-export function TopBar({ user, unreadCount, unreadMessages, onLogout }) {
+export function TopBar({ user, unreadCount, unreadMessages, onBadgesChange, onLogout }) {
   const { theme, setTheme } = useContext(ThemeContext);
   const [openMenu, setOpenMenu] = useState("");
   const menus = useRef(null);
@@ -153,7 +154,7 @@ export function TopBar({ user, unreadCount, unreadMessages, onLogout }) {
 
   return <header className="topbar">
     <div className="topbar-left">
-      <Link className="logo" to="/" aria-label="Biva, início"><img src="/biva-logo.png" alt="" /></Link>
+      <Link className="logo" to="/" aria-label="Tchilar, início"><img src="/tchilar-logo.png" alt="" /></Link>
       <SearchBox user={user} />
     </div>
     <nav className="topbar-nav" aria-label="Principal">
@@ -169,16 +170,24 @@ export function TopBar({ user, unreadCount, unreadMessages, onLogout }) {
               ["/reels", "reels", "Reels", "Vídeos da comunidade"], ["/live", "live", "Diretos", "Quem está ao vivo agora"], ["/creator", "stats", "Painel do criador", "Insights, conteúdo e anúncios"],
               ["/estrelas", "star", "Estrelas", "Apoia os teus criadores"], ["/marcas", "brand", "Marcas", "Campanhas com criadores"],
               ["/desafios", "trophy", "Desafios", "Participa e ganha prémios"], ["/convidar", "gift", "Convidar amigos", "Ganha estrelas"],
-              ["/academia", "academy", "Academia Biva", "Cresce como criador"], ["/help", "help", "Ajuda", "Perguntas frequentes"]]
+              ["/academia", "academy", "Academia Tchilar", "Cresce como criador"], ["/help", "help", "Ajuda", "Perguntas frequentes"]]
               .map(([to, icon, label, hint]) => <Link key={to} to={to} role="menuitem"><span className={`menu-icon tone-${icon}`}><Icon name={icon} size={18} /></span><span><strong>{label}</strong><small>{hint}</small></span></Link>)}
           </div>}
         </div>
-        <Link className="round-button" to="/messages" aria-label={unreadMessages ? `Mensagens, ${unreadMessages} por ler` : "Mensagens"} title="Mensagens">
-          <Icon name="messages" size={20} />{unreadMessages > 0 && <span className="notification-badge">{unreadMessages > 99 ? "99+" : unreadMessages}</span>}
-        </Link>
-        <Link className="round-button" to="/notifications" aria-label={unreadCount ? `Notificações, ${unreadCount} por ler` : "Notificações"} title="Notificações">
-          <Icon name="notifications" size={20} />{unreadCount > 0 && <span className="notification-badge">{unreadCount > 20 ? "20+" : unreadCount}</span>}
-        </Link>
+        <div className="topbar-menu">
+          <button className={`round-button${openMenu === "messages" ? " is-open" : ""}`} type="button" aria-haspopup="dialog" aria-expanded={openMenu === "messages"} onClick={() => toggle("messages")}
+            aria-label={unreadMessages ? `Mensagens, ${unreadMessages} por ler` : "Mensagens"} title="Mensagens">
+            <Icon name="messages" size={20} />{unreadMessages > 0 && <span className="notification-badge">{unreadMessages > 99 ? "99+" : unreadMessages}</span>}
+          </button>
+          {openMenu === "messages" && <MessagesPanel onClose={close} />}
+        </div>
+        <div className="topbar-menu">
+          <button className={`round-button${openMenu === "notifications" ? " is-open" : ""}`} type="button" aria-haspopup="dialog" aria-expanded={openMenu === "notifications"} onClick={() => toggle("notifications")}
+            aria-label={unreadCount ? `Notificações, ${unreadCount} por ler` : "Notificações"} title="Notificações">
+            <Icon name="notifications" size={20} />{unreadCount > 0 && <span className="notification-badge">{unreadCount > 20 ? "20+" : unreadCount}</span>}
+          </button>
+          {openMenu === "notifications" && <NotificationsPanel onChange={onBadgesChange} onClose={close} />}
+        </div>
         <div className="topbar-menu">
           <button className="account-button" type="button" aria-label="A tua conta" title="A tua conta" aria-haspopup="menu" aria-expanded={openMenu === "account"} onClick={() => toggle("account")}>
             <Avatar user={user} /><span className="account-chevron"><Icon name="chevronDown" size={12} /></span>

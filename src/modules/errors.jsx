@@ -22,7 +22,7 @@ export function reportClientError(error, context = "") {
   return reference;
 }
 
-// Depois de uma nova versão do Biva, os ficheiros antigos de cada área deixam de existir.
+// Depois de uma nova versão do Tchilar, os ficheiros antigos de cada área deixam de existir.
 // Quem tinha a página aberta recebe este erro ao mudar de área: recarregar resolve (uma vez por visita).
 export function isStaleChunkError(error) {
   return /dynamically imported module|Importing a module script failed|error loading dynamically imported|Failed to fetch dynamically/i.test(String(error?.message || error));
@@ -68,10 +68,10 @@ export class PageErrorBoundary extends Component {
     const stale = isStaleChunkError(this.state.error);
     return <section className="page narrow">
       <div className="empty card page-error" role="alert">
-        <h1>{stale ? "Há uma versão nova do Biva" : "Esta página teve um problema"}</h1>
+        <h1>{stale ? "Há uma versão nova do Tchilar" : "Esta página teve um problema"}</h1>
         <p>{stale
           ? "Recarrega para continuares com a versão mais recente."
-          : "O resto do Biva continua a funcionar. Tenta outra vez; se voltar a acontecer, diz-nos a referência abaixo."}</p>
+          : "O resto do Tchilar continua a funcionar. Tenta outra vez; se voltar a acontecer, diz-nos a referência abaixo."}</p>
         {!stale && this.state.reference && <p className="page-error-ref">Referência: {this.state.reference}</p>}
         <div className="page-error-actions">
           <button className="btn" type="button" onClick={() => (stale ? window.location.reload() : this.setState({ error: null, reference: null }))}>

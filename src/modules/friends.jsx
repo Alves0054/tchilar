@@ -101,11 +101,11 @@ export function Friends() {
       : <div className="empty card pages-empty"><p>Não tens pedidos de amizade por responder.</p><button className="btn secondary" type="button" onClick={() => setTab("suggestions")}>Ver sugestões</button></div>)}
     {!results && data && tab === "suggestions" && (data.suggestions.length
       ? <div className="people-grid">{data.suggestions.map(person => <PeopleCard key={person.id} person={person}>{addButton(person)}</PeopleCard>)}</div>
-      : <div className="empty card pages-empty"><p>Ainda não há sugestões. Convida os teus amigos para o Biva.</p><Link className="btn" to="/convidar"><Icon name="gift" size={15} /> Convidar amigos</Link></div>)}
+      : <div className="empty card pages-empty"><p>Ainda não há sugestões. Convida os teus amigos para o Tchilar.</p><Link className="btn" to="/convidar"><Icon name="gift" size={15} /> Convidar amigos</Link></div>)}
     {!results && data && tab === "friends" && (data.friends.length
       ? <div className="people-grid">{data.friends.map(person => <PeopleCard key={person.id} person={person}>
         <Link className="btn secondary" to={`/messages/${person.id}`}><Icon name="messages" size={15} /> Mensagem</Link>
       </PeopleCard>)}</div>
-      : <div className="empty card pages-empty"><p>Ainda não tens amigos no Biva. Começa pelas sugestões.</p><button className="btn" type="button" onClick={() => setTab("suggestions")}>Ver sugestões</button></div>)}
+      : <div className="empty card pages-empty"><p>Ainda não tens amigos no Tchilar. Começa pelas sugestões.</p><button className="btn" type="button" onClick={() => setTab("suggestions")}>Ver sugestões</button></div>)}
   </div>;
 }

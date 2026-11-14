@@ -1,6 +1,6 @@
-# Biva
+# Tchilar
 
-<img src="public/biva-logo-full.png" alt="Biva" width="220">
+<img src="public/tchilar-logo-full.png" alt="Tchilar" width="220">
 
 _Conecta · Partilha · Vive_
 
@@ -34,7 +34,7 @@ Para criar uma base de dados e um utilizador locais, executa o script. Introduz 
 npm run db:setup
 ```
 
-O script cria `.env` apenas se ainda não existir, gera segredos locais, cria/verifica `biva` e testa a ligação. Se já tiveres `.env`, preserva-o e configura a base de dados manualmente.
+O script cria `.env` apenas se ainda não existir, gera segredos locais, cria/verifica `tchilar` e testa a ligação. Se já tiveres `.env`, preserva-o e configura a base de dados manualmente.
 
 Inicia frontend e backend:
 
@@ -50,7 +50,7 @@ npm run db:migrate
 
 O endpoint `/api/health/ready` verifica a ligação PostgreSQL.
 
-Para preparar uma demonstração local sem palavra-passe de administrador PostgreSQL, usa no VS Code a tarefa **Preparar Biva (base de dados + perfil demo)**. Ela cria uma instância PostgreSQL isolada em `%LOCALAPPDATA%\Biva\PostgreSQL17`, numa porta própria, e preserva qualquer instância/base de dados PostgreSQL existente. Depois executa **Iniciar Biva (frontend + API)**.
+Para preparar uma demonstração local sem palavra-passe de administrador PostgreSQL, usa no VS Code a tarefa **Preparar Tchilar (base de dados + perfil demo)**. Ela cria uma instância PostgreSQL isolada em `%LOCALAPPDATA%\Tchilar\PostgreSQL17`, numa porta própria, e preserva qualquer instância/base de dados PostgreSQL existente. Depois executa **Iniciar Tchilar (frontend + API)**.
 
 ### Perfil de demonstração
 
@@ -62,10 +62,10 @@ npm run db:seed-demo
 
 Inicia sessão em <http://localhost:5173/login> com:
 
-- Email: `demo@biva.test`
-- Palavra-passe: `Biva+Demo2026`
+- Email: `demo@tchilar.test`
+- Palavra-passe: `Tchilar+Demo2026`
 
-O perfil `@biva_demo` e as publicações também ficam disponíveis em <http://localhost:5173/u/biva_demo>. O comando recusa ambientes de produção e bases de dados que não sejam locais; voltar a executá-lo repõe a palavra-passe de demonstração e não duplica as publicações de exemplo.
+O perfil `@tchilar_demo` e as publicações também ficam disponíveis em <http://localhost:5173/u/tchilar_demo>. O comando recusa ambientes de produção e bases de dados que não sejam locais; voltar a executá-lo repõe a palavra-passe de demonstração e não duplica as publicações de exemplo.
 
 ## Docker
 
@@ -101,7 +101,7 @@ SMTP_PORT=587
 SMTP_SECURE=false
 SMTP_USER=utilizador-smtp
 SMTP_PASSWORD=palavra-passe-smtp
-SMTP_FROM="Biva <no-reply@example.com>"
+SMTP_FROM="Tchilar <no-reply@example.com>"
 APP_URL=https://social.example.com
 CLIENT_URL=https://social.example.com
 ```
@@ -135,7 +135,7 @@ Copia o `whsec_...` mostrado para `STRIPE_WEBHOOK_SECRET`.
 3. **Webhook:** cria o endpoint `https://<domínio>/api/webhooks/stripe` com os eventos:
    - `checkout.session.completed` e `checkout.session.async_payment_succeeded` (promoções, estrelas, campanhas e subscrições);
    - `customer.subscription.created`, `customer.subscription.updated` e `customer.subscription.deleted`.
-4. **Reembolsos:** quando um administrador recusa uma promoção paga, o Biva pede o reembolso à Stripe automaticamente. Se falhar (ou se o pagamento não tiver identificador), aparece em **Administração → Finanças → Reembolsos a fazer à mão**.
+4. **Reembolsos:** quando um administrador recusa uma promoção paga, o Tchilar pede o reembolso à Stripe automaticamente. Se falhar (ou se o pagamento não tiver identificador), aparece em **Administração → Finanças → Reembolsos a fazer à mão**.
 5. **Faturação:** a Stripe não emite faturas certificadas pela AGT. Para cumprir a lei angolana é preciso um programa de faturação certificado (integração por API) — isto ainda não está feito.
 
 ### Multicaixa Express e Pagamento por Referência

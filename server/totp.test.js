@@ -40,6 +40,6 @@ test("generated secrets are 160-bit base32 and build an otpauth URI", () => {
   const secret = generateSecret();
   assert.match(secret, /^[A-Z2-7]{32}$/);
   const uri = otpauthUri({ secret, account: "ana" });
-  assert.ok(uri.startsWith("otpauth://totp/Biva%3Aana?"));
+  assert.ok(uri.startsWith("otpauth://totp/Tchilar%3Aana?"));
   assert.ok(uri.includes(`secret=${secret}`));
 });

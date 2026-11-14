@@ -61,7 +61,7 @@ export const REEL_TOOLS = [
 ];
 export const MAX_AUDIO_BYTES = 15 * 1024 * 1024;
 export const ADJUSTMENTS = [["brightness", "Brilho"], ["contrast", "Contraste"], ["saturation", "Saturação"]];
-// Escolher música: biblioteca da Biva, as tuas músicas, pesquisa, géneros, ouvir antes e carregar a tua.
+// Escolher música: biblioteca da Tchilar, as tuas músicas, pesquisa, géneros, ouvir antes e carregar a tua.
 export function MusicPicker({ onSelect, onCancel }) {
   const [query, setQuery] = useState("");
   const [genre, setGenre] = useState("");
@@ -173,7 +173,7 @@ export function MusicPicker({ onSelect, onCancel }) {
     {!data && !error && <p className="reel-hint">A carregar músicas...</p>}
     {!!data?.mine?.length && <section><h3 className="music-heading">As tuas músicas</h3><ul className="music-list">{data.mine.map(track => trackRow(track, true))}</ul></section>}
     {data && <section>
-      <h3 className="music-heading">Biblioteca da Biva</h3>
+      <h3 className="music-heading">Biblioteca da Tchilar</h3>
       {data.library.length
         ? <ul className="music-list">{data.library.map(track => trackRow(track, false))}</ul>
         : <p className="reel-hint">{query || genre ? "Nenhuma música encontrada. Experimenta outra pesquisa." : "A biblioteca ainda está vazia. Carrega uma música tua para usar já."}</p>}
@@ -481,7 +481,7 @@ export function Reels() {
   return <section className="page narrow reels-page">
     <header className="reels-heading">
       <span className="reels-heading-icon"><Icon name="reels" size={22} /></span>
-      <div><p className="feed-section-kicker">Vídeos da comunidade</p><h1>Reels</h1><p>Momentos em vídeo partilhados por quem está no Biva.</p></div>
+      <div><p className="feed-section-kicker">Vídeos da comunidade</p><h1>Reels</h1><p>Momentos em vídeo partilhados por quem está no Tchilar.</p></div>
       <button className="reels-create-link" type="button" onClick={startSharing}><Icon name="camera" size={16} />Partilhar vídeo</button>
     </header>
     {notice && <p className="settings-form-success reels-notice" role="status"><Icon name="check" size={14} />{notice}</p>}

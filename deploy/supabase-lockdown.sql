@@ -1,8 +1,8 @@
 -- Só para quem usa a Supabase como base de dados.
 -- A Supabase publica automaticamente uma API (PostgREST) para todas as tabelas do esquema "public".
--- A Biva não usa essa API — só o servidor Node fala com a base de dados —, por isso fechamos tudo:
+-- A Tchilar não usa essa API — só o servidor Node fala com a base de dados —, por isso fechamos tudo:
 -- RLS ligado sem políticas = os papéis "anon" e "authenticated" da API não leem nem escrevem nada.
--- O servidor da Biva liga-se como dono das tabelas (utilizador "postgres"), que não é afetado pelo RLS.
+-- O servidor da Tchilar liga-se como dono das tabelas (utilizador "postgres"), que não é afetado pelo RLS.
 --
 -- Corre no SQL Editor da Supabase DEPOIS das migrações (npm run db:migrate) e volta a correr
 -- sempre que uma migração nova criar tabelas.

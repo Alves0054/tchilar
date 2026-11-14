@@ -7,7 +7,7 @@ const sharp = require("sharp");
 const { IMAGE_PROFILES, optimizeImageFile, optimizeUpload } = require("./images");
 
 async function tempDir() {
-  return fs.promises.mkdtemp(path.join(os.tmpdir(), "biva-images-"));
+  return fs.promises.mkdtemp(path.join(os.tmpdir(), "tchilar-images-"));
 }
 
 // Imagem com ruído (difícil de comprimir) para o teste de tamanho ser realista.

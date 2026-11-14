@@ -1,0 +1,47 @@
+{
+  "expo": {
+    "name": "Tchilar",
+    "slug": "tchilar",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/tchilar-icon.png",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "ao.tchilar.app",
+      "infoPlist": {
+        "NSCameraUsageDescription": "O Tchilar usa a câmara para fotos, vídeos e diretos.",
+        "NSMicrophoneUsageDescription": "O Tchilar usa o microfone para vídeos e diretos.",
+        "NSPhotoLibraryUsageDescription": "O Tchilar acede às tuas fotos para as publicares."
+      }
+    },
+    "android": {
+      "package": "ao.tchilar.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#0B0B0C",
+        "foregroundImage": "./assets/tchilar-icon-foreground.png"
+      }
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-image",
+      "expo-font",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/tchilar-splash.png",
+          "imageWidth": 260,
+          "resizeMode": "contain",
+          "backgroundColor": "#FFFFFF"
+        }
+      ],
+      "expo-video",
+      "expo-sharing"
+    ],
+    "scheme": "tchilar"
+  }
+}

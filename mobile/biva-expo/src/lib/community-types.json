@@ -1,0 +1,79 @@
+{
+  "groupTopics": [
+    { "key": "geral", "label": "Geral", "icon": "groups" },
+    { "key": "amigos", "label": "Amigos e família", "icon": "friends" },
+    { "key": "bairro", "label": "Bairro e cidade", "icon": "location" },
+    { "key": "compra-venda", "label": "Compra e venda", "icon": "card" },
+    { "key": "empreender", "label": "Negócios e empreendedorismo", "icon": "stats" },
+    { "key": "trabalho", "label": "Emprego e carreira", "icon": "brand" },
+    { "key": "estudo", "label": "Estudo e escola", "icon": "academy" },
+    { "key": "tecnologia", "label": "Tecnologia", "icon": "devices" },
+    { "key": "desporto", "label": "Desporto", "icon": "trophy" },
+    { "key": "jogos", "label": "Jogos", "icon": "play" },
+    { "key": "musica", "label": "Música e dança", "icon": "sound" },
+    { "key": "arte", "label": "Arte e fotografia", "icon": "camera" },
+    { "key": "moda", "label": "Moda e beleza", "icon": "spark" },
+    { "key": "culinaria", "label": "Culinária", "icon": "gift" },
+    { "key": "saude", "label": "Saúde e bem-estar", "icon": "heart" },
+    { "key": "pais", "label": "Pais e filhos", "icon": "profile" },
+    { "key": "fe", "label": "Fé e espiritualidade", "icon": "star" },
+    { "key": "viagens", "label": "Viagens", "icon": "globe" },
+    { "key": "causas", "label": "Causas e voluntariado", "icon": "shield" },
+    { "key": "fas", "label": "Clube de fãs", "icon": "like" }
+  ],
+  "groupPrivacy": [
+    { "key": "public", "label": "Público", "icon": "groups", "help": "Aparece em Grupos e qualquer pessoa pode entrar." },
+    { "key": "private", "label": "Privado", "icon": "shield", "help": "Aparece em Grupos, mas és tu que aprovas quem entra." },
+    { "key": "secret", "label": "Secreto · +18", "icon": "lock", "help": "Não aparece na lista: só quem escreve o nome exato o encontra. Só para maiores de 18, com entrada paga." }
+  ],
+  "pageTypes": [
+    { "key": "negocio", "label": "Negócio local", "icon": "location", "categories": [
+      { "key": "restaurante", "label": "Restaurante e café" },
+      { "key": "loja", "label": "Loja" },
+      { "key": "beleza", "label": "Salão e beleza" },
+      { "key": "saude", "label": "Clínica e saúde" },
+      { "key": "servicos", "label": "Serviços" },
+      { "key": "alojamento", "label": "Hotel e alojamento" },
+      { "key": "automoveis", "label": "Automóveis" },
+      { "key": "imobiliaria", "label": "Imobiliária" }
+    ] },
+    { "key": "empresa", "label": "Empresa ou marca", "icon": "brand", "categories": [
+      { "key": "marca", "label": "Marca" },
+      { "key": "tecnologia", "label": "Tecnologia" },
+      { "key": "moda", "label": "Moda e vestuário" },
+      { "key": "comida", "label": "Comida e bebida" },
+      { "key": "media", "label": "Comunicação social" },
+      { "key": "financas", "label": "Banca e finanças" },
+      { "key": "telecom", "label": "Telecomunicações" }
+    ] },
+    { "key": "figura", "label": "Figura pública", "icon": "verified", "categories": [
+      { "key": "artista", "label": "Artista" },
+      { "key": "musico", "label": "Músico ou banda" },
+      { "key": "criador", "label": "Criador de conteúdo" },
+      { "key": "atleta", "label": "Atleta" },
+      { "key": "jornalista", "label": "Jornalista" },
+      { "key": "politica", "label": "Figura política" }
+    ] },
+    { "key": "entretenimento", "label": "Entretenimento", "icon": "play", "categories": [
+      { "key": "filmes", "label": "Filmes e séries" },
+      { "key": "eventos", "label": "Eventos e festas" },
+      { "key": "programa", "label": "Programa de TV ou rádio" },
+      { "key": "jogos", "label": "Jogos" },
+      { "key": "livros", "label": "Livros e revistas" }
+    ] },
+    { "key": "organizacao", "label": "Organização", "icon": "shield", "categories": [
+      { "key": "ong", "label": "Organização sem fins lucrativos" },
+      { "key": "escola", "label": "Escola ou universidade" },
+      { "key": "religiosa", "label": "Igreja ou organização religiosa" },
+      { "key": "clube", "label": "Clube desportivo" },
+      { "key": "associacao", "label": "Associação" },
+      { "key": "publico", "label": "Serviço público" }
+    ] },
+    { "key": "comunidade", "label": "Comunidade", "icon": "groups", "categories": [
+      { "key": "comunidade", "label": "Comunidade" },
+      { "key": "causa", "label": "Causa" },
+      { "key": "noticias", "label": "Notícias locais" },
+      { "key": "fas", "label": "Página de fãs" }
+    ] }
+  ]
+}

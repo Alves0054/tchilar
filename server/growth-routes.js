@@ -1,4 +1,4 @@
-// Rotas de crescimento e monetização: Estrelas Biva, convites, marketplace de marcas,
+// Rotas de crescimento e monetização: Estrelas Tchilar, convites, marketplace de marcas,
 // desafios mensais e dados de público (província/idade). Registadas a partir de index.js.
 const {
   ANGOLA_PROVINCES, GIFT_AMOUNTS, MAX_CAMPAIGN_KZ, MIN_CAMPAIGN_KZ, REFERRAL_BONUS_STARS, STAR_PACKS, STAR_PRICE_KZ,
@@ -29,9 +29,15 @@ function registerGrowthRoutes(app, deps) {
     if (province !== null && !ANGOLA_PROVINCES.includes(province)) return res.status(400).json({ error: "Província inválida." });
     const birth = parseBirthDate(body.birthDate === undefined ? null : body.birthDate);
     if (birth.error) return res.status(400).json({ error: birth.error });
+    // A data de nascimento só se indica uma vez: decide o acesso aos grupos +18, por isso não se muda depois.
+    const current = await pool.query("SELECT to_char(birth_date,'YYYY-MM-DD') AS birth_date FROM users WHERE id=$1", [req.user.id]);
+    const savedBirth = current.rows[0]?.birth_date || null;
+    if (savedBirth && birth.value && birth.value !== savedBirth) {
+      return res.status(409).json({ error: "A data de nascimento já foi indicada e não pode ser alterada. Se está errada, contacta o suporte." });
+    }
     const showToBrands = body.showProvinceToBrands === true;
     const result = await pool.query(
-      `UPDATE users SET province=$2, birth_date=$3, show_province_to_brands=$4 WHERE id=$1
+      `UPDATE users SET province=$2, birth_date=COALESCE(birth_date,$3), show_province_to_brands=$4 WHERE id=$1
        RETURNING province, to_char(birth_date,'YYYY-MM-DD') AS birth_date, show_province_to_brands`,
       [req.user.id, province, birth.value, showToBrands && province !== null]);
     if (!result.rowCount) return res.status(404).json({ error: "Conta não encontrada." });
@@ -44,7 +50,7 @@ function registerGrowthRoutes(app, deps) {
   });
 
   // ---------------------------------------------------------------------------------------------
-  // Estrelas Biva
+  // Estrelas Tchilar
   // ---------------------------------------------------------------------------------------------
   payments.register("stars", async (purchaseId, details) => {
     await transaction(async client => {
@@ -88,7 +94,7 @@ function registerGrowthRoutes(app, deps) {
     const result = await payments.start({
       purpose: "stars", refId: id, amountKz: packPrice(pack), userId: req.user.id, email: user.rows[0]?.email,
       method: req.body?.method, phone: req.body?.phone,
-      name: `${pack.stars}${pack.bonus ? ` + ${pack.bonus}` : ""} Estrelas Biva`,
+      name: `${pack.stars}${pack.bonus ? ` + ${pack.bonus}` : ""} Estrelas Tchilar`,
       successPath: "/estrelas?pagamento=sucesso", cancelPath: "/estrelas?pagamento=cancelado",
       onSession: sessionId => pool.query("UPDATE star_purchases SET stripe_session_id=$2 WHERE id=$1", [id, sessionId])
     });
@@ -150,7 +156,7 @@ function registerGrowthRoutes(app, deps) {
       if (!marked.rowCount) return false;
       await client.query("INSERT INTO star_ledger(user_id,amount,kind,counterpart_id) VALUES($1,$2,'referral_bonus',$3)",
         [row.referred_by, REFERRAL_BONUS_STARS, userId]);
-      await notify(client, row.referred_by, userId, "referral", `Entrou no Biva com o teu convite. Ganhaste ${REFERRAL_BONUS_STARS} estrelas!`);
+      await notify(client, row.referred_by, userId, "referral", `Entrou no Tchilar com o teu convite. Ganhaste ${REFERRAL_BONUS_STARS} estrelas!`);
       return true;
     });
   }
@@ -266,7 +272,7 @@ function registerGrowthRoutes(app, deps) {
       const result = await payments.start({
         purpose: "campaign", refId: id, amountKz: row.budget, userId: req.user.id, email: user.rows[0]?.email,
         method: req.body?.method, phone: req.body?.phone,
-        name: `Campanha no Biva: ${row.title}`,
+        name: `Campanha no Tchilar: ${row.title}`,
         successPath: "/creator/parcerias?pagamento=sucesso", cancelPath: "/creator/parcerias?pagamento=cancelado",
         onSession: sessionId => pool.query("UPDATE brand_campaigns SET stripe_session_id=$2 WHERE id=$1", [id, sessionId])
       });
@@ -328,7 +334,7 @@ function registerGrowthRoutes(app, deps) {
     const title = cleanText(body.title);
     const description = cleanText(body.description);
     const prize = cleanText(body.prize);
-    const sponsor = cleanText(body.sponsor) || "Biva";
+    const sponsor = cleanText(body.sponsor) || "Tchilar";
     const prizeStars = Number(body.prizeStars || 0);
     const days = Number(body.days);
     if (!title || title.length > 100) return res.status(400).json({ error: "O título deve ter entre 1 e 100 caracteres." });

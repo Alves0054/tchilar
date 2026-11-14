@@ -3,6 +3,9 @@ import { Maximize, Minimize, Scissors, Gauge, Wand2, Type, Music2, RotateCcw, Sl
 
 export const API_BASE = (import.meta.env.DEV ? "" : import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
 export const API = `${API_BASE}/api`;
+// Endereço público do site, para links que se partilham (convites). Vem do build (VITE_PUBLIC_URL)
+// quando o site e a API estão em domínios diferentes; senão, é o endereço onde o site abriu.
+export const PUBLIC_URL = (import.meta.env.VITE_PUBLIC_URL || window.location.origin).replace(/\/$/, "");
 export const UserContext = createContext({ user: null, refreshUser: () => {} });
 export const ThemeContext = createContext({ theme: "light", setTheme: () => {} });
 // Preferências deste dispositivo (não vão para o servidor): tamanho do texto, vídeos automáticos e animações.
@@ -40,7 +43,7 @@ export async function api(path, options = {}) {
     response = await fetch(API + path, { ...options, headers });
   } catch (error) {
     if (error instanceof TypeError) {
-      throw new Error("Não foi possível contactar o servidor do Biva. Confirma que a API está em execução com «npm.cmd run dev».");
+      throw new Error("Não foi possível contactar o servidor do Tchilar. Confirma que a API está em execução com «npm.cmd run dev».");
     }
     throw error;
   }
@@ -326,6 +329,7 @@ export const ICONS = {
   chevronDown: ChevronDown,
   globe: Globe,
   grid: LayoutGrid,
+  flag: Flag,
   image: ImageIcon,
   like: ThumbsUp,
   search: Search,

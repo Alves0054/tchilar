@@ -1,10 +1,24 @@
-import { useContext, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Link, useNavigate } from "react-router-dom";
 import { downscaleImage } from "../PhotoEditors.jsx";
 import { Auth } from "./auth.jsx";
 import { API_BASE, Avatar, Icon, UserContext, VideoPlayer, api, formatCount, formatPrice, token } from "./core.jsx";
 import { InfoLinks, LiveBadge, SponsoredSlot, StarGiftButton, VerifiedBadge, pageTone } from "./shared.jsx";
+import { HomeDiscover, HomeNow, PresenceAvatar } from "./home.jsx";
+import { DEFAULT_STORY_BACKGROUND, STORY_COLORS, STORY_THEMES, storyBackgroundStyle } from "./community-types.js";
+
+// Escolha do fundo de um story de texto: temas do Tchilar e cores.
+function StoryBackgroundPicker({ value, onChange }) {
+  const option = (item, style, kind) => <button key={item.key} type="button" className={`story-bg-option is-${kind}`}
+    style={style} aria-pressed={value === item.key} aria-label={item.label} title={item.label} onClick={() => onChange(item.key)} />;
+  return <div className="story-bg-picker">
+    <p className="story-bg-heading">Temas do Tchilar</p>
+    <div className="story-bg-row" role="group" aria-label="Temas do Tchilar">{STORY_THEMES.map(item => option(item, storyBackgroundStyle(item.key), "theme"))}</div>
+    <p className="story-bg-heading">Cores</p>
+    <div className="story-bg-row" role="group" aria-label="Cores">{STORY_COLORS.map(item => option(item, storyBackgroundStyle(item.key), "color"))}</div>
+  </div>;
+}
 
 // "agora", "há 12 min", "há 3 h", "ontem", "12 de nov."
 export function relativeTime(value) {
@@ -620,6 +634,7 @@ export function StoryZone() {
   const [stories, setStories] = useState([]);
   const [body, setBody] = useState("");
   const [file, setFile] = useState(null);
+  const [background, setBackground] = useState(DEFAULT_STORY_BACKGROUND);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
@@ -699,6 +714,7 @@ export function StoryZone() {
 
   const storyRunning = storyReady && !storyPaused && !storyHeld && !pageHidden;
   const storyVideo = useRef(null);
+  const storyPress = useRef(0);
   useEffect(() => {
     const video = storyVideo.current;
     if (!video) return;
@@ -713,11 +729,13 @@ export function StoryZone() {
     const formData = new FormData();
     formData.append("body", body);
     if (file) formData.append("media", await downscaleImage(file, 1080, 1920));
+    else formData.append("background", background);
     try {
       const result = await api("/stories", { method: "POST", body: formData });
       setStories(current => [result.story, ...current]);
       setBody("");
       setFile(null);
+      setBackground(DEFAULT_STORY_BACKGROUND);
       setShowComposer(false);
       setNotice("O teu story já está visível durante 24 horas.");
       window.setTimeout(() => setNotice(""), 4000);
@@ -781,7 +799,8 @@ export function StoryZone() {
             ? group.stories[0].media_type === "video"
               ? <video src={`${API_BASE}${group.stories[0].media_url}`} muted playsInline />
               : <img src={`${API_BASE}${group.stories[0].media_url}`} alt="" />
-            : <span className={`stories-text story-cover-tone-${group.user_id % 4}`}><span>{group.stories[0].body}</span></span>}
+            : <span className={`stories-text${group.stories[0].background ? " has-background" : ` story-cover-tone-${group.user_id % 4}`}`}
+              style={storyBackgroundStyle(group.stories[0].background) || undefined}><span>{group.stories[0].body}</span></span>}
           <span className="stories-ring"><Avatar user={group} size="tiny" /></span>
         </button>
         {group.sponsoredAdId && <span className="stories-sponsored">Patrocinado</span>}
@@ -798,7 +817,15 @@ export function StoryZone() {
         <p className="feed-section-kicker">Um momento, à tua maneira</p>
         <h2>Criar story</h2>
         <p className="story-modal-description">Escreve uma ideia ou junta uma fotografia. O teu story fica disponível durante 24 horas.</p>
-        <textarea aria-label="Texto do story" maxLength="500" placeholder="O que gostarias de partilhar?" value={body} onChange={event => setBody(event.target.value)} />
+        {file
+          ? <textarea aria-label="Texto do story" maxLength="500" placeholder="Escreve uma legenda (opcional)" value={body} onChange={event => setBody(event.target.value)} />
+          : <>
+            {/* Pré-visualização: o texto escreve-se diretamente sobre o fundo escolhido. */}
+            <div className="story-compose-preview has-background" style={storyBackgroundStyle(background)}>
+              <textarea aria-label="Texto do story" maxLength="500" placeholder="Escreve aqui o teu story" value={body} onChange={event => setBody(event.target.value)} />
+            </div>
+            <StoryBackgroundPicker value={background} onChange={setBackground} />
+          </>}
         <div className="story-modal-footer">
           <label className="story-file-label"><Icon name="camera" size={15} />Fotografia ou vídeo<input type="file" accept="image/*,video/mp4,video/webm,video/quicktime" onChange={event => setFile(event.target.files?.[0] || null)} /></label>
           <span className="story-character-count">{body.length}/500</span>
@@ -825,31 +852,49 @@ export function StoryZone() {
             onError={() => setStoryReady(true)} />
           : <img key={activeStory.id} className="story-viewer-media" src={`${API_BASE}${activeStory.media_url}`} alt={`Story de ${activeGroup.display_name}`}
             onLoad={() => setStoryReady(true)} onError={() => setStoryReady(true)} />)}
-        {activeStory.body && <p className={`story-viewer-body ${activeStory.media_url ? "" : `story-cover-tone-${activeStory.user_id % 4}`}`}>{activeStory.body}</p>}
+        {activeStory.body && <p className={`story-viewer-body ${activeStory.media_url ? "" : activeStory.background ? "has-background" : `story-cover-tone-${activeStory.user_id % 4}`}`}
+          style={!activeStory.media_url ? storyBackgroundStyle(activeStory.background) || undefined : undefined}>{activeStory.body}</p>}
+        {/* Sem setas: um toque rápido no terço esquerdo volta atrás, no resto avança; manter carregado pausa. */}
         <div className="story-viewer-hold" aria-hidden="true"
-          onPointerDown={() => setStoryHeld(true)} onPointerUp={() => setStoryHeld(false)}
-          onPointerLeave={() => setStoryHeld(false)} onPointerCancel={() => setStoryHeld(false)} />
-        <button className="story-viewer-nav previous" type="button" aria-label="Story anterior" onClick={() => moveStory(-1)}><Icon name="previous" size={20} /></button>
-        <button className="story-viewer-nav next" type="button" aria-label="Próximo story" onClick={() => moveStory(1)}><Icon name="next" size={20} /></button>
+          onPointerDown={event => { storyPress.current = Date.now(); setStoryHeld(true); event.currentTarget.setPointerCapture?.(event.pointerId); }}
+          onPointerUp={event => {
+            setStoryHeld(false);
+            const quickTap = Date.now() - storyPress.current < 250;
+            storyPress.current = 0;
+            if (!quickTap) return;
+            const box = event.currentTarget.getBoundingClientRect();
+            moveStory(event.clientX - box.left < box.width / 3 ? -1 : 1);
+          }}
+          onPointerCancel={() => { storyPress.current = 0; setStoryHeld(false); }} />
+        <button className="story-viewer-nav previous visually-hidden" type="button" aria-label="Story anterior" onClick={() => moveStory(-1)}><Icon name="previous" size={20} /></button>
+        <button className="story-viewer-nav next visually-hidden" type="button" aria-label="Próximo story" onClick={() => moveStory(1)}><Icon name="next" size={20} /></button>
       </section>
     </div>}
   </section>;
 }
 // Dados partilhados pelas colunas laterais do feed (amigos, pedidos, grupos, páginas, eventos).
 export function useHomeSidebars(user) {
-  const [data, setData] = useState({ friends: [], requests: [], groups: [], pages: [], events: [] });
+  const [data, setData] = useState({ friends: [], requests: [], groups: [], pages: [], events: [], home: null });
   const load = async () => {
     if (!user) return;
-    const [friendResult, groupResult, pageResult, eventResult] = await Promise.allSettled([api("/friends"), api("/groups"), api("/pages"), api("/events")]);
+    const [friendResult, groupResult, pageResult, eventResult, homeResult] = await Promise.allSettled([
+      api("/friends"), api("/groups"), api("/pages"), api("/events"), api("/home")]);
     setData({
       friends: friendResult.value?.friends || [],
       requests: friendResult.value?.requests || [],
       groups: (groupResult.value?.groups || []).filter(group => group.is_member),
       pages: (pageResult.value?.pages || []).filter(page => page.is_following),
-      events: eventResult.value?.events || []
+      events: eventResult.value?.events || [],
+      home: homeResult.value || null
     });
   };
   useEffect(() => { load(); }, [user?.id]);
+  // Quem está online muda: atualiza a cada 2 minutos enquanto o separador está visível.
+  useEffect(() => {
+    if (!user) return undefined;
+    const timer = window.setInterval(() => { if (document.visibilityState === "visible") load(); }, 120000);
+    return () => window.clearInterval(timer);
+  }, [user?.id]);
   return [data, load];
 }
 export const HOME_LINKS = [
@@ -867,7 +912,7 @@ export const HOME_MORE_LINKS = [
   ["/desafios", "trophy", "Desafios"],
   ["/marcas", "brand", "Marcas"],
   ["/convidar", "gift", "Convidar amigos"],
-  ["/academia", "academy", "Academia Biva"],
+  ["/academia", "academy", "Academia Tchilar"],
   ["/notifications", "notifications", "Notificações"],
   ["/settings", "settings", "Definições"],
   ["/help", "help", "Ajuda"]
@@ -906,11 +951,8 @@ export function HomeRight({ data, reload }) {
       setBusyId(null);
     }
   };
+  const onlineCount = data.friends.filter(friend => friend.online).length;
   return <aside className="home-right" aria-label="Novidades">
-    <section>
-      <h2 className="home-heading">Patrocinado</h2>
-      <SponsoredSlot />
-    </section>
     {data.requests.length > 0 && <section>
       <div className="home-heading-row"><h2 className="home-heading">Pedidos de amizade</h2><Link to="/friends">Ver tudo</Link></div>
       {data.requests.slice(0, 2).map(request => <div className="home-request" key={request.id}>
@@ -925,6 +967,7 @@ export function HomeRight({ data, reload }) {
         </div>
       </div>)}
     </section>}
+    <section><HomeDiscover discover={data.home?.discover} /></section>
     {data.events.length > 0 && <section>
       <div className="home-heading-row"><h2 className="home-heading">Próximos eventos</h2><Link to="/events">Ver tudo</Link></div>
       {data.events.slice(0, 2).map(event => <Link className="home-event" key={event.id} to="/events">
@@ -933,12 +976,16 @@ export function HomeRight({ data, reload }) {
       </Link>)}
     </section>}
     <section>
-      <h2 className="home-heading">Contactos</h2>
+      <h2 className="home-heading">Patrocinado</h2>
+      <SponsoredSlot />
+    </section>
+    <section>
+      <h2 className="home-heading">Contactos{onlineCount > 0 && <small className="home-online-count"> · {onlineCount} online</small>}</h2>
       {data.friends.length
-        ? data.friends.slice(0, 12).map(friend => <Link className="home-link" key={friend.id} to={`/messages/${friend.id}`} title={`Enviar mensagem a ${friend.display_name}`}>
-          <Avatar user={friend} /><span>{friend.display_name}</span>
+        ? data.friends.slice(0, 12).map(friend => <Link className="home-link" key={friend.id} to={`/messages/${friend.id}`} title={`Enviar mensagem a ${friend.display_name}${friend.online ? " (online)" : ""}`}>
+          <PresenceAvatar user={friend} /><span>{friend.display_name}</span>
         </Link>)
-        : <p className="home-empty">Ainda não tens amigos no Biva. <Link to="/friends">Encontrar pessoas</Link></p>}
+        : <p className="home-empty">Ainda não tens amigos no Tchilar. <Link to="/friends">Encontrar pessoas</Link></p>}
     </section>
   </aside>;
 }
@@ -1011,6 +1058,7 @@ export function Feed() {
       <h1 className="visually-hidden" id="home-feed-title">Início</h1>
       <Composer onPosted={load} />
       <StoryZone />
+      <HomeNow now={sidebars.home?.now} />
       {user && <div className="feed-tabs" role="tablist" aria-label="Que publicações mostrar">
         <button type="button" role="tab" aria-selected={activeScope === "all"} onClick={() => changeScope("all")}>Para ti</button>
         <button type="button" role="tab" aria-selected={activeScope === "following"} onClick={() => changeScope("following")}>Amigos e quem segues</button>
@@ -1020,7 +1068,12 @@ export function Feed() {
       {!loading && !error && !posts.length && <div className="empty card">{activeScope === "following"
         ? <>Ainda não há publicações de amigos ou de quem segues. <Link to="/friends">Encontra pessoas</Link> ou vê o separador «Para ti».</>
         : "Ainda não há publicações. Sê a primeira pessoa a partilhar algo."}</div>}
-      {!loading && feedItems.map(item => <PostCard key={item.key} post={item.post} onChanged={load} />)}
+      {/* Em ecrãs estreitos a coluna da direita não aparece: o Descobrir entra no feed (depois da 3.ª publicação, ou logo no início se houver poucas). */}
+      {!loading && feedItems.length < 3 && <HomeDiscover discover={sidebars.home?.discover} variant="inline" />}
+      {!loading && feedItems.map((item, index) => <Fragment key={item.key}>
+        <PostCard post={item.post} onChanged={load} />
+        {index === 2 && <HomeDiscover discover={sidebars.home?.discover} variant="inline" />}
+      </Fragment>)}
       {!loading && nextCursor && <button className="btn secondary feed-more" type="button" disabled={loadingMore} onClick={loadMore}>{loadingMore ? "A carregar..." : "Carregar mais publicações"}</button>}
       {!loading && !nextCursor && posts.length > 0 && <p className="feed-end muted">Chegaste ao fim. Volta mais tarde para veres novidades.</p>}
     </section>

@@ -8,13 +8,37 @@ export const NOTIFICATION_ICONS = {
   like: ["heart", "coral"], comment: ["messages", "ceu"], message: ["messages", "ceu"], friend_request: ["friends", "lagoa"], friend_accept: ["friends", "lagoa"],
   follow: ["profile", "lagoa"], group_join: ["groups", "lagoa"], event_rsvp: ["events", "coral"], share: ["share", "ceu"],
   stars: ["star", "coral"], campaign: ["brand", "lagoa"], challenge: ["trophy", "coral"], referral: ["gift", "coral"],
-  ad: ["ad", "coral"], payout: ["gift", "lagoa"], live: ["live", "coral"], moderation: ["shield", "tinta"]
+  ad: ["ad", "coral"], payout: ["gift", "lagoa"], live: ["live", "coral"], moderation: ["shield", "tinta"],
+  payment: ["card", "lagoa"], privacy: ["lock", "tinta"], announcement: ["info", "ceu"]
 };
 export function notificationGroup(value) {
   const date = new Date(value);
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const diff = (today - new Date(date.getFullYear(), date.getMonth(), date.getDate())) / 86_400_000;
   return diff <= 0 ? "Hoje" : diff === 1 ? "Ontem" : diff < 7 ? "Esta semana" : "Antes";
+}
+// Para onde leva cada notificação (página completa e caixa do topo usam a mesma regra).
+export function notificationPath(item) {
+  if (item.type === "live" && item.actor_username) return "/live";
+  if (item.type === "campaign") return "/creator/parcerias";
+  if (item.type === "payout") return "/creator/ganhos";
+  if (item.type === "ad") return "/creator/anuncios";
+  if (["stars", "referral", "challenge"].includes(item.type)) return "/estrelas";
+  if (item.type === "payment") return "/settings/pagamentos";
+  if (item.type === "privacy") return "/settings/conta";
+  if (item.actor_username) return `/u/${item.actor_username}`;
+  return null;
+}
+export function NotificationRow({ item, onOpen, compact = false }) {
+  const [icon, tone] = NOTIFICATION_ICONS[item.type] || ["notifications", "lagoa"];
+  return <button type="button" className={`notification-row${item.read ? "" : " is-unread"}${compact ? " is-compact" : ""}`} onClick={() => onOpen(item)}>
+    <span className="notification-avatar">
+      <Avatar user={{ display_name: item.actor_name || "Tchilar", avatar_url: item.actor_avatar }} />
+      <span className={`notification-type tone-page-${tone}`}><Icon name={icon} size={12} /></span>
+    </span>
+    <span className="notification-text"><span><strong>{item.actor_name || "Tchilar"}</strong> {item.text}</span><small>{relativeTime(item.created_at)}</small></span>
+    {!item.read && <span className="notification-unread-dot" aria-label="Por ler" />}
+  </button>;
 }
 export function Notifications() {
   const { user, refreshUser } = useContext(UserContext);
@@ -38,12 +62,8 @@ export function Notifications() {
       setNotifications(current => current.map(entry => entry.id === item.id ? { ...entry, read: true } : entry));
       api(`/notifications/${item.id}/read`, { method: "POST" }).then(refreshUser).catch(() => {});
     }
-    if (item.type === "live" && item.actor_username) return navigate("/live");
-    if (["campaign"].includes(item.type)) return navigate("/creator/parcerias");
-    if (["payout"].includes(item.type)) return navigate("/creator/ganhos");
-    if (["ad"].includes(item.type)) return navigate("/creator/anuncios");
-    if (["stars", "referral", "challenge"].includes(item.type)) return navigate("/estrelas");
-    if (item.actor_username) navigate(`/u/${item.actor_username}`);
+    const path = notificationPath(item);
+    if (path) navigate(path);
   };
 
   const markAllRead = async () => {
@@ -80,19 +100,7 @@ export function Notifications() {
     {notifications && !visible.length && <div className="empty card pages-empty"><span className="group-lock-icon"><Icon name="notifications" size={26} /></span><p>{onlyUnread ? "Não tens notificações por ler." : "Ainda não tens notificações. Quando alguém interagir contigo, aparece aqui."}</p></div>}
     {groups.map(group => <section key={group.label} className="notification-group card" aria-label={group.label}>
       <h2>{group.label}</h2>
-      <ul>{group.items.map(item => {
-        const [icon, tone] = NOTIFICATION_ICONS[item.type] || ["notifications", "lagoa"];
-        return <li key={item.id}>
-          <button type="button" className={`notification-row${item.read ? "" : " is-unread"}`} onClick={() => open(item)}>
-            <span className="notification-avatar">
-              <Avatar user={{ display_name: item.actor_name || "Biva", avatar_url: item.actor_avatar }} />
-              <span className={`notification-type tone-page-${tone}`}><Icon name={icon} size={12} /></span>
-            </span>
-            <span className="notification-text"><span><strong>{item.actor_name || "Biva"}</strong> {item.text}</span><small>{relativeTime(item.created_at)}</small></span>
-            {!item.read && <span className="notification-unread-dot" aria-label="Por ler" />}
-          </button>
-        </li>;
-      })}</ul>
+      <ul>{group.items.map(item => <li key={item.id}><NotificationRow item={item} onOpen={open} /></li>)}</ul>
     </section>)}
   </div>;
 }

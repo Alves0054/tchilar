@@ -3,6 +3,7 @@ import { Link, Navigate, NavLink, useNavigate, useParams } from "react-router-do
 import { PASSWORD_MIN } from "./auth.jsx";
 import { API, API_BASE, Avatar, Icon, ThemeContext, UserContext, api, readDevicePrefs, saveDevicePrefs, token } from "./core.jsx";
 import { InfoLinks } from "./shared.jsx";
+import { SettingsPayments } from "./payments.jsx";
 
 export function BlockedAccounts() {
   const [blocked, setBlocked] = useState(null);
@@ -64,8 +65,12 @@ export function AudienceSettings() {
           <option value="">Prefiro não dizer</option>
           {data.provinces.map(province => <option key={province} value={province}>{province}</option>)}
         </select></label>
-        <label className="field">Data de nascimento<input type="date" value={form.birthDate} onChange={event => setForm({ ...form, birthDate: event.target.value })} /></label>
+        <label className="field">Data de nascimento<input type="date" value={form.birthDate} disabled={Boolean(data.birth_date)}
+          aria-describedby="birth-date-note" onChange={event => setForm({ ...form, birthDate: event.target.value })} /></label>
       </div>
+      <p className="muted field-note" id="birth-date-note">{data.birth_date
+        ? "A data de nascimento fica fixa depois de indicada, porque decide o acesso aos grupos para maiores de 18. Se está errada, contacta o suporte."
+        : "Só a podes indicar uma vez. É necessária para entrar ou criar grupos secretos (+18)."}</p>
       <label className="prefs-switch">
         <span className="prefs-row-text"><strong>Mostrar a minha província às marcas</strong><small>Só a província, nunca a idade. Podes desligar quando quiseres.</small></span>
         <input type="checkbox" role="switch" checked={form.showProvinceToBrands} disabled={!form.province}
@@ -99,7 +104,7 @@ export function AccountDataControls() {
       const match = /filename="([^"]+)"/.exec(response.headers.get("Content-Disposition") || "");
       const link = document.createElement("a");
       link.href = URL.createObjectURL(blob);
-      link.download = match?.[1] || "biva-dados.json";
+      link.download = match?.[1] || "tchilar-dados.json";
       link.click();
       URL.revokeObjectURL(link.href);
     } catch (exportError) {
@@ -149,6 +154,53 @@ export function AccountDataControls() {
       </div>
     </form>}
     {error && <p className="error" role="alert">{error}</p>}
+  </div>;
+}
+// Pedidos sobre dados pessoais tratados pela equipa (quando a pessoa precisa de ajuda ou quer corrigir algo).
+const DATA_REQUEST_STATUS = { open: "Em análise", done: "Tratado", rejected: "Recusado" };
+export function DataRequests() {
+  const [data, setData] = useState(null);
+  const [form, setForm] = useState({ kind: "export", details: "" });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const load = () => api("/data-requests").then(setData).catch(loadError => setError(loadError.message));
+  useEffect(() => { load(); }, []);
+  const submit = async event => {
+    event.preventDefault();
+    setBusy(true); setError(""); setNotice("");
+    try {
+      await api("/data-requests", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
+      setNotice("Pedido enviado. Vais receber a resposta nas notificações.");
+      setForm({ kind: "export", details: "" });
+      await load();
+    } catch (sendError) {
+      setError(sendError.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const needsDetails = ["correct", "other"].includes(form.kind);
+  return <div className="prefs-stack">
+    {data && <form className="prefs-form" onSubmit={submit}>
+      <label>O que precisas?
+        <select value={form.kind} onChange={event => setForm({ ...form, kind: event.target.value })}>
+          {Object.entries(data.kinds).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+        </select>
+      </label>
+      <label>Detalhes {needsDetails ? "" : <small>(opcional)</small>}
+        <textarea rows={3} maxLength={1000} required={needsDetails} value={form.details} onChange={event => setForm({ ...form, details: event.target.value })}
+          placeholder={form.kind === "correct" ? "Que dado está errado e qual é o certo?" : "Algo que a equipa deva saber"} />
+      </label>
+      <div className="prefs-form-foot"><button className="btn" type="submit" disabled={busy}>{busy ? "A enviar..." : "Enviar pedido"}</button></div>
+    </form>}
+    {error && <p className="error" role="alert">{error}</p>}
+    {notice && <p className="prefs-saved" role="status"><Icon name="check" size={14} />{notice}</p>}
+    {data?.requests.map(request => <div className="prefs-row" key={request.id}>
+      <span className="prefs-row-icon"><Icon name="lock" /></span>
+      <span className="prefs-row-text"><strong>{data.kinds[request.kind]} · {DATA_REQUEST_STATUS[request.status]}</strong>
+        <small>{new Date(request.created_at).toLocaleDateString("pt-PT")}{request.answer ? ` · ${request.answer}` : ""}</small></span>
+    </div>)}
   </div>;
 }
 // Verificação em dois passos: estado → (ligar) QR + código → ativa → (desligar) palavra-passe + código.
@@ -212,7 +264,7 @@ export function TwoFactorSettings() {
         : !setup && <button className="prefs-link" type="button" disabled={busy} onClick={start}>{busy ? "A preparar..." : "Ativar"} <Icon name="shield" size={14} /></button>}
     </div>
     {setup && <form className="prefs-form two-factor-setup" onSubmit={confirm}>
-      <img className="two-factor-qr" src={setup.qr} width="180" height="180" alt="Código QR para adicionar o Biva à app de autenticação" />
+      <img className="two-factor-qr" src={setup.qr} width="180" height="180" alt="Código QR para adicionar o Tchilar à app de autenticação" />
       <div className="two-factor-steps">
         <p><strong>1.</strong> Instala uma app de autenticação no telemóvel: Google Authenticator, Microsoft Authenticator ou Authy.</p>
         <p><strong>2.</strong> Na app, toca em adicionar e lê este código QR. Se não conseguires, escreve esta chave:</p>
@@ -319,16 +371,17 @@ export function SecuritySettings() {
 // O perfil público não vive aqui: edita-se em /profile/edit, a partir do próprio perfil.
 export const SETTINGS_GROUPS = [
   { label: "Conta e segurança", items: [
-    { id: "conta", icon: "mail", label: "Conta", hint: "Email, tipo de conta e os teus dados", intro: "Os dados com que entras no Biva e o que podes fazer com eles.", private: true },
+    { id: "conta", icon: "mail", label: "Conta", hint: "Email, tipo de conta e os teus dados", intro: "Os dados com que entras no Tchilar e o que podes fazer com eles.", private: true },
     { id: "seguranca", icon: "shield", label: "Segurança", hint: "Palavra-passe, dois passos e sessões", intro: "Protege o acesso à tua conta, mesmo que alguém descubra a tua palavra-passe.", private: true },
+    { id: "pagamentos", icon: "card", label: "Pagamentos e recibos", hint: "O que pagaste e os recibos", intro: "Tudo o que pagaste no Tchilar, com o recibo de cada pagamento.", private: true },
     { id: "privacidade", icon: "lock", label: "Privacidade", hint: "Mensagens, comentários e bloqueios", intro: "Decide quem te pode contactar e o que as marcas podem saber sobre ti.", private: true }
   ] },
   { label: "Preferências", items: [
     { id: "notificacoes", icon: "notifications", label: "Notificações", hint: "Escolhe o que te avisamos", intro: "Escolhe sobre o que queres ser avisado. Avisos de dinheiro e segurança chegam sempre.", private: true },
-    { id: "aparencia", icon: "sun", label: "Aparência", hint: "Tema, tamanho do texto e vídeos", intro: "Escolhe como o Biva aparece e se comporta neste dispositivo." }
+    { id: "aparencia", icon: "sun", label: "Aparência", hint: "Tema, tamanho do texto e vídeos", intro: "Escolhe como o Tchilar aparece e se comporta neste dispositivo." }
   ] },
   { label: "Suporte", items: [
-    { id: "ajuda", icon: "help", label: "Ajuda e informação", hint: "Perguntas frequentes, termos e privacidade", intro: "Respostas rápidas e as regras que valem para todos no Biva." }
+    { id: "ajuda", icon: "help", label: "Ajuda e informação", hint: "Perguntas frequentes, termos e privacidade", intro: "Respostas rápidas e as regras que valem para todos no Tchilar." }
   ] }
 ];
 export const SETTINGS_SECTIONS = SETTINGS_GROUPS.flatMap(group => group.items);
@@ -483,11 +536,14 @@ export function SettingsAccount() {
         action={user.is_creator && <Link className="prefs-link" to="/creator">Painel do criador <Icon name="next" size={14} /></Link>}>
         {user.is_creator ? "Criador: podes ter subscritores, receber estrelas e fazer anúncios." : "Membro da comunidade."}
       </PrefsRow>
-      {memberSince && <PrefsRow icon="events" title="No Biva desde"><span className="prefs-value">{memberSince}</span></PrefsRow>}
+      {memberSince && <PrefsRow icon="events" title="No Tchilar desde"><span className="prefs-value">{memberSince}</span></PrefsRow>}
       <PrefsRow icon="globe" title="Idioma e região"><span className="prefs-value">Português · Angola (Kz)</span></PrefsRow>
     </PrefsCard>
     <PrefsCard title="Os teus dados" note="Os teus dados são teus. Podes levá-los contigo ou apagar tudo.">
       <AccountDataControls />
+    </PrefsCard>
+    <PrefsCard title="Pedidos à equipa sobre os teus dados" note="Pela Lei de Proteção de Dados (Lei n.º 22/11) podes pedir uma cópia, a correção ou o apagamento dos teus dados. Respondemos em até 30 dias.">
+      <DataRequests />
     </PrefsCard>
   </>;
 }
@@ -496,7 +552,7 @@ export function SettingsSecurity() {
 }
 export const REACH_OPTIONS = {
   messages: [
-    { value: "everyone", label: "Toda a gente", hint: "Qualquer pessoa no Biva te pode escrever.", icon: "globe" },
+    { value: "everyone", label: "Toda a gente", hint: "Qualquer pessoa no Tchilar te pode escrever.", icon: "globe" },
     { value: "following", label: "Só quem eu sigo", hint: "As outras pessoas não conseguem começar uma conversa contigo.", icon: "friends" },
     { value: "nobody", label: "Ninguém", hint: "Só recebes respostas em conversas que tu começaste.", icon: "lock" }
   ],
@@ -520,11 +576,18 @@ export function SettingsPrivacy() {
         ? <PrefsChoice name="comments" legend="Quem pode comentar" options={REACH_OPTIONS.comments} value={preferences.comments} onChange={value => save({ comments: value })} />
         : <p className="prefs-loading">A carregar...</p>}
     </PrefsCard>
+    <PrefsCard title="Estado de atividade" note="Só os teus amigos veem se estás online, e só enquanto esta opção estiver ligada.">
+      {preferences
+        ? <PrefsToggle icon="eye" title="Mostrar quando estou ativo" checked={preferences.showActivity !== false} onChange={value => save({ showActivity: value })}>
+          Aparece um ponto verde no teu nome quando usaste o Tchilar nos últimos minutos.
+        </PrefsToggle>
+        : <p className="prefs-loading">A carregar...</p>}
+    </PrefsCard>
     <PrefsCard><BlockedAccounts /></PrefsCard>
     <PrefsCard title="Província e idade" note="Só servem para te mostrar promoções da tua zona e idade. Não aparecem no teu perfil.">
       <AudienceSettings />
     </PrefsCard>
-    <PrefsCard title="O que é público" note="O teu perfil, as publicações e os Stories são visíveis para quem está no Biva. Os Stories desaparecem ao fim de 24 horas.">
+    <PrefsCard title="O que é público" note="O teu perfil, as publicações e os Stories são visíveis para quem está no Tchilar. Os Stories desaparecem ao fim de 24 horas.">
       <PrefsRow icon="block" title="Bloquear alguém">Abre o perfil da pessoa e escolhe Bloquear. Deixa de te ver e de te poder contactar.</PrefsRow>
       <PrefsRow icon="report" title="Denunciar conteúdo">Em qualquer publicação, comentário ou perfil, no menu de opções.</PrefsRow>
     </PrefsCard>
@@ -599,7 +662,7 @@ export function SettingsAppearance() {
         </label>)}
       </fieldset>
     </PrefsCard>
-    <PrefsCard title="Tamanho do texto" note="Aumenta o texto e os botões em todo o Biva, neste dispositivo.">
+    <PrefsCard title="Tamanho do texto" note="Aumenta o texto e os botões em todo o Tchilar, neste dispositivo.">
       <div className="prefs-segment" role="radiogroup" aria-label="Tamanho do texto">
         {TEXT_SIZES.map((size, index) => <label key={size.value} className={device.textSize === size.value ? "is-selected" : ""}>
           <input type="radio" name="text-size" value={size.value} checked={device.textSize === size.value} onChange={() => change({ textSize: size.value })} />
@@ -622,8 +685,8 @@ export function SettingsAppearance() {
 export function SettingsHelp() {
   const links = [
     ["/help", "help", "Centro de ajuda", "Perguntas frequentes sobre a conta, pagamentos e criadores."],
-    ["/about", "info", "Sobre o Biva", "O que é o Biva e como cuidamos da comunidade."],
-    ["/terms", "pages", "Termos", "As regras que todos aceitamos ao usar o Biva."],
+    ["/about", "info", "Sobre o Tchilar", "O que é o Tchilar e como cuidamos da comunidade."],
+    ["/terms", "pages", "Termos", "As regras que todos aceitamos ao usar o Tchilar."],
     ["/privacy", "lock", "Política de Privacidade", "O que guardamos e porquê."],
     ["/publicidade", "ad", "Publicidade", "Como funcionam os anúncios e promoções."]
   ];
@@ -638,6 +701,7 @@ export function SettingsHelp() {
 export const SETTINGS_PANELS = {
   conta: SettingsAccount,
   seguranca: SettingsSecurity,
+  pagamentos: SettingsPayments,
   privacidade: SettingsPrivacy,
   notificacoes: SettingsNotifications,
   aparencia: SettingsAppearance,

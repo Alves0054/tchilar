@@ -12,11 +12,11 @@ describe("fronteira de erro das páginas", () => {
     const original = console.error;
     console.error = () => {};
     try {
-      render(<div><p>Menu do Biva</p><PageErrorBoundary><Broken /></PageErrorBoundary></div>);
+      render(<div><p>Menu do Tchilar</p><PageErrorBoundary><Broken /></PageErrorBoundary></div>);
     } finally {
       console.error = original;
     }
-    expect(screen.getByText("Menu do Biva")).toBeTruthy();
+    expect(screen.getByText("Menu do Tchilar")).toBeTruthy();
     expect(screen.getByRole("alert").textContent).toMatch(/Esta página teve um problema/);
     expect(screen.getByText(/Referência:/)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Tentar outra vez" })).toBeTruthy();

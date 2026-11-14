@@ -1,4 +1,4 @@
-# Imagem da Biva em duas fases: a primeira compila o frontend; a segunda só leva o necessário
+# Imagem da Tchilar em duas fases: a primeira compila o frontend; a segunda só leva o necessário
 # para correr (sem ESLint, Vitest nem TypeScript) e não corre como root.
 FROM node:24-alpine AS build
 WORKDIR /app

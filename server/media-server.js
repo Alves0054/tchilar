@@ -14,7 +14,7 @@ const PUBLISH_TOKEN_TTL_SECONDS = 6 * 60 * 60;
 
 const trimSlash = value => String(value || "").trim().replace(/\/+$/, "");
 
-// Sem MEDIA_API_URL, MEDIA_HLS_URL e MEDIA_HOOK_SECRET o Biva usa o modo direto (WebRTC, até 8 pessoas).
+// Sem MEDIA_API_URL, MEDIA_HLS_URL e MEDIA_HOOK_SECRET o Tchilar usa o modo direto (WebRTC, até 8 pessoas).
 function mediaConfig(env) {
   const apiUrl = trimSlash(env.MEDIA_API_URL);
   const hlsUrl = trimSlash(env.MEDIA_HLS_URL);
@@ -55,9 +55,9 @@ function verifyPublishToken(token, userId, secret, now = Date.now()) {
 // Decide um pedido de autorização do MediaMTX.
 // lookups.publisher(userId) → { stream_key_hash, suspended_at } | null
 // lookups.liveOn(userId) → o direto aberto dessa pessoa (ou null)
-// A API de controlo do MediaMTX (listar e cortar emissões) só aceita a app do Biva:
+// A API de controlo do MediaMTX (listar e cortar emissões) só aceita a app do Tchilar:
 // utilizador fixo e o MEDIA_HOOK_SECRET como palavra-passe. Nunca fica aberta na rede interna.
-const MEDIA_API_USER = "biva-api";
+const MEDIA_API_USER = "tchilar-api";
 
 async function authorizeMedia(request, secret, lookups, now = Date.now()) {
   if (request?.action === "api") {
@@ -83,7 +83,7 @@ async function authorizeMedia(request, secret, lookups, now = Date.now()) {
     allowed = Boolean(publisher?.stream_key_hash) && !publisher.suspended_at && safeEqual(hashStreamKey(key), publisher.stream_key_hash);
   }
   if (!allowed) return { ok: false, reason: "chave inválida" };
-  return (await lookups.liveOn(userId)) ? { ok: true } : { ok: false, reason: "cria primeiro o direto no Biva" };
+  return (await lookups.liveOn(userId)) ? { ok: true } : { ok: false, reason: "cria primeiro o direto no Tchilar" };
 }
 
 // Estado de cada caminho no MediaMTX (sinal a chegar, resolução, kbps).

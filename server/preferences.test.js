@@ -7,6 +7,10 @@ const { NOTIFY_CATEGORIES, canReach, readPreferences, updatePreferences } = requ
 test("preferences default to everything on and open to everyone", () => {
   const prefs = readPreferences(null);
   assert.deepEqual(prefs.notify, { interactions: true, people: true, messages: true, lives: true, community: true });
+  assert.equal(prefs.showActivity, true, "a atividade aparece por omissão");
+  assert.equal(readPreferences({ showActivity: false }).showActivity, false);
+  assert.ok(updatePreferences(null, { showActivity: "não" }).error);
+  assert.equal(updatePreferences(null, { showActivity: false }).preferences.showActivity, false);
   assert.equal(prefs.messages, "everyone");
   assert.equal(prefs.comments, "everyone");
 });

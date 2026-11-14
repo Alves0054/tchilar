@@ -4,12 +4,14 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { Avatar, Icon, UserContext, api, formatCount } from "./core.jsx";
 import { Composer, PostCard } from "./feed.jsx";
 import { pageMonogram, pageTone } from "./shared.jsx";
+import { PAGE_TYPES, pageCategoryLabel, pageType } from "./community-types.js";
 
 // ---------------------------------------------------------------------------------------------
 // Páginas: descobrir, seguir, criar e ver páginas
 // ---------------------------------------------------------------------------------------------
-export const PAGE_CATEGORIES = ["Comunidade", "Negócio local", "Marca", "Artista", "Música", "Desporto", "Educação", "Tecnologia",
-  "Moda e beleza", "Comida e bebida", "Notícias", "Entretenimento", "Organização sem fins lucrativos"];
+export function PageKind({ page }) {
+  return <span className="page-category"><Icon name={pageType(page.page_type).icon} size={13} /> {pageCategoryLabel(page)}</span>;
+}
 export function PageLogo({ page, size = "" }) {
   return <span className={`page-logo tone-page-${pageTone(page.category)} ${size}`} aria-hidden="true">{pageMonogram(page.name)}</span>;
 }
@@ -27,7 +29,7 @@ export function PageCard({ page, user, busy, onFollow, onUnfollow }) {
     <div className="page-card-body">
       <Link to={`/pages/${page.id}`} className="page-card-logo-link" aria-hidden="true" tabIndex={-1}><PageLogo page={page} /></Link>
       <h2><Link to={`/pages/${page.id}`}>{page.name}</Link></h2>
-      <span className="page-category">{page.category}</span>
+      <PageKind page={page} />
       <p className="page-card-description">{page.description || "Ainda sem descrição."}</p>
       <dl className="page-card-stats">
         <div><dt>Seguidores</dt><dd>{formatCount(page.follower_count)}</dd></div>
@@ -41,7 +43,10 @@ export function PageCard({ page, user, busy, onFollow, onUnfollow }) {
   </article>;
 }
 export function CreatePageDialog({ onClose, onCreated }) {
-  const [form, setForm] = useState({ name: "", category: "Comunidade", description: "" });
+  const [form, setForm] = useState({ name: "", pageType: "", category: "", description: "" });
+  const chosenType = PAGE_TYPES.find(type => type.key === form.pageType);
+  // Mudar de tipo escolhe logo a primeira categoria desse tipo (a pessoa pode trocar a seguir).
+  const chooseType = type => setForm({ ...form, pageType: type.key, category: type.categories[0].key });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   useEffect(() => {
@@ -61,7 +66,7 @@ export function CreatePageDialog({ onClose, onCreated }) {
       setBusy(false);
     }
   };
-  const preview = { ...form, name: form.name || "Nome da página", follower_count: 1, post_count: 0 };
+  const preview = { ...form, page_type: form.pageType || "comunidade", category: form.category || "comunidade", name: form.name || "Nome da página" };
   return createPortal(<div className="modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget && !busy) onClose(); }}>
     <form className="modal card create-page-dialog" role="dialog" aria-modal="true" aria-labelledby="create-page-title" onSubmit={submit}>
       <div className="share-dialog-head">
@@ -71,9 +76,18 @@ export function CreatePageDialog({ onClose, onCreated }) {
       <div className="create-page-grid">
         <div className="create-page-fields">
           <label>Nome<input required autoFocus maxLength={100} value={form.name} onChange={event => setForm({ ...form, name: event.target.value })} placeholder="Ex.: Loja da Rita" /></label>
-          <label>Categoria<select value={form.category} onChange={event => setForm({ ...form, category: event.target.value })}>
-            {PAGE_CATEGORIES.map(category => <option key={category}>{category}</option>)}
-          </select></label>
+          <fieldset className="kind-choice">
+            <legend>Tipo de página</legend>
+            <div className="kind-choice-grid">
+              {PAGE_TYPES.map(type => <label key={type.key} className={form.pageType === type.key ? "is-selected" : ""}>
+                <input type="radio" name="page-type" required checked={form.pageType === type.key} onChange={() => chooseType(type)} />
+                <Icon name={type.icon} size={18} /><span>{type.label}</span>
+              </label>)}
+            </div>
+          </fieldset>
+          {chosenType && <label>Categoria<select value={form.category} onChange={event => setForm({ ...form, category: event.target.value })}>
+            {chosenType.categories.map(item => <option key={item.key} value={item.key}>{item.label}</option>)}
+          </select></label>}
           <label>Descrição <small>{form.description.length}/2000</small><textarea rows={4} maxLength={2000} value={form.description}
             onChange={event => setForm({ ...form, description: event.target.value })} placeholder="Conta às pessoas o que vão encontrar nesta página." /></label>
           <p className="muted create-page-note">És tu quem publica na página. As pessoas que a seguem veem as publicações no feed.</p>
@@ -85,7 +99,7 @@ export function CreatePageDialog({ onClose, onCreated }) {
             <div className="page-card-body">
               <PageLogo page={preview} />
               <h2>{preview.name}</h2>
-              <span className="page-category">{preview.category}</span>
+              {chosenType && <PageKind page={preview} />}
               <p className="page-card-description">{form.description || "A descrição aparece aqui."}</p>
             </div>
           </div>
@@ -94,7 +108,7 @@ export function CreatePageDialog({ onClose, onCreated }) {
       {error && <p className="error" role="alert">{error}</p>}
       <div className="modal-actions">
         <button className="btn secondary" type="button" onClick={onClose} disabled={busy}>Cancelar</button>
-        <button className="btn" type="submit" disabled={busy || !form.name.trim()}>{busy ? "A criar..." : "Criar página"}</button>
+        <button className="btn" type="submit" disabled={busy || !form.name.trim() || !form.pageType}>{busy ? "A criar..." : "Criar página"}</button>
       </div>
     </form>
   </div>, document.body);
@@ -110,6 +124,7 @@ export function Pages() {
   const [creating, setCreating] = useState(false);
   const [tab, setTab] = useState("discover");
   const [query, setQuery] = useState("");
+  const [typeFilter, setTypeFilter] = useState("");
   const [category, setCategory] = useState("");
   const page = pages?.find(item => String(item.id) === pageId);
   const ownsPage = Boolean(page && user && page.owner_username === user.username);
@@ -175,7 +190,7 @@ export function Pages() {
           <PageLogo page={page} size="large" />
           <div className="page-hero-text">
             <h1>{page.name}</h1>
-            <p><span className="page-category">{page.category}</span><span>{formatCount(page.follower_count)} {page.follower_count === 1 ? "seguidor" : "seguidores"}</span><span>{formatCount(page.post_count)} {page.post_count === 1 ? "publicação" : "publicações"}</span></p>
+            <p><PageKind page={page} /><span>{formatCount(page.follower_count)} {page.follower_count === 1 ? "seguidor" : "seguidores"}</span><span>{formatCount(page.post_count)} {page.post_count === 1 ? "publicação" : "publicações"}</span></p>
           </div>
           <div className="page-hero-actions">
             {ownsPage
@@ -190,7 +205,7 @@ export function Pages() {
           <h2>Sobre</h2>
           <p>{page.description || "Esta página ainda não tem descrição."}</p>
           <ul>
-            <li><Icon name="pages" size={16} /><span>{page.category}</span></li>
+            <li><Icon name={pageType(page.page_type).icon} size={16} /><span>{pageType(page.page_type).label} · {pageCategoryLabel(page)}</span></li>
             <li><Icon name="profile" size={16} /><span>Criada por <Link to={`/u/${page.owner_username}`}>{page.owner_name}</Link></span></li>
             <li><Icon name="events" size={16} /><span>Desde {new Date(page.created_at).toLocaleDateString("pt-PT", { month: "long", year: "numeric" })}</span></li>
           </ul>
@@ -214,10 +229,14 @@ export function Pages() {
   const followed = all.filter(item => item.is_following && !(user && item.owner_username === user.username));
   const tabs = [["discover", "Descobrir", all.length], ...(user ? [["mine", "As tuas páginas", mine.length], ["following", "A seguir", followed.length]] : [])];
   const source = tab === "mine" ? mine : tab === "following" ? followed : all;
-  const categories = [...new Set(all.map(item => item.category))].sort((a, b) => a.localeCompare(b, "pt"));
+  // Só aparecem os tipos (e as categorias do tipo escolhido) que têm pelo menos uma página.
+  const typesInUse = PAGE_TYPES.filter(type => all.some(item => item.page_type === type.key));
+  const categoriesInUse = typeFilter
+    ? pageType(typeFilter).categories.filter(item => all.some(p => p.page_type === typeFilter && p.category === item.key)) : [];
+  const chooseTypeFilter = key => { setTypeFilter(typeFilter === key ? "" : key); setCategory(""); };
   const term = query.trim().toLowerCase();
-  const visible = source.filter(item => (!category || item.category === category)
-    && (!term || `${item.name} ${item.description} ${item.category} ${item.owner_name}`.toLowerCase().includes(term)));
+  const visible = source.filter(item => (!typeFilter || item.page_type === typeFilter) && (!category || item.category === category)
+    && (!term || `${item.name} ${item.description} ${pageCategoryLabel(item)} ${pageType(item.page_type).label} ${item.owner_name}`.toLowerCase().includes(term)));
 
   return <div className="pages-view">
     <header className="pages-head">
@@ -231,16 +250,20 @@ export function Pages() {
       </div>
       <label className="pages-search"><Icon name="search" size={17} /><input type="search" placeholder="Procurar páginas" aria-label="Procurar páginas" value={query} onChange={event => setQuery(event.target.value)} /></label>
     </div>
-    {categories.length > 1 && <div className="province-chips pages-categories" role="group" aria-label="Categorias">
-      <button type="button" className="province-chip" aria-pressed={!category} onClick={() => setCategory("")}>Todas</button>
-      {categories.map(item => <button key={item} type="button" className="province-chip" aria-pressed={category === item} onClick={() => setCategory(category === item ? "" : item)}>{item}</button>)}
+    {typesInUse.length > 1 && <div className="province-chips pages-categories" role="group" aria-label="Tipos de página">
+      <button type="button" className="province-chip" aria-pressed={!typeFilter} onClick={() => chooseTypeFilter("")}>Todas</button>
+      {typesInUse.map(type => <button key={type.key} type="button" className="province-chip" aria-pressed={typeFilter === type.key} onClick={() => chooseTypeFilter(type.key)}>
+        <Icon name={type.icon} size={14} /> {type.label}</button>)}
+    </div>}
+    {categoriesInUse.length > 1 && <div className="province-chips pages-categories pages-subcategories" role="group" aria-label="Categorias">
+      {categoriesInUse.map(item => <button key={item.key} type="button" className="province-chip" aria-pressed={category === item.key} onClick={() => setCategory(category === item.key ? "" : item.key)}>{item.label}</button>)}
     </div>}
     {error && <p className="error" role="alert">{error}</p>}
     {!pages && !error && <div className="empty card">A carregar páginas...</div>}
     {pages && !visible.length && <div className="empty card pages-empty">
-      {tab === "mine" && !term && !category
+      {tab === "mine" && !term && !typeFilter
         ? <><p>Ainda não criaste nenhuma página. Uma página serve para o teu negócio, projeto ou arte ter o seu próprio espaço.</p><button className="btn" type="button" onClick={() => setCreating(true)}><Icon name="plus" size={16} /> Criar a primeira página</button></>
-        : tab === "following" && !term && !category
+        : tab === "following" && !term && !typeFilter
           ? <><p>Ainda não segues nenhuma página.</p><button className="btn secondary" type="button" onClick={() => setTab("discover")}>Descobrir páginas</button></>
           : <p>Nenhuma página corresponde à pesquisa.</p>}
     </div>}

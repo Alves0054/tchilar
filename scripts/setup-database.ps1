@@ -47,17 +47,17 @@ try {
   $sqlPassword = $databasePassword.Replace("'", "''")
 
   $env:PGPASSWORD = $plainAdminPassword
-  $roleSql = "DO `$setup`$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='biva') THEN CREATE ROLE biva LOGIN PASSWORD '$sqlPassword'; ELSE ALTER ROLE biva WITH LOGIN PASSWORD '$sqlPassword'; END IF; END `$setup`$;"
+  $roleSql = "DO `$setup`$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='tchilar') THEN CREATE ROLE tchilar LOGIN PASSWORD '$sqlPassword'; ELSE ALTER ROLE tchilar WITH LOGIN PASSWORD '$sqlPassword'; END IF; END `$setup`$;"
   & $psqlPath -X -w -v ON_ERROR_STOP=1 -h $hostName -p $port -U $adminUser -d postgres -c $roleSql
   if ($LASTEXITCODE -ne 0) { throw "Não foi possível criar o utilizador da aplicação. Confirma os dados de administrador." }
 
-  $databaseExists = & $psqlPath -X -w -v ON_ERROR_STOP=1 -h $hostName -p $port -U $adminUser -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='biva'"
+  $databaseExists = & $psqlPath -X -w -v ON_ERROR_STOP=1 -h $hostName -p $port -U $adminUser -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='tchilar'"
   if ($LASTEXITCODE -ne 0) { throw "Não foi possível verificar a base de dados." }
   if (($databaseExists -join "").Trim() -ne "1") {
-    & $psqlPath -X -w -v ON_ERROR_STOP=1 -h $hostName -p $port -U $adminUser -d postgres -c "CREATE DATABASE biva OWNER biva"
-    if ($LASTEXITCODE -ne 0) { throw "Não foi possível criar a base de dados biva." }
+    & $psqlPath -X -w -v ON_ERROR_STOP=1 -h $hostName -p $port -U $adminUser -d postgres -c "CREATE DATABASE tchilar OWNER tchilar"
+    if ($LASTEXITCODE -ne 0) { throw "Não foi possível criar a base de dados tchilar." }
   } else {
-    & $psqlPath -X -w -v ON_ERROR_STOP=1 -h $hostName -p $port -U $adminUser -d postgres -c "ALTER DATABASE biva OWNER TO biva"
+    & $psqlPath -X -w -v ON_ERROR_STOP=1 -h $hostName -p $port -U $adminUser -d postgres -c "ALTER DATABASE tchilar OWNER TO tchilar"
     if ($LASTEXITCODE -ne 0) { throw "Não foi possível atualizar o proprietário da base de dados." }
   }
 
@@ -69,13 +69,13 @@ try {
 
   $databaseHost = $hostName
   if ($databaseHost -eq "localhost") { $databaseHost = "127.0.0.1" }
-  $databaseUrl = "postgresql://biva:$databasePassword@$databaseHost`:$port/biva"
+  $databaseUrl = "postgresql://biva:$databasePassword@$databaseHost`:$port/tchilar"
   $content = Get-Content -LiteralPath $examplePath -Raw
   $content = $content.Replace("replace_with_a_random_secret_at_least_32_characters", $jwtSecret)
   $content = $content.Replace("replace_with_a_random_password", $databasePassword)
   $content = [regex]::Replace($content, "^DATABASE_URL=.*$", "DATABASE_URL=$databaseUrl", [Text.RegularExpressions.RegexOptions]::Multiline)
   [IO.File]::WriteAllText($envPath, $content, [Text.UTF8Encoding]::new($false))
-  Write-Host "Base de dados biva criada e ligação verificada."
+  Write-Host "Base de dados tchilar criada e ligação verificada."
   Write-Host "Configuração local criada em .env. Não partilhes esse ficheiro."
   Write-Host "Arranca a aplicação com: npm run dev"
 } finally {

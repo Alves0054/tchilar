@@ -25,12 +25,12 @@ function periodEndFromStripe(stripeSubscription) {
   return Number.isFinite(seconds) ? new Date(seconds * 1000) : null;
 }
 
-// Converte o estado de uma subscrição Stripe no estado guardado no Biva.
+// Converte o estado de uma subscrição Stripe no estado guardado no Tchilar.
 // Só "active" dá acesso ao conteúdo exclusivo (ver ACTIVE_SUBSCRIPTION_SQL).
 // Estados possíveis na Stripe: active, trialing, past_due, unpaid, canceled,
 // incomplete, incomplete_expired, paused.
 function mapStripeStatus(stripeStatus) {
-  // TODO(tu): decide quais estados da Stripe contam como "active" no Biva.
+  // TODO(tu): decide quais estados da Stripe contam como "active" no Tchilar.
   // Ponto de partida conservador: só pagamentos confirmados dão acesso.
   return stripeStatus === "active" ? "active" : "canceled";
 }

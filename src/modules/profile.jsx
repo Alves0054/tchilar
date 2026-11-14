@@ -1,4 +1,5 @@
 import { useContext, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Link, useLocation, useParams, useSearchParams } from "react-router-dom";
 import { AvatarEditor, CoverEditor, downscaleImage } from "../PhotoEditors.jsx";
 import { API_BASE, Avatar, Icon, UserContext, api, formatCount, formatDate, formatPrice, token } from "./core.jsx";
@@ -40,6 +41,84 @@ export function WebsiteLink({ href }) {
   if (url.protocol !== "http:" && url.protocol !== "https:") return null;
   const label = (url.hostname.replace(/^www\./, "") + url.pathname).replace(/\/$/, "");
   return <a className="profile-website" href={url.href} target="_blank" rel="noopener noreferrer nofollow ugc">{label}</a>;
+}
+// Os três números que importam, junto do nome (o resto fica no cartão Atividade).
+export function ProfileHeadline({ profile, username }) {
+  const items = [
+    ["publicações", profile.posts, `/u/${username}`],
+    ["seguidores", profile.followers, null],
+    ["amigos", profile.friends, "#profile-friends"]
+  ];
+  return <ul className="profile-headline-stats">
+    {items.map(([label, value, to]) => {
+      const content = <><strong>{formatCount(value)}</strong> {value === 1 ? label.replace(/s$/, "").replace(/õe$/, "ão") : label}</>;
+      return <li key={label}>{to?.startsWith("#") ? <a href={to}>{content}</a> : to ? <Link to={to}>{content}</Link> : <span>{content}</span>}</li>;
+    })}
+  </ul>;
+}
+// Profissão, localidade, site e data de entrada, numa linha por baixo do nome.
+export function ProfileMeta({ profile }) {
+  const items = [
+    profile.profession && ["spark", profile.profession],
+    profile.location && ["location", profile.location],
+    profile.website && ["externalLink", <WebsiteLink key="site" href={profile.website} />],
+    ["events", `No Tchilar desde ${new Date(profile.created_at).toLocaleDateString("pt-PT", { month: "long", year: "numeric" })}`]
+  ].filter(Boolean);
+  return <ul className="profile-meta">{items.map(([icon, text], index) => <li key={index}><Icon name={icon} size={14} />{text}</li>)}</ul>;
+}
+// Cartão "Amigos": até 9 fotos; para quem visita, os amigos em comum aparecem primeiro.
+export function ProfileFriendsCard({ username, isOwnProfile }) {
+  const [data, setData] = useState(null);
+  useEffect(() => {
+    setData(null);
+    api(`/users/${encodeURIComponent(username)}/friends`).then(setData).catch(() => setData({ friends: [], total: 0, mutual: 0 }));
+  }, [username]);
+  if (!data) return null;
+  return <section className="profile-info-card profile-friends-card card" id="profile-friends" aria-labelledby="profile-friends-title">
+    <div className="profile-card-head">
+      <h2 id="profile-friends-title">Amigos <span>{formatCount(data.total)}</span></h2>
+      {isOwnProfile && <Link to="/friends">Ver todos</Link>}
+    </div>
+    {data.mutual > 0 && <p className="profile-friends-mutual">{data.mutual} {data.mutual === 1 ? "amigo em comum" : "amigos em comum"}</p>}
+    {data.friends.length
+      ? <ul className="profile-friends-grid">{data.friends.map(friend => <li key={friend.id}>
+        <Link to={`/u/${friend.username}`}><Avatar user={friend} /><span>{friend.display_name}</span></Link>
+      </li>)}</ul>
+      : <p className="muted">{isOwnProfile ? <>Ainda não tens amigos no Tchilar. <Link to="/friends">Encontrar pessoas</Link></> : "Ainda sem amigos no Tchilar."}</p>}
+  </section>;
+}
+// Grelha de fotos e vídeos do perfil (só publicações com imagem ou vídeo).
+export function ProfileMediaGrid({ username }) {
+  const [posts, setPosts] = useState(null);
+  const [error, setError] = useState("");
+  const [open, setOpen] = useState(null);
+  const load = () => api(`/posts?username=${encodeURIComponent(username)}&mediaType=media`).then(result => setPosts(result.posts)).catch(loadError => setError(loadError.message));
+  useEffect(() => { setPosts(null); load(); }, [username]);
+  useEffect(() => {
+    if (!open) return undefined;
+    const onKey = event => { if (event.key === "Escape") setOpen(null); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open]);
+  if (error) return <div className="empty card error">{error}</div>;
+  if (!posts) return <div className="empty card">A carregar fotos e vídeos...</div>;
+  if (!posts.length) return <div className="empty card">Ainda não há fotos nem vídeos neste perfil.</div>;
+  const current = posts.find(post => post.id === open);
+  return <section className="profile-media card" aria-label="Fotos e vídeos">
+    <ul className="profile-media-grid">{posts.map(post => <li key={post.id}>
+      <button type="button" onClick={() => setOpen(post.id)} aria-label={post.body ? `Abrir: ${post.body.slice(0, 80)}` : "Abrir publicação"}>
+        {post.media_type === "video"
+          ? <><video src={`${API_BASE}${post.media_url}`} muted preload="metadata" playsInline /><span className="profile-media-badge"><Icon name="play" size={14} /></span></>
+          : <img src={`${API_BASE}${post.media_url}`} alt="" loading="lazy" />}
+      </button>
+    </li>)}</ul>
+    {current && createPortal(<div className="modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setOpen(null); }}>
+      <div className="profile-media-viewer" role="dialog" aria-modal="true" aria-label="Publicação">
+        <button className="round-button profile-media-close" type="button" aria-label="Fechar" onClick={() => setOpen(null)}><Icon name="close" size={18} /></button>
+        <PostCard post={current} onChanged={load} />
+      </div>
+    </div>, document.body)}
+  </section>;
 }
 export function ProfileStats({ profile }) {
   const stats = [
@@ -173,6 +252,7 @@ export function Profile() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [subscriptionBusy, setSubscriptionBusy] = useState(false);
   const isAboutPage = location.pathname === `/u/${username}/about`;
+  const isMediaPage = location.pathname === `/u/${username}/media`;
   const isOwnProfile = user?.username === username;
 
   useEffect(() => {
@@ -223,7 +303,7 @@ export function Profile() {
     try {
       const userResult = await api(`/users/${username}`);
       setProfile(userResult.user);
-      if (isAboutPage) {
+      if (isAboutPage || isMediaPage) {
         setPosts([]);
       } else {
         const postResult = await api(`/posts?username=${encodeURIComponent(username)}`);
@@ -235,7 +315,7 @@ export function Profile() {
     }
   };
 
-  useEffect(() => { load(); }, [username, isAboutPage]);
+  useEffect(() => { load(); }, [username, isAboutPage, isMediaPage]);
 
   // Depois de apagar uma publicação ou bloquear alguém: atualiza só a lista, sem esvaziar a página.
   const reloadProfilePosts = async () => {
@@ -288,6 +368,7 @@ export function Profile() {
     if (!token()) return setMessage("Entra na tua conta para adicionar amigos.");
     try {
       await api(`/friends/${profile.id}/request`, { method: "POST" });
+      setProfile(current => ({ ...current, friend_request_sent: true }));
       setMessage("Pedido de amizade enviado.");
     } catch (actionError) {
       setMessage(actionError.message);
@@ -302,7 +383,7 @@ export function Profile() {
       <div className={`profile-cover${profile.cover_url ? " has-image" : ""}`}>
         {profile.cover_url && <img className="profile-cover-image" src={`${API_BASE}${profile.cover_url}`} alt="" style={{ objectPosition: `50% ${profile.cover_position ?? 50}%` }} />}
         {!isAboutPage && !profile.cover_url && <>
-          <span className="profile-cover-kicker">BIVA <i /> ESPAÇO DE CRIAÇÃO</span>
+          <span className="profile-cover-kicker">TCHILAR <i /> ESPAÇO DE CRIAÇÃO</span>
           <span className="profile-cover-message">Histórias que<br /><em>nos aproximam.</em></span>
           <span className="profile-cover-mark" aria-hidden="true">B</span>
           <span className="profile-cover-orbit profile-cover-orbit-one" />
@@ -313,22 +394,28 @@ export function Profile() {
       <div className="profile-identity">
         <div className="profile-avatar-wrap">
           <Avatar user={profile} size="large" />
+          {profile.online && <span className="profile-online-dot" title="Online agora"><span className="visually-hidden">Online agora</span></span>}
           {isOwnProfile && <ProfilePhotoControl kind="avatar" profile={profile} onUpdated={photoUpdated} />}
         </div>
         <div className="profile-identity-copy">
-          <p className="profile-kicker">{isAboutPage ? "Perfil pessoal" : isOwnProfile ? "O teu espaço na comunidade" : "Espaço da comunidade"}</p>
           <h1>{profile.display_name}<VerifiedBadge show={profile.is_verified} /></h1>
-          <p className="handle">@{profile.username}</p>
+          <p className="handle">@{profile.username}
+            {profile.is_creator && <span className="profile-role-chip"><Icon name="spark" size={12} /> Criador</span>}
+            {profile.online && <span className="profile-online-chip">Online agora</span>}
+            {profile.is_friend && !isOwnProfile && <span className="profile-role-chip"><Icon name="friends" size={12} /> Amigos</span>}</p>
+          <ProfileHeadline profile={profile} username={username} />
         </div>
-        {!isAboutPage && <div className="profile-identity-actions">
+        {<div className="profile-identity-actions">
           {isOwnProfile
             ? <><Link className="btn secondary" to="/profile/edit"><Icon name="create" size={15} /> Editar perfil</Link><Link className="btn secondary" to="/creator"><Icon name="stats" size={15} /> Painel do criador</Link></>
             : <>
               {!profile.is_blocked && <>
                 <button className={profile.is_following ? "btn secondary" : "btn"} type="button" aria-pressed={profile.is_following} onClick={toggleFollow}>{profile.is_following ? "A seguir" : "Seguir"}</button>
                 {profile.is_friend
-                  ? <Link className="btn secondary" to={`/messages/${profile.id}`}>Enviar mensagem</Link>
-                  : <button className="btn secondary" type="button" onClick={addFriend}>Adicionar amigo <Icon name="plus" size={14} /></button>}
+                  ? <Link className="btn secondary" to={`/messages/${profile.id}`}><Icon name="messages" size={15} /> Mensagem</Link>
+                  : profile.friend_request_sent
+                    ? <button className="btn secondary" type="button" disabled><Icon name="check" size={14} /> Pedido enviado</button>
+                    : <button className="btn secondary" type="button" onClick={addFriend}><Icon name="plus" size={14} /> Adicionar amigo</button>}
               </>}
               {user && <div className="post-menu">
                 <button className="btn secondary icon-only" type="button" aria-haspopup="menu" aria-expanded={profileMenuOpen} aria-label="Mais opções" title="Mais opções" onClick={() => setProfileMenuOpen(open => !open)}><Icon name="more" size={18} /></button>
@@ -340,6 +427,10 @@ export function Profile() {
             </>}
         </div>}
       </div>
+      {(profile.bio || profile.profession || profile.location || profile.website) && <div className="profile-intro">
+        {profile.bio && <p className="profile-intro-bio">{profile.bio}</p>}
+        <ProfileMeta profile={profile} />
+      </div>}
       {!isAboutPage && profile.is_creator && Number(profile.subscription_price) > 0 && <SubscriptionPanel
         profile={profile}
         isOwnProfile={isOwnProfile}
@@ -356,10 +447,10 @@ export function Profile() {
       {reportingProfile && <ReportDialog targetType="user" targetId={profile.id} onClose={() => setReportingProfile(false)} />}
     </section>
     <nav className="profile-tabs" aria-label="Navegação do perfil">
-      <Link to={`/u/${username}`} className={!isAboutPage ? "active" : undefined} aria-current={!isAboutPage ? "page" : undefined}>Publicações</Link>
-      <Link to={`/u/${username}/about`} className={isAboutPage ? "active" : undefined} aria-current={isAboutPage ? "page" : undefined}>Sobre</Link>
+      {[[`/u/${username}`, "Publicações", !isAboutPage && !isMediaPage], [`/u/${username}/media`, "Fotos e vídeos", isMediaPage], [`/u/${username}/about`, "Sobre", isAboutPage]]
+        .map(([to, label, active]) => <Link key={to} to={to} className={active ? "active" : undefined} aria-current={active ? "page" : undefined}>{label}</Link>)}
     </nav>
-    {isAboutPage ? <section className="profile-about-page card" aria-labelledby="profile-about-heading">
+    {isMediaPage ? <ProfileMediaGrid username={username} /> : isAboutPage ? <section className="profile-about-page card" aria-labelledby="profile-about-heading">
       <h2 id="profile-about-heading">Sobre {profile.display_name}</h2>
       <div className="profile-about-field">
         <span className="rail-icon"><Icon name="profile" /></span>
@@ -387,20 +478,17 @@ export function Profile() {
       </div>}
       <div className="profile-about-field">
         <span className="rail-icon"><Icon name="events" /></span>
-        <div><h3>No Biva desde</h3><p>{formatDate(profile.created_at)}</p></div>
+        <div><h3>No Tchilar desde</h3><p>{formatDate(profile.created_at)}</p></div>
       </div>
       <ProfileStats profile={profile} />
     </section> : <div className="profile-content-grid">
       <aside className="profile-about-column" id="profile-about">
-        <section className="profile-info-card card">
-          <h2>Sobre</h2>
-          <p className="profile-about-bio">{profile.bio || "Ainda não adicionou uma biografia."}</p>
-          <div className="profile-detail-line"><span className="rail-icon"><Icon name="profile" /></span><span><small>Perfil</small><strong>@{profile.username}</strong></span></div>
-          <div className="profile-detail-line"><span className="rail-icon"><Icon name={profile.is_creator ? "spark" : "groups"} /></span><span><small>No Biva</small><strong>{profile.is_creator ? "Criador" : "Membro da comunidade"}</strong></span></div>
-          {profile.profession && <div className="profile-detail-line"><span className="rail-icon"><Icon name="spark" /></span><span><small>Profissão</small><strong>{profile.profession}</strong></span></div>}
-          {profile.location && <div className="profile-detail-line"><span className="rail-icon"><Icon name="location" /></span><span><small>Localidade</small><strong>{profile.location}</strong></span></div>}
-          {profile.website && <div className="profile-detail-line"><span className="rail-icon"><Icon name="externalLink" /></span><span><small>Site</small><strong><WebsiteLink href={profile.website} /></strong></span></div>}
-        </section>
+        {isOwnProfile && !profile.bio && <section className="profile-info-card profile-complete-card card">
+          <h2>Completa o teu perfil</h2>
+          <p className="muted">Uma biografia e uma foto ajudam as pessoas a reconhecer-te.</p>
+          <Link className="btn secondary" to="/profile/edit"><Icon name="create" size={15} /> Adicionar biografia</Link>
+        </section>}
+        <ProfileFriendsCard username={profile.username} isOwnProfile={isOwnProfile} />
         <section className="profile-info-card profile-stats-card card">
           <h2>Atividade</h2>
           <ProfileStats profile={profile} />

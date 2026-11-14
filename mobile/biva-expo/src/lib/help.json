@@ -1,0 +1,70 @@
+[
+ [
+  "Conta",
+  [
+   [
+    "Não recebi o email de confirmação.",
+    "Procura na pasta de spam. No ecrã de entrada, depois de tentares iniciar sessão, aparece a opção «Reenviar confirmação de email». A ligação é válida durante 1 hora."
+   ],
+   [
+    "Esqueci-me da palavra-passe.",
+    "Em «Entrar», escolhe «Esqueceste-te da palavra-passe?». Recebes uma ligação válida durante 1 hora. Ao mudar a palavra-passe, todas as sessões abertas noutros dispositivos terminam."
+   ],
+   [
+    "Como mudo a foto de perfil ou a capa?",
+    "Em Definições → A tua conta, usa «Foto de perfil» e «Capa do perfil». Aceitamos JPG, PNG, WebP e GIF até 8 MB."
+   ],
+   [
+    "Como apago a minha conta?",
+    "Em Definições → A tua conta → Apagar conta. Pedimos a palavra-passe para confirmar. Apagamos o perfil, publicações, comentários, mensagens e os grupos e páginas que criaste, e cancelamos as subscrições pagas. Antes disso, podes descarregar os teus dados."
+   ]
+  ]
+ ],
+ [
+  "Publicações e feed",
+  [
+   [
+    "Qual é a diferença entre «Para ti» e «Amigos e quem segues»?",
+    "«Para ti» mostra publicações de toda a comunidade. «Amigos e quem segues» mostra só as tuas, as dos teus amigos, as de quem segues e as das páginas e grupos de que fazes parte."
+   ],
+   [
+    "Posso editar uma publicação?",
+    "Sim: no menu (⋯) da tua publicação, escolhe «Editar». A publicação passa a mostrar «editado»."
+   ],
+   [
+    "Quem vê as publicações exclusivas?",
+    "Só quem tem uma subscrição ativa do criador. Os criadores marcam «Só para subscritores» ao publicar."
+   ]
+  ]
+ ],
+ [
+  "Segurança",
+  [
+   [
+    "O que acontece quando bloqueio alguém?",
+    "Deixam de ser amigos e de se seguir. Não veem as publicações, comentários e stories um do outro, e não podem trocar mensagens. A pessoa não é avisada. Podes desbloquear em Definições."
+   ],
+   [
+    "Como denuncio conteúdo?",
+    "Usa o menu (⋯) de uma publicação, o ícone de bandeira num comentário ou o menu de um perfil. Quem é denunciado não sabe quem fez a denúncia."
+   ],
+   [
+    "Alguém está em perigo.",
+    "Se houver perigo imediato, contacta as autoridades locais primeiro. Depois denuncia o conteúdo para a equipa de moderação o analisar."
+   ]
+  ]
+ ],
+ [
+  "Subscrições",
+  [
+   [
+    "Como cancelo uma subscrição?",
+    "No perfil do criador, escolhe «Cancelar renovação». Manténs o acesso até ao fim do período que já pagaste."
+   ],
+   [
+    "Como defino o meu preço como criador?",
+    "No teu perfil, toca em Editar perfil e indica o preço mensal em kwanzas (entre 500 Kz e 500 000 Kz)."
+   ]
+  ]
+ ]
+]

@@ -363,19 +363,19 @@ export function StreamKeyPanel() {
         <li>Cola o servidor e a {protocol === "rtmp" ? "chave" : "bearer token"} acima.</li>
         <li><strong>Saída</strong>: H.264 (x264 ou NVENC), CBR, 2500–4500 kbps, intervalo de keyframes 2 s, áudio AAC 160 kbps.</li>
         <li><strong>Vídeo</strong>: 1280×720 a 30 fps (ou 1920×1080 com boa internet).</li>
-        <li>Cria o direto aqui no Biva e depois carrega em <strong>Iniciar transmissão</strong> no OBS.</li>
+        <li>Cria o direto aqui no Tchilar e depois carrega em <strong>Iniciar transmissão</strong> no OBS.</li>
       </ol>
-      <p className="muted">A placa de captura (Elgato, AVerMedia...) entra no OBS como «Dispositivo de captura de vídeo». Também a podes escolher diretamente no estúdio do Biva, sem OBS.</p>
+      <p className="muted">A placa de captura (Elgato, AVerMedia...) entra no OBS como «Dispositivo de captura de vídeo». Também a podes escolher diretamente no estúdio do Tchilar, sem OBS.</p>
     </details>
   </div>;
 }
-// Sem servidor de vídeo (MEDIA_* no .env), o Biva não consegue receber o vídeo de programas externos.
+// Sem servidor de vídeo (MEDIA_* no .env), o Tchilar não consegue receber o vídeo de programas externos.
 export function ObsUnavailable() {
   return <div className="obs-unavailable">
     <span className="ad-kind-icon"><Icon name="info" size={18} /></span>
     <div>
       <strong>A transmissão por OBS ainda não está ligada neste servidor</strong>
-      <p className="muted">Para usar OBS, vMix ou Streamlabs com chave de transmissão, a equipa do Biva tem de ligar o servidor de vídeo (MediaMTX). Enquanto isso, podes emitir pelo browser: escolhe «Câmara ou placa» — a placa de captura e a câmara virtual do OBS aparecem lá.</p>
+      <p className="muted">Para usar OBS, vMix ou Streamlabs com chave de transmissão, a equipa do Tchilar tem de ligar o servidor de vídeo (MediaMTX). Enquanto isso, podes emitir pelo browser: escolhe «Câmara ou placa» — a placa de captura e a câmara virtual do OBS aparecem lá.</p>
     </div>
   </div>;
 }
@@ -394,7 +394,7 @@ export function StreamKeyDialog({ onClose }) {
         <h2 id="stream-key-title">Chave de transmissão</h2>
         <button className="round-button" type="button" aria-label="Fechar" onClick={onClose}><Icon name="close" size={18} /></button>
       </div>
-      <p className="muted">Usa-a no OBS, vMix, Streamlabs ou numa placa/encoder com saída RTMP. Depois cria o direto no Biva com «OBS ou programa» e inicia a transmissão no programa.</p>
+      <p className="muted">Usa-a no OBS, vMix, Streamlabs ou numa placa/encoder com saída RTMP. Depois cria o direto no Tchilar com «OBS ou programa» e inicia a transmissão no programa.</p>
       {enabled === null ? <div className="creator-loading">A carregar...</div> : enabled ? <StreamKeyPanel /> : <ObsUnavailable />}
     </div>
   </div>, document.body);

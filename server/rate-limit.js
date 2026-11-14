@@ -27,7 +27,7 @@ function makeRateLimit(name, options) {
   return rateLimit({
     ...options,
     ...(client ? {
-      store: new RedisStore({ sendCommand: (...args) => client.sendCommand(args), prefix: `biva:rl:${name}:` }),
+      store: new RedisStore({ sendCommand: (...args) => client.sendCommand(args), prefix: `tchilar:rl:${name}:` }),
       passOnStoreError: true
     } : {})
   });

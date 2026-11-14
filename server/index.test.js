@@ -2,6 +2,8 @@ process.env.JWT_SECRET = "test-only-secret-with-at-least-thirty-two-characters";
 process.env.STRIPE_SECRET_KEY = "sk_test_only_dummy_key";
 process.env.STRIPE_WEBHOOK_SECRET = "whsec_test_only_secret";
 process.env.PAYOUT_ENCRYPTION_KEY = "0".repeat(64);
+// Os testes nunca enviam emails a sério, mesmo que o .env tenha SMTP (o dotenv não substitui o que já existe).
+process.env.SMTP_HOST = "";
 
 const { after, before, test } = require("node:test");
 const assert = require("node:assert/strict");
@@ -41,7 +43,7 @@ after(async () => {
 test("health endpoint reports the API service", async () => {
   const response = await fetch(`${baseUrl}/api/health`);
   assert.equal(response.status, 200);
-  assert.deepEqual(await response.json(), { ok: true, service: "biva" });
+  assert.deepEqual(await response.json(), { ok: true, service: "tchilar" });
 });
 
 test("CORS accepts the development loopback address", async () => {
@@ -263,7 +265,7 @@ test("stripe subscription events store status and paid period", async () => {
   }
 });
 
-test("stripe events without Biva metadata are ignored", async () => {
+test("stripe events without Tchilar metadata are ignored", async () => {
   let wrote = false;
   queryMock = sql => {
     if (sql.includes("INSERT INTO subscriptions")) wrote = true;

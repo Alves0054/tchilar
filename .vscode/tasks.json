@@ -16,7 +16,7 @@
 			"problemMatcher": []
 		},
 		{
-			"label": "Preparar Biva (base de dados + perfil demo)",
+			"label": "Preparar Tchilar (base de dados + perfil demo)",
 			"type": "shell",
 			"command": "powershell",
 			"args": [
@@ -24,13 +24,13 @@
 				"-ExecutionPolicy",
 				"Bypass",
 				"-File",
-				"scripts\\setup-biva-demo.ps1"
+				"scripts\\setup-tchilar-demo.ps1"
 			],
 			"isBackground": false,
 			"problemMatcher": []
 		},
 		{
-			"label": "Iniciar Biva (frontend + API)",
+			"label": "Iniciar Tchilar (frontend + API)",
 			"type": "shell",
 			"command": "npm.cmd",
 			"args": ["run", "dev"],

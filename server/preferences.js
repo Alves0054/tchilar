@@ -15,7 +15,8 @@ const REACH_RULES = ["everyone", "following", "nobody"];
 const PREFERENCE_DEFAULTS = Object.freeze({
   notify: Object.freeze(Object.fromEntries(Object.keys(NOTIFY_CATEGORIES).map(key => [key, true]))),
   messages: "everyone",
-  comments: "everyone"
+  comments: "everyone",
+  showActivity: true
 });
 
 const isRecord = value => value !== null && typeof value === "object" && !Array.isArray(value);
@@ -27,7 +28,8 @@ function readPreferences(stored) {
   return {
     notify: Object.fromEntries(Object.keys(NOTIFY_CATEGORIES).map(key => [key, notify[key] !== false])),
     messages: REACH_RULES.includes(saved.messages) ? saved.messages : PREFERENCE_DEFAULTS.messages,
-    comments: REACH_RULES.includes(saved.comments) ? saved.comments : PREFERENCE_DEFAULTS.comments
+    comments: REACH_RULES.includes(saved.comments) ? saved.comments : PREFERENCE_DEFAULTS.comments,
+    showActivity: saved.showActivity !== false
   };
 }
 
@@ -36,7 +38,11 @@ function updatePreferences(stored, patch) {
   if (!isRecord(patch)) return { error: "Alteração inválida." };
   const next = readPreferences(stored);
   for (const key of Object.keys(patch)) {
-    if (!["notify", "messages", "comments"].includes(key)) return { error: "Opção desconhecida." };
+    if (!["notify", "messages", "comments", "showActivity"].includes(key)) return { error: "Opção desconhecida." };
+  }
+  if (patch.showActivity !== undefined) {
+    if (typeof patch.showActivity !== "boolean") return { error: "Escolha inválida." };
+    next.showActivity = patch.showActivity;
   }
   if (patch.notify !== undefined) {
     if (!isRecord(patch.notify)) return { error: "Opção de notificações inválida." };
@@ -62,4 +68,9 @@ function canReach(rule, { follows = false, replied = false } = {}) {
   return true;
 }
 
-module.exports = { NOTIFY_CATEGORIES, PREFERENCE_DEFAULTS, REACH_RULES, canReach, readPreferences, updatePreferences };
+// "Online" = usou a app nos últimos minutos e não escondeu a atividade. `alias` é a tabela users na consulta.
+const ONLINE_MINUTES = 5;
+const onlineSql = alias => `(${alias}.last_seen_at > NOW() - INTERVAL '${ONLINE_MINUTES} minutes'
+  AND COALESCE(${alias}.preferences->>'showActivity', 'true') <> 'false')`;
+
+module.exports = { NOTIFY_CATEGORIES, ONLINE_MINUTES, onlineSql, PREFERENCE_DEFAULTS, REACH_RULES, canReach, readPreferences, updatePreferences };

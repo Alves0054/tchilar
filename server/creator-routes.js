@@ -217,7 +217,7 @@ function registerCreatorRoutes(app, deps) {
   });
 
   // ---------------------------------------------------------------------------------------------
-  // Programa de Parceiros Biva: o Biva paga aos criadores que cumprem as regras.
+  // Programa de Parceiros Tchilar: o Tchilar paga aos criadores que cumprem as regras.
   // ---------------------------------------------------------------------------------------------
   const partnerStatus = async userId => {
     const account = await pool.query(`
@@ -271,7 +271,7 @@ function registerCreatorRoutes(app, deps) {
   });
 
   // ---------------------------------------------------------------------------------------------
-  // Anúncios e publicações impulsionadas: só ficam ativos depois de pagos, e a partir daí o Biva
+  // Anúncios e publicações impulsionadas: só ficam ativos depois de pagos, e a partir daí o Tchilar
   // mostra-os sozinho (ver pickPromotions em promotions.js).
   // ---------------------------------------------------------------------------------------------
   const AD_FIELDS = `a.id,a.post_id,a.title,a.body,a.link_url,a.image_url,a.budget::float AS budget,a.spent::float AS spent,
@@ -286,7 +286,7 @@ function registerCreatorRoutes(app, deps) {
   const startAdPayment = (ad, ownerEmail, choice = {}) => payments.start({
     method: choice.method, phone: choice.phone,
     purpose: "ad", refId: ad.id, amountKz: ad.budget, userId: ad.owner_id, email: ownerEmail,
-    name: ad.post_id ? `Impulsionar publicação no Biva (${ad.days} dias)` : `Anúncio no Biva: ${ad.title} (${ad.days} dias)`,
+    name: ad.post_id ? `Impulsionar publicação no Tchilar (${ad.days} dias)` : `Anúncio no Tchilar: ${ad.title} (${ad.days} dias)`,
     successPath: "/creator/anuncios?pagamento=sucesso", cancelPath: "/creator/anuncios?pagamento=cancelado",
     onSession: sessionId => pool.query("UPDATE ads SET stripe_session_id=$2 WHERE id=$1", [ad.id, sessionId])
   });

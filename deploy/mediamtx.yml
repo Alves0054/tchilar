@@ -1,4 +1,4 @@
-# MediaMTX — servidor de vídeo dos diretos do Biva.
+# MediaMTX — servidor de vídeo dos diretos do Tchilar.
 # Recebe a emissão (OBS por RTMP/WHIP, estúdio do browser por WHIP) e entrega HLS à CDN.
 # Valores que mudam por instalação vêm de variáveis de ambiente MTX_* (ver docker-compose.yml):
 #   MTX_AUTHHTTPADDRESS        → http://app:4000/api/media/auth?secret=<MEDIA_HOOK_SECRET>
@@ -6,11 +6,11 @@
 
 logLevel: info
 
-# Cada emissão e cada leitura é autorizada pela API do Biva (chave de transmissão, direto aberto).
+# Cada emissão e cada leitura é autorizada pela API do Tchilar (chave de transmissão, direto aberto).
 authMethod: http
 authHTTPAddress: http://127.0.0.1:4000/api/media/auth?secret=change-me
 # Nada fica de fora da autorização: a API de controlo também passa pela app, que só aceita
-# o utilizador "biva-api" com o MEDIA_HOOK_SECRET (server/media-server.js).
+# o utilizador "tchilar-api" com o MEDIA_HOOK_SECRET (server/media-server.js).
 authHTTPExclude: []
 
 # API de controlo: sem porta pública (docker-compose.yml não a publica) e sempre autenticada.
