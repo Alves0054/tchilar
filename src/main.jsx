@@ -17,6 +17,7 @@ const Moderation = lazy(() => import("./modules/admin.jsx").then(module => ({ de
 const Create = lazy(() => import("./modules/create.jsx").then(module => ({ default: module.Create })));
 const CreatorDashboard = lazy(() => import("./modules/creator.jsx").then(module => ({ default: module.CreatorDashboard })));
 const Events = lazy(() => import("./modules/events.jsx").then(module => ({ default: module.Events })));
+const Search = lazy(() => import("./modules/search.jsx").then(module => ({ default: module.Search })));
 const Friends = lazy(() => import("./modules/friends.jsx").then(module => ({ default: module.Friends })));
 const Groups = lazy(() => import("./modules/groups.jsx").then(module => ({ default: module.Groups })));
 const AcademyPage = lazy(() => import("./modules/growth.jsx").then(module => ({ default: module.AcademyPage })));
@@ -56,6 +57,7 @@ function App() {
     <Route path="/reset-password" element={<ResetPassword />} />
     <Route path="/create" element={<Create />} />
     <Route path="/friends" element={<Friends />} />
+    <Route path="/search" element={<Search />} />
     <Route path="/messages" element={<Messages />} />
     <Route path="/messages/:userId" element={<Messages />} />
     <Route path="/groups" element={<Groups />} />

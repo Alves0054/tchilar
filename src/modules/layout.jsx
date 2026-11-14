@@ -117,20 +117,29 @@ export function SearchBox({ user }) {
     setQuery("");
     navigate(`/u/${person.username}`);
   };
+  // Enter (ou "Ver todos os resultados") abre a página de pesquisa com publicações, hashtags, grupos e páginas.
+  const searchAll = () => {
+    const term = query.trim();
+    if (!term) return;
+    setOpen(false);
+    navigate(`/search?q=${encodeURIComponent(term)}`);
+  };
 
   return <div className="topbar-search" ref={box}>
     <Icon name="search" size={17} />
-    <input type="search" aria-label="Pesquisar pessoas no Tchilar" placeholder="Pesquisar no Tchilar" value={query}
+    <input type="search" aria-label="Pesquisar no Tchilar" placeholder="Pesquisar no Tchilar" value={query}
       onChange={event => { setQuery(event.target.value); setOpen(true); }}
       onFocus={() => setOpen(true)}
-      onKeyDown={event => { if (event.key === "Enter" && results[0]) go(results[0]); }} />
+      onKeyDown={event => { if (event.key === "Enter") searchAll(); }} />
     {open && query.trim().length >= 2 && <div className="topbar-dropdown search-results" role="listbox" aria-label="Resultados da pesquisa">
       {!user && <p className="muted">Entra na tua conta para pesquisar pessoas.</p>}
-      {user && !results.length && <p className="muted">Sem resultados para «{query.trim()}».</p>}
+      {user && !results.length && <p className="muted">Nenhuma pessoa com «{query.trim()}».</p>}
       {results.map(person => <button type="button" role="option" aria-selected="false" key={person.id} onClick={() => go(person)}>
         <Avatar user={person} size="tiny" />
         <span><strong>{person.display_name}</strong><small>@{person.username}</small></span>
       </button>)}
+      {user && <button type="button" className="search-all" onClick={searchAll}><Icon name="search" size={16} />
+        <span><strong>Ver todos os resultados</strong><small>Publicações, hashtags, grupos e páginas</small></span></button>}
     </div>}
   </div>;
 }

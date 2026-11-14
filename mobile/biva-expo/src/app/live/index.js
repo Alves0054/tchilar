@@ -19,8 +19,9 @@ export default function Lives() {
   }, [load]));
 
   return <Page refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }}>
-    <Card title="Entrar em direto" subtitle="Transmitir a partir do telemóvel precisa da versão completa da app (com vídeo ao vivo). Por agora, usa o estúdio do site ou o OBS.">
-      <Button label="Abrir o estúdio no site" icon="radio" onPress={() => Linking.openURL(`${WEB_URL}/live`)} />
+    <Card title="Entrar em direto" subtitle="Transmite com a câmara do telemóvel. Quem te segue recebe um aviso.">
+      <Button label="Entrar em direto" icon="radio" onPress={() => router.push("/live/new")} />
+      <Button variant="ghost" label="Usar o estúdio do site ou o OBS" onPress={() => Linking.openURL(`${WEB_URL}/live`)} />
     </Card>
     <Notice error={error} />
     {!lives ? <Loading /> : lives.length === 0 ? <Empty text="Ninguém está em direto agora." icon="radio-outline" />

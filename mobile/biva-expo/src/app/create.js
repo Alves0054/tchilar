@@ -6,6 +6,9 @@ import { useState } from "react";
 import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Avatar } from "../components/Avatar";
+import { PhotoEditor } from "../components/PhotoEditor";
+import { VideoEditor } from "../components/VideoEditor";
+import { VideoPost } from "../components/VideoPost";
 import { upload } from "../lib/api";
 import { useSession } from "../lib/session";
 import { colors } from "../lib/theme";
@@ -22,6 +25,9 @@ export function CreatePost({ inTab = false, groupId, pageId, targetName }) {
   const { user } = useSession();
   const [text, setText] = useState("");
   const [file, setFile] = useState(null);
+  const [original, setOriginal] = useState(null);   // a foto antes de editar (para voltar a editar do zero)
+  const [videoEdit, setVideoEdit] = useState(null); // { edit, track } — instruções do editor de vídeo
+  const [editing, setEditing] = useState(false);
   const [exclusive, setExclusive] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -32,16 +38,22 @@ export function CreatePost({ inTab = false, groupId, pageId, targetName }) {
     if (!permission.granted) return setError(camera ? "Permite o acesso à câmara nas definições do telemóvel." : "Permite o acesso às fotos nas definições do telemóvel.");
     const options = { mediaTypes: ["images", "videos"], quality: 0.85, videoMaxDuration: 180 };
     const result = camera ? await ImagePicker.launchCameraAsync(options) : await ImagePicker.launchImageLibraryAsync(options);
-    if (!result.canceled) setFile(result.assets[0]);
+    if (result.canceled) return;
+    const asset = result.assets[0];
+    setFile(asset);
+    setOriginal(asset);
+    setVideoEdit(null);
+    setEditing(true); // abre logo o editor (pode-se fechar sem mudar nada)
   };
 
   const publish = async () => {
     setBusy(true);
     setError("");
     try {
-      await upload("/posts", { body: text.trim(), isExclusive: exclusive ? "true" : undefined, groupId, pageId }, file);
+      const edit = file?.type === "video" && videoEdit?.edit ? JSON.stringify(videoEdit.edit) : undefined;
+      await upload("/posts", { body: text.trim(), isExclusive: exclusive ? "true" : undefined, groupId, pageId, videoEdit: edit }, file);
       if (inTab) {
-        setText(""); setFile(null); setExclusive(false);
+        setText(""); setFile(null); setOriginal(null); setVideoEdit(null); setExclusive(false);
         router.navigate("/");
       } else {
         router.back();
@@ -72,12 +84,20 @@ export function CreatePost({ inTab = false, groupId, pageId, targetName }) {
           placeholderTextColor={colors.muted} multiline maxLength={5000} autoFocus={!inTab} />
         {file && <View style={styles.preview}>
           {file.type === "video"
-            ? <View style={[styles.previewMedia, styles.video]}><Ionicons name="videocam" size={40} color="#fff" /><Text style={styles.videoText}>Vídeo pronto a publicar</Text></View>
-            : <Image source={{ uri: file.uri }} style={styles.previewMedia} contentFit="cover" />}
-          <Pressable style={styles.removeFile} onPress={() => setFile(null)} accessibilityLabel="Retirar"><Ionicons name="close-circle" size={30} color="#fff" /></Pressable>
+            ? <VideoPost uri={file.uri} style={styles.previewMedia} edit={videoEdit?.edit} music={videoEdit?.track ? { audio_url: videoEdit.track.audio_url } : null} controls />
+            : <Image source={{ uri: file.uri }} style={styles.previewMedia} contentFit="contain" />}
+          <Pressable style={styles.removeFile} onPress={() => { setFile(null); setOriginal(null); setVideoEdit(null); }} accessibilityLabel="Retirar"><Ionicons name="close-circle" size={30} color="#fff" /></Pressable>
+          <Pressable style={styles.editFile} onPress={() => setEditing(true)} accessibilityLabel="Editar">
+            <Ionicons name={file.type === "video" ? "film" : "color-wand"} size={16} color="#fff" /><Text style={styles.editText}>Editar</Text>
+          </Pressable>
         </View>}
         {Boolean(error) && <Text style={styles.error}>{error}</Text>}
       </ScrollView>
+      {file?.type === "video"
+        ? <VideoEditor asset={file} visible={editing} initial={videoEdit} onCancel={() => setEditing(false)}
+          onDone={result => { setVideoEdit(result); setEditing(false); }} />
+        : <PhotoEditor asset={original} visible={editing && Boolean(original)} onCancel={() => setEditing(false)}
+          onDone={edited => { setFile(edited); setEditing(false); }} />}
       <View style={styles.tools}>
         <Pressable style={styles.tool} onPress={() => pick(false)}><Ionicons name="images" size={22} color="#2EAA6B" /><Text style={styles.toolText}>Foto/vídeo</Text></Pressable>
         <Pressable style={styles.tool} onPress={() => pick(true)}><Ionicons name="camera" size={22} color={colors.primary} /><Text style={styles.toolText}>Câmara</Text></Pressable>
@@ -105,6 +125,8 @@ const styles = StyleSheet.create({
   video: { alignItems: "center", justifyContent: "center", backgroundColor: colors.ink, gap: 8 },
   videoText: { color: "#fff" },
   removeFile: { position: "absolute", top: 8, right: 8 },
+  editFile: { position: "absolute", left: 10, bottom: 10, flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, height: 34, borderRadius: 17, backgroundColor: "rgba(0,0,0,0.6)" },
+  editText: { color: "#fff", fontWeight: "800" },
   error: { color: colors.danger },
   tools: { flexDirection: "row", gap: 8, padding: 12, borderTopWidth: StyleSheet.hairlineWidth, borderColor: colors.line },
   tool: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, height: 40, borderRadius: 20, backgroundColor: colors.background },

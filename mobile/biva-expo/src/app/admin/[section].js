@@ -6,6 +6,7 @@ import { Badge, Button, Card, Chips, Empty, Field, Loading, Notice, Page, Row, S
 import { usePrompt } from "../../components/usePrompt";
 import * as DocumentPicker from "expo-document-picker";
 import { api, downloadAndShare, upload } from "../../lib/api";
+import { audioDuration } from "../../lib/audio";
 import { useSession } from "../../lib/session";
 import { colors, relativeTime } from "../../lib/theme";
 import { ADMIN_SECTIONS, canSee } from "./index";
@@ -300,7 +301,8 @@ function Music() {
     setForm(current => ({ ...current, file: { uri: asset.uri, mimeType: asset.mimeType || "audio/mpeg", fileName: asset.name }, title: current.title || asset.name.replace(/\.[^.]+$/, "") }));
   };
   const send = () => run(async () => {
-    await upload("/music", { title: form.title, artist: form.artist, genre: form.genre, rightsConfirmed: "true" }, form.file, "audio");
+    const duration = await audioDuration(form.file.uri);
+    await upload("/music", { title: form.title, artist: form.artist, genre: form.genre, duration: Math.round(duration * 100) / 100, rightsConfirmed: "true" }, form.file, "audio");
     setForm({ file: null, title: "", artist: "", genre: "outro", rights: false });
   }, "Música carregada. Põe-na na biblioteca quando tiveres a licença.");
   if (!data) return error ? <AdminError error={error} /> : <Loading />;

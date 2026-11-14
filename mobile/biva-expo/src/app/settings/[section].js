@@ -6,6 +6,7 @@ import { Alert, Linking, Switch, Text, View } from "react-native";
 import { Avatar } from "../../components/Avatar";
 import { Badge, Button, Card, Chips, Empty, Field, Loading, Notice, Page, Row, dateOnly, dateTime, kz } from "../../components/ui";
 import { WEB_URL, api, downloadAndShare, saveToken, upload } from "../../lib/api";
+import { registerForPush } from "../../lib/push";
 import { useSession } from "../../lib/session";
 import { colors } from "../../lib/theme";
 import { SETTINGS_SECTIONS } from "./index";
@@ -195,9 +196,18 @@ function Privacy() {
 
 function Notifications() {
   const { preferences, save, notice } = usePreferences();
+  const [push, setPush] = useState(null); // { ok, reason } deste telemóvel
+  useEffect(() => { registerForPush({ ask: false }).then(setPush).catch(error => setPush({ ok: false, reason: error.message })); }, []);
   if (!preferences) return <Loading />;
   return <>
     <Notice {...notice} />
+    <Card title="Neste telemóvel" subtitle="Os avisos chegam mesmo com a app fechada.">
+      <Row icon={push?.ok ? "notifications" : "notifications-off"} tone={push?.ok ? "#30B350" : "#FF8A00"}
+        title={push === null ? "A verificar..." : push.ok ? "Notificações ligadas" : "Notificações desligadas"}
+        subtitle={push && !push.ok ? push.reason : undefined} />
+      {push && !push.ok && <Button variant="secondary" icon="notifications" label="Ligar notificações"
+        onPress={() => registerForPush({ ask: true }).then(setPush).catch(error => setPush({ ok: false, reason: error.message }))} />}
+    </Card>
     <Card title="Avisar-me sobre" subtitle="Avisos de dinheiro, segurança e da equipa chegam sempre.">
       {NOTIFY.map(([key, label]) => <Row key={key} icon="notifications" title={label}
         right={<Switch value={preferences.notify[key]} onValueChange={value => save({ notify: { [key]: value } })} trackColor={{ true: colors.primary }} />} />)}

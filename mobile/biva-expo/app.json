@@ -4,7 +4,7 @@
     "slug": "tchilar",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/tchilar-icon.png",
+    "icon": "./assets/icon-ios.png",
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
@@ -13,14 +13,21 @@
         "NSCameraUsageDescription": "O Tchilar usa a câmara para fotos, vídeos e diretos.",
         "NSMicrophoneUsageDescription": "O Tchilar usa o microfone para vídeos e diretos.",
         "NSPhotoLibraryUsageDescription": "O Tchilar acede às tuas fotos para as publicares."
-      }
+      },
+      "icon": "./assets/icon-ios.png"
     },
     "android": {
       "package": "ao.tchilar.app",
       "adaptiveIcon": {
         "backgroundColor": "#0B0B0C",
-        "foregroundImage": "./assets/tchilar-icon-foreground.png"
-      }
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "permissions": [
+        "CAMERA",
+        "RECORD_AUDIO",
+        "MODIFY_AUDIO_SETTINGS"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -36,11 +43,24 @@
           "image": "./assets/tchilar-splash.png",
           "imageWidth": 260,
           "resizeMode": "contain",
-          "backgroundColor": "#FFFFFF"
+          "backgroundColor": "#FFFFFF",
+          "dark": {
+            "image": "./assets/tchilar-splash-dark.png",
+            "backgroundColor": "#0B0B0C"
+          }
         }
       ],
       "expo-video",
-      "expo-sharing"
+      "expo-sharing",
+      "expo-audio",
+      "@config-plugins/react-native-webrtc",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#E30613"
+        }
+      ]
     ],
     "scheme": "tchilar"
   }

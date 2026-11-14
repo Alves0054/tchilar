@@ -17897,3 +17897,24 @@ button.reels-create-link {
 .prefs-phone { display: grid; gap: 10px; }
 .prefs-phone .entry-hint { margin: 0; }
 .prefs-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* Pesquisa */
+.search-page-form { display: flex; gap: 8px; align-items: center; margin-bottom: 14px; }
+.search-page-form .pages-search { flex: 1; max-width: none; }
+.search-tabs { margin-bottom: 16px; overflow-x: auto; }
+.search-section { margin-bottom: 22px; }
+.search-section h2 { font-size: 1.05rem; margin: 0 0 10px; }
+.search-tags { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.search-tags button { display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 999px; border: 1px solid var(--color-line); background: var(--color-surface); color: var(--color-text); cursor: pointer; }
+.search-tags button:hover { border-color: var(--color-primary-text); }
+.search-tags small { color: var(--color-text-muted); }
+.search-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.search-list a { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 14px; background: var(--color-surface); color: var(--color-text); text-decoration: none; }
+.search-list a:hover { background: var(--color-surface-muted); }
+.search-list a > span:last-child { display: grid; }
+.search-list small { color: var(--color-text-muted); }
+.search-posts { display: grid; gap: 12px; max-width: 680px; }
+.search-results .search-all { border-top: 1px solid var(--color-line); }
+.hashtag { color: var(--color-primary-text); font-weight: 700; text-decoration: none; }
+.hashtag:hover { text-decoration: underline; }
+@media (max-width: 600px) { .search-page-form { flex-direction: column; align-items: stretch; } }

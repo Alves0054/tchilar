@@ -359,6 +359,66 @@ test("phone number: optional, Angolan, unverified so never exclusive, never on t
   assert.equal((await call("PATCH", "/auth/me", users.carla, { phone: "" })).body.user.phone, null, "vazio apaga");
 });
 
+test("search finds people, posts, hashtags, groups and pages without leaking hidden things", { skip }, async () => {
+  const stamp = Date.now().toString(36);
+  const word = `kizomba${stamp}`;
+  const visible = await newPost(users.ana, { body: `Noite de ${word} em Luanda #${word} #Angola` });
+  await newPost(users.bruno, { body: `Treino de ${word}` });
+  const exclusive = await newPost(users.carla, { body: `Só para fãs #${word}`, isExclusive: true });
+  const group = (await call("POST", "/groups", users.ana, { name: `Dança ${word}`, description: "Aulas ao sábado" })).body.group;
+  const page = (await call("POST", "/pages", users.bruno, { name: `Escola ${word}`, pageType: "negocio", category: "loja" })).body.page;
+
+  const posts = (await call("GET", `/posts?q=${word}`, null)).body.posts.map(post => post.id); // sem sessão: sem subscrições
+  assert.ok(posts.includes(visible.id));
+  assert.equal(posts.includes(exclusive.id), false, "exclusivas só para subscritores");
+  const tagged = (await call("GET", `/posts?tag=${encodeURIComponent("#" + word)}`, null)).body.posts.map(post => post.id);
+  assert.deepEqual(tagged, [visible.id], "a hashtag tem de ser exata e visível");
+  assert.equal((await call("GET", "/posts?tag=nao%20vale", users.dino)).status, 400);
+  assert.equal((await call("GET", "/posts?q=100%25", users.dino)).status, 200, "% e _ são texto, não curingas");
+
+  const all = (await call("GET", `/search?q=${word}`, users.dino)).body;
+  assert.ok(all.hashtags.some(item => item.tag === word && item.posts === 1), "a exclusiva não conta");
+  assert.ok(all.groups.some(item => item.id === group.id));
+  assert.ok(all.pages.some(item => item.id === page.id));
+  assert.ok((await call("GET", "/search?q=carla", users.dino)).body.users.some(item => item.username === "carla"));
+  assert.equal((await call("GET", `/search?q=${word}`)).status, 401);
+});
+
+test("push: the phone of the person gets the notification once, and a revoked session stops it", { skip }, async () => {
+  const { createPush } = require("./push");
+  const token = `ExponentPushToken[it${Date.now()}abcdef]`;
+  assert.equal((await call("POST", "/push-tokens", users.bruno, { token: "not-a-token", platform: "ios" })).status, 400);
+  assert.equal((await call("POST", "/push-tokens", users.bruno, { token, platform: "android" })).status, 204);
+  const sent = [];
+  const fetchImpl = async (_url, options) => {
+    const chunk = JSON.parse(options.body);
+    sent.push(...chunk);
+    return { ok: true, json: async () => ({ data: chunk.map(() => ({ status: "ok" })) }) };
+  };
+  const push = createPush({ pool, fetchImpl, log: { error() {} } });
+  await push.processPending(); // limpa o que os outros testes deixaram por enviar
+  sent.length = 0;
+
+  await call("POST", `/messages/${users.bruno.id}`, users.ana, { body: "Olá Bruno, isto é privado" });
+  await push.processPending();
+  const mine = sent.filter(message => message.to === token);
+  assert.equal(mine.length, 1);
+  assert.equal(mine[0].title, "Ana");
+  assert.equal(mine[0].data.url, `/chat/${users.ana.id}`);
+  assert.equal(mine[0].body.includes("privado"), false, "o texto da mensagem não vai no aviso");
+  await push.processPending();
+  assert.equal(sent.filter(message => message.to === token).length, 1, "nunca envia o mesmo aviso duas vezes");
+
+  // Terminar as sessões (auth_version+1) desliga o telemóvel antigo.
+  await pool.query("UPDATE users SET auth_version=auth_version+1 WHERE id=$1", [users.bruno.id]);
+  await call("POST", `/messages/${users.bruno.id}`, users.ana, { body: "Outra" });
+  await push.processPending();
+  assert.equal(sent.filter(message => message.to === token).length, 1);
+  await pool.query("UPDATE users SET auth_version=auth_version-1 WHERE id=$1", [users.bruno.id]);
+  assert.equal((await call("DELETE", "/push-tokens", users.bruno, { token })).status, 204);
+  assert.equal((await pool.query("SELECT 1 FROM push_tokens WHERE token=$1", [token])).rowCount, 0);
+});
+
 test("payments: each person sees their receipts and the team sees, filters and exports them all", { skip }, async () => {
   const stars = (await pool.query(
     "INSERT INTO star_purchases(user_id,stars,amount_kz,status,paid_at) VALUES($1,100,1500,'paid',NOW()) RETURNING id", [users.ana.id])).rows[0].id;

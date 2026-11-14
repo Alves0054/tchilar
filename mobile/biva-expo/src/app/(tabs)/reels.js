@@ -56,7 +56,7 @@ export default function Reels() {
       onEndReached={() => { if (cursor) load(cursor); }}
       getItemLayout={(_, index) => ({ length: height, offset: height * index, index })}
       renderItem={({ item, index }) => <View style={{ height }}>
-        {Math.abs(index - current) <= 1 && <VideoPost uri={mediaUri(item.media_url)} playing={focused && index === current} style={StyleSheet.absoluteFill} fullScreen />}
+        {Math.abs(index - current) <= 1 && <VideoPost uri={mediaUri(item.media_url)} playing={focused && index === current} style={StyleSheet.absoluteFill} fullScreen edit={item.video_edit} music={item.music} />}
         <View style={[styles.side, { bottom: 24 + insets.bottom * 0 }]}>
           <Pressable style={styles.sideButton} onPress={() => like(item, index)} accessibilityLabel="Gostar">
             <Ionicons name={item.liked ? "heart" : "heart-outline"} size={32} color={item.liked ? colors.accent : "#fff"} />

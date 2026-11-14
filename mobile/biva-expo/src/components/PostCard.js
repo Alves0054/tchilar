@@ -8,6 +8,7 @@ import { useSession } from "../lib/session";
 import { remember } from "../lib/store";
 import { colors, relativeTime } from "../lib/theme";
 import { Avatar } from "./Avatar";
+import { TextWithTags } from "./TextWithTags";
 import { REPORT_REASONS, useOptions } from "./OptionsSheet";
 import { usePrompt } from "./usePrompt";
 import { VideoPost } from "./VideoPost";
@@ -100,12 +101,12 @@ export function PostCard({ post, showCommentButton = true, onRemoved }) {
       </Pressable>
       <Pressable onPress={more} hitSlop={10} accessibilityLabel="Mais opções"><Ionicons name="ellipsis-horizontal" size={20} color={colors.muted} /></Pressable>
     </View>
-    {Boolean(body) && <Text style={styles.body}>{body}</Text>}
+    {Boolean(body) && <TextWithTags style={styles.body} text={body} />}
     {media && post.media_type === "image" && <Image source={{ uri: media }} style={styles.media} contentFit="cover" transition={200} />}
-    {media && post.media_type === "video" && <VideoPost uri={media} style={styles.media} />}
+    {media && post.media_type === "video" && <VideoPost uri={media} style={styles.media} edit={post.video_edit} music={post.music} />}
     {post.shared && !post.shared.unavailable && <View style={styles.shared}>
       <Text style={styles.sharedName}>{post.shared.display_name}</Text>
-      {Boolean(post.shared.body) && <Text style={styles.body} numberOfLines={4}>{post.shared.body}</Text>}
+      {Boolean(post.shared.body) && <TextWithTags style={styles.body} numberOfLines={4} text={post.shared.body} />}
     </View>}
     <View style={styles.actions}>
       <Pressable style={styles.action} onPress={toggleLike} accessibilityRole="button" accessibilityLabel={liked ? "Retirar gosto" : "Gostar"}>

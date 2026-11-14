@@ -42,6 +42,7 @@ const { canReach, onlineSql, readPreferences, updatePreferences } = require("./p
 const { POST_MUSIC_SQL, registerMusicRoutes } = require("./music-routes");
 const { parseBirthDate } = require("./growth");
 const { adultSql, parseAccessPrice, sameGroupName } = require("./groups");
+const { createPush } = require("./push");
 const { parseGroupPrivacy, parseGroupTopic, parsePageType, parseStoryBackground } = require("./community-types");
 const QRCode = require("qrcode");
 const { MODERATION_ACTIONS, REPORT_REASONS, blockedBetween, shouldAutoHide } = require("./moderation");
@@ -1109,9 +1110,15 @@ app.get("/api/posts", optionalAuth, async (req, res) => {
   // feed=following: só eu, amigos, quem sigo, páginas que sigo e grupos onde estou.
   const scope = req.query.feed === undefined ? "all" : req.query.feed;
   const before = req.query.before === undefined ? null : parseId(req.query.before);
+  // Pesquisa: q procura no texto; tag procura uma hashtag exata (#luanda encontra "#Luanda", não "#luandense").
+  const text = searchTerm(req.query.q);
+  const tag = req.query.tag === undefined ? null : parseHashtag(req.query.tag);
   const limit = 20;
   if (!["all", "following"].includes(scope) || (req.query.before !== undefined && !before)) {
     return res.status(400).json({ error: "Filtro de publicações inválido." });
+  }
+  if ((req.query.q !== undefined && text === null) || (req.query.tag !== undefined && !tag)) {
+    return res.status(400).json({ error: "Pesquisa inválida." });
   }
   if (scope === "following" && !req.user) {
     return res.status(401).json({ error: "Entra na tua conta para ver o feed de quem segues." });
@@ -1171,8 +1178,11 @@ app.get("/api/posts", optionalAuth, async (req, res) => {
       AND ($7::int IS NULL
         OR (p.created_at, p.id) < (SELECT c.created_at, c.id FROM posts c WHERE c.id=$7)
         OR (NOT EXISTS(SELECT 1 FROM posts c WHERE c.id=$7) AND p.id < $7))
+      AND ($8::text IS NULL OR p.body ILIKE $8 ESCAPE '\\')
+      AND ($9::text IS NULL OR p.body ~* $9)
     ORDER BY p.created_at DESC, p.id DESC LIMIT ${limit}
-  `, [currentUser, username, groupId, pageId, mediaType, scope, before]);
+  `, [currentUser, username, groupId, pageId, mediaType, scope, before,
+    text ? likePattern(text) : null, tag ? hashtagRegex(tag) : null]);
   res.json({
     posts: r.rows.map(serializePost),
     nextCursor: r.rows.length === limit ? r.rows[r.rows.length - 1].id : null
@@ -1359,6 +1369,65 @@ app.post("/api/posts/:id/comments", auth, async (req, res) => {
     return result.rows[0];
   });
   res.status(201).json({ comment });
+});
+
+// ----- Pesquisa -----
+// Texto de pesquisa: 1 a 100 caracteres. undefined → null (sem filtro); inválido → null também, quem chama decide.
+function searchTerm(raw) {
+  if (typeof raw !== "string") return null;
+  const value = raw.replace(/\s+/g, " ").trim();
+  return value.length >= 1 && value.length <= 100 ? value : null;
+}
+const likePattern = value => `%${value.replace(/[\\%_]/g, "\\$&")}%`;
+// Hashtag: letras (com acentos), números e _, até 50. Só estes caracteres entram na expressão regular.
+function parseHashtag(raw) {
+  if (typeof raw !== "string") return null;
+  const value = raw.trim().replace(/^#/, "");
+  return /^[\p{L}\p{N}_]{1,50}$/u.test(value) ? value : null;
+}
+const hashtagRegex = tag => `(^|[^[:alnum:]_])#${tag}([^[:alnum:]_]|$)`;
+
+const searchRateLimit = makeRateLimit("search", {
+  windowMs: 60 * 1000, limit: 90, standardHeaders: "draft-8", legacyHeaders: false,
+  message: { error: "Demasiadas pesquisas. Espera um minuto." }
+});
+
+// Pesquisa geral: pessoas, grupos, páginas e hashtags. As publicações vêm de GET /api/posts?q= (ou ?tag=),
+// que já aplica as regras de quem pode ver o quê. Grupos secretos nunca aparecem aqui.
+app.get("/api/search", auth, searchRateLimit, async (req, res) => {
+  const term = searchTerm(req.query.q);
+  if (!term) return res.json({ users: [], groups: [], pages: [], hashtags: [] });
+  const tagPrefix = parseHashtag(term.replace(/^#/, "").split(" ")[0]);
+  const like = likePattern(term.replace(/^#/, ""));
+  const [users, groups, pages, hashtags] = await Promise.all([
+    pool.query(`
+      SELECT id,username,display_name,avatar_url,is_creator,partner_since IS NOT NULL AS is_verified
+      FROM users
+      WHERE id<>$1 AND suspended_at IS NULL AND NOT ${blockedBetween("$1", "users.id")}
+        AND (username ILIKE $2 ESCAPE '\\' OR display_name ILIKE $2 ESCAPE '\\')
+      ORDER BY (lower(username)=lower($3)) DESC, display_name LIMIT 20`, [req.user.id, like, term.replace(/^@/, "")]),
+    pool.query(`
+      SELECT g.id,g.name,g.description,g.topic,g.requires_approval,
+        (SELECT COUNT(*) FROM group_members m WHERE m.group_id=g.id)::int AS member_count,
+        EXISTS(SELECT 1 FROM group_members m WHERE m.group_id=g.id AND m.user_id=$1) AS is_member
+      FROM social_groups g
+      WHERE g.hidden_at IS NULL AND NOT g.is_secret AND (g.name ILIKE $2 ESCAPE '\\' OR g.description ILIKE $2 ESCAPE '\\')
+      ORDER BY member_count DESC, g.created_at DESC LIMIT 20`, [req.user.id, like]),
+    pool.query(`
+      SELECT p.id,p.name,p.page_type,p.category,p.description,
+        (SELECT COUNT(*) FROM page_followers f WHERE f.page_id=p.id)::int AS follower_count
+      FROM pages p
+      WHERE p.hidden_at IS NULL AND (p.name ILIKE $1 ESCAPE '\\' OR p.description ILIKE $1 ESCAPE '\\' OR p.category ILIKE $1 ESCAPE '\\')
+      ORDER BY follower_count DESC, p.created_at DESC LIMIT 20`, [like]),
+    // Hashtags que começam pelo que foi escrito, nas publicações públicas dos últimos 6 meses.
+    tagPrefix ? pool.query(`
+      SELECT lower(m[1]) AS tag, COUNT(DISTINCT p.id)::int AS posts
+      FROM posts p CROSS JOIN LATERAL regexp_matches(p.body, '#([[:alnum:]_]{1,50})', 'g') m
+      WHERE p.hidden_at IS NULL AND p.group_id IS NULL AND NOT p.is_exclusive
+        AND p.created_at > NOW() - INTERVAL '180 days' AND lower(m[1]) LIKE $1 ESCAPE '\\'
+      GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT 10`, [`${tagPrefix.toLowerCase().replace(/_/g, "\\_")}%`]) : { rows: [] }
+  ]);
+  res.json({ users: users.rows, groups: groups.rows, pages: pages.rows, hashtags: hashtags.rows });
 });
 
 app.get("/api/users/search", auth, async (req, res) => {
@@ -1997,7 +2066,7 @@ app.post("/api/events/:eventId/rsvp", auth, async (req, res) => {
 app.get("/api/notifications", auth, async (req, res) => {
   const [notifications, unread] = await Promise.all([
     pool.query(`
-      SELECT n.id,n.type,n.text,n.read,n.created_at,
+      SELECT n.id,n.type,n.text,n.read,n.created_at,n.actor_id,
         u.username AS actor_username,u.display_name AS actor_name,u.avatar_url AS actor_avatar
       FROM notifications n LEFT JOIN users u ON u.id=n.actor_id
       WHERE n.user_id=$1 ORDER BY n.created_at DESC LIMIT 50`, [req.user.id]),
@@ -2519,6 +2588,10 @@ const growth = registerGrowthRoutes(app, {
 // Chave para cifrar os IBAN dos criadores (obrigatória em produção; ver README).
 const payoutKey = loadKey({ payoutKey: process.env.PAYOUT_ENCRYPTION_KEY, jwtSecret: JWT_SECRET, isProduction: !isDevelopment });
 registerLiveRoutes(app, { pool, auth, presenceAuth, optionalAuth, parseId, isRecord, cleanText, transaction, blockedBetween, rateLimit: accountSecurityRateLimit });
+// Notificações push para a app (via Expo). O envio só arranca em startServer (os testes não enviam nada).
+const push = createPush({ pool, accessToken: process.env.EXPO_ACCESS_TOKEN || "" });
+push.registerRoutes(app, { auth, isRecord });
+
 const music = registerMusicRoutes(app, { pool, auth, optionalAuth, requireAdmin: requireRole("moderation"), parseId, isRecord, uploadDir, removeUpload, rateLimit: options => makeRateLimit("music", options) });
 registerFinanceRoutes(app, { pool, auth, requireRole, parseId, isRecord, cleanText, transaction, payments, payoutKey });
 registerHomeRoutes(app, { pool, auth, blockedBetween });
@@ -2611,6 +2684,7 @@ async function startServer() {
     throw new Error("APP_URL deve ser um URL absoluto válido.");
   }
   await initDb();
+  if (process.env.PUSH_NOTIFICATIONS !== "false") push.start();
   if (proxypay) {
     const timer = setInterval(() => payments.pollProxyPay().catch(error => console.error("ProxyPay poll:", error.message)), 60_000);
     timer.unref();

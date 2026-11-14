@@ -1,10 +1,13 @@
 import { Stack } from "expo-router";
+import { useEffect } from "react";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { SessionProvider } from "../lib/session";
 import { nativeHeaderOptions } from "../lib/headers";
+import { listenToPushTaps } from "../lib/push";
 
 export default function RootLayout() {
+  useEffect(() => listenToPushTaps(), []);
   return <SafeAreaProvider>
     <SessionProvider>
       <StatusBar style="dark" />
@@ -30,6 +33,7 @@ export default function RootLayout() {
         <Stack.Screen name="u/[username]" options={{ title: "Perfil" }} />
         <Stack.Screen name="live/index" options={{ title: "Diretos" }} />
         <Stack.Screen name="live/[id]" options={{ title: "Direto" }} />
+        <Stack.Screen name="live/new" options={{ title: "Entrar em direto", presentation: "fullScreenModal" }} />
         <Stack.Screen name="creator" options={{ title: "Painel do criador" }} />
         <Stack.Screen name="stars" options={{ title: "Estrelas" }} />
         <Stack.Screen name="brands" options={{ title: "Marcas" }} />

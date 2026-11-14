@@ -4,7 +4,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { downscaleImage } from "../PhotoEditors.jsx";
 import { Auth } from "./auth.jsx";
 import { API_BASE, Avatar, Icon, UserContext, VideoPlayer, api, formatCount, formatPrice, token } from "./core.jsx";
-import { InfoLinks, LiveBadge, SponsoredSlot, StarGiftButton, VerifiedBadge, pageTone } from "./shared.jsx";
+import { InfoLinks, LiveBadge, SponsoredSlot, StarGiftButton, TextWithTags, VerifiedBadge, pageTone } from "./shared.jsx";
 import { HomeDiscover, HomeNow, PresenceAvatar } from "./home.jsx";
 import { DEFAULT_STORY_BACKGROUND, STORY_COLORS, STORY_THEMES, storyBackgroundStyle } from "./community-types.js";
 
@@ -380,7 +380,7 @@ export function SharedPostPreview({ post, compact = false }) {
         <Link to={`/u/${post.username}`} aria-label={`Perfil de ${post.display_name}`}><Avatar user={post} size="tiny" /></Link>
         <span><Link className="post-author" to={`/u/${post.username}`}>{post.display_name}</Link><small>{relativeTime(post.created_at)}</small></span>
       </div>
-      {post.body && <p className="shared-post-body">{post.body}</p>}
+      {post.body && <p className="shared-post-body"><TextWithTags text={post.body} /></p>}
     </div>
   </div>;
 }
@@ -587,7 +587,7 @@ export function PostCard({ post, onChanged }) {
           <button className="btn" type="submit" disabled={busy}>{busy ? "A guardar..." : "Guardar"}</button>
         </div>
       </form>
-      : body && <p className="post-body">{body}</p>}
+      : body && <p className="post-body"><TextWithTags text={body} /></p>}
     {post.shared && <SharedPostPreview post={post.shared} />}
     {post.media_url && (post.media_type === "video"
       ? <VideoPlayer className="media" src={`${API_BASE}${post.media_url}`} edit={post.video_edit} label={`Vídeo de ${post.display_name}`}

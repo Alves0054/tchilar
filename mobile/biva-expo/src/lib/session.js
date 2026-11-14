@@ -1,6 +1,7 @@
 // Sessão: quem está a usar a app. Ao abrir, confirma o token guardado com a API.
 import { createContext, createElement, useCallback, useContext, useEffect, useState } from "react";
 import { api, clearToken, readToken, saveToken } from "./api";
+import { registerForPush, unregisterPush } from "./push";
 
 const SessionContext = createContext(null);
 
@@ -23,6 +24,10 @@ export function SessionProvider({ children }) {
     }
   }, []);
   useEffect(() => { refresh(); }, [refresh]);
+  // Com sessão iniciada, regista este telemóvel para notificações push (pede autorização uma vez).
+  useEffect(() => {
+    if (user?.id) registerForPush().catch(() => {});
+  }, [user?.id]);
 
   // code: só quando a conta tem verificação em dois passos (a API responde twoFactorRequired).
   const signIn = async (email, password, code) => {
@@ -31,6 +36,7 @@ export function SessionProvider({ children }) {
     setUser(result.user);
   };
   const signOut = async () => {
+    await unregisterPush();
     await clearToken();
     setUser(null);
   };

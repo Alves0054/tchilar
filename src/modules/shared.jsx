@@ -390,3 +390,11 @@ export const pageTone = category => {
 // Monograma: iniciais das duas primeiras palavras ("Loja da Rita" → "LR").
 export const pageMonogram = name => (name || "?").split(/\s+/).filter(word => word.length > 2 || /^[A-ZÁ-Ú]/.test(word))
   .slice(0, 2).map(word => word.charAt(0).toUpperCase()).join("") || (name || "?").charAt(0).toUpperCase();
+
+// Texto de uma publicação com as hashtags clicáveis (levam à pesquisa dessa hashtag).
+const TAG_SPLIT = /(#[\p{L}\p{N}_]{1,50})/u;
+export function TextWithTags({ text }) {
+  return text.split(TAG_SPLIT).map((part, index) => index % 2
+    ? <Link key={index} className="hashtag" to={`/search?q=${encodeURIComponent(part)}&tab=posts`}>{part}</Link>
+    : part);
+}
