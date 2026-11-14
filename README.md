@@ -6,6 +6,8 @@ _Conecta · Partilha · Vive_
 
 Rede social de criadores com feed, perfis, amizades, grupos, páginas, eventos e mensagens.
 
+> Começa pela nota geral: [`NOTA-TCHILAR.md`](NOTA-TCHILAR.md) (o que existe, como correr e o que falta).
+
 ## Funcionalidades
 
 - Registo, login, confirmação de email e recuperação de palavra-passe
