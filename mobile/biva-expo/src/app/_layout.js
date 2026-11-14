@@ -18,9 +18,9 @@ export default function RootLayout() {
         <Stack.Screen name="story/new" options={{ headerShown: false, presentation: "fullScreenModal" }} />
         <Stack.Screen name="story/[index]" options={{ headerShown: false, presentation: "fullScreenModal", animation: "fade" }} />
         <Stack.Screen name="post/[id]" options={{ title: "Comentários" }} />
-        <Stack.Screen name="messages" options={{ title: "Mensagens" }} />
         <Stack.Screen name="chat/[id]" options={{ title: "Conversa" }} />
         <Stack.Screen name="search" options={{ title: "Pesquisar" }} />
+        <Stack.Screen name="notifications" options={{ title: "Notificações" }} />
         <Stack.Screen name="friends" options={{ title: "Amigos" }} />
         <Stack.Screen name="group/[id]" options={{ title: "Grupo" }} />
         <Stack.Screen name="secret-groups" options={{ title: "Grupos secretos" }} />

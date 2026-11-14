@@ -1,5 +1,4 @@
 import { Ionicons } from "@expo/vector-icons";
-import { Image } from "expo-image";
 import { router, useFocusEffect, useNavigation } from "expo-router";
 import { useCallback, useEffect, useLayoutEffect, useState } from "react";
 import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
@@ -11,20 +10,20 @@ import { api } from "../../../lib/api";
 import { useSession } from "../../../lib/session";
 import { colors } from "../../../lib/theme";
 
-function HeaderActions() {
+// Sino de notificações no topo do Início, com o número de não lidas (atualiza ao voltar ao ecrã e a cada 30 s).
+function NotificationsBell() {
   const [unread, setUnread] = useState(0);
   useFocusEffect(useCallback(() => {
-    api("/messages/unread-count").then(result => setUnread(result.unread)).catch(() => {});
+    const load = () => api("/notifications").then(result => setUnread(result.unreadCount)).catch(() => {});
+    load();
+    const timer = setInterval(load, 30000);
+    return () => clearInterval(timer);
   }, []));
-  return <View style={styles.headerActions}>
-    <Pressable style={styles.round} onPress={() => router.push("/search")} accessibilityLabel="Pesquisar">
-      <Ionicons name="search" size={21} color={colors.text} />
-    </Pressable>
-    <Pressable style={styles.round} onPress={() => router.push("/messages")} accessibilityLabel={unread ? `Mensagens, ${unread} por ler` : "Mensagens"}>
-      <Ionicons name="chatbubble-ellipses" size={21} color={colors.text} />
-      {unread > 0 && <View style={styles.badge}><Text style={styles.badgeText}>{unread > 99 ? "99+" : unread}</Text></View>}
-    </Pressable>
-  </View>;
+  return <Pressable style={styles.headerButton} onPress={() => router.push("/notifications")} hitSlop={8}
+    accessibilityLabel={unread ? `Notificações, ${unread} por ler` : "Notificações"}>
+    <Ionicons name="notifications-outline" size={24} color={colors.text} />
+    {unread > 0 && <View style={styles.bellBadge}><Text style={styles.bellBadgeText}>{unread > 99 ? "99+" : unread}</Text></View>}
+  </Pressable>;
 }
 
 // Início: stories, caixa para publicar, "Para ti / A seguir" e as publicações (carrega mais ao chegar ao fim).
@@ -41,9 +40,11 @@ export default function Feed() {
 
   useLayoutEffect(() => {
     navigation.setOptions({
-      headerTitle: () => <Image source={require("../../../../assets/tchilar-icon.png")} style={styles.logo} contentFit="contain" />,
-      headerTitleAlign: "left",
-      headerRight: () => <HeaderActions />
+      headerTitleAlign: "center",
+      headerLeft: () => <Pressable style={styles.headerButton} onPress={() => router.push("/search")} hitSlop={8} accessibilityLabel="Pesquisar">
+        <Ionicons name="search" size={23} color={colors.text} />
+      </Pressable>,
+      headerRight: () => <NotificationsBell />
     });
   }, [navigation]);
 
@@ -103,11 +104,9 @@ export default function Feed() {
 }
 
 const styles = StyleSheet.create({
-  logo: { width: 36, height: 36 },
-  headerActions: { flexDirection: "row", gap: 8, marginRight: 12 },
-  round: { width: 38, height: 38, borderRadius: 19, backgroundColor: colors.background, alignItems: "center", justifyContent: "center" },
-  badge: { position: "absolute", top: -3, right: -3, minWidth: 18, height: 18, paddingHorizontal: 4, borderRadius: 9, backgroundColor: colors.accent, alignItems: "center", justifyContent: "center" },
-  badgeText: { color: "#fff", fontSize: 10, fontWeight: "800" },
+  headerButton: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
+  bellBadge: { position: "absolute", top: 2, right: 0, minWidth: 18, height: 18, paddingHorizontal: 4, borderRadius: 9, backgroundColor: colors.accent, alignItems: "center", justifyContent: "center" },
+  bellBadgeText: { color: "#fff", fontSize: 10, fontWeight: "800" },
   composer: { flexDirection: "row", alignItems: "center", gap: 10, marginHorizontal: 12, padding: 10, borderRadius: 16, backgroundColor: colors.surface, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.line },
   composerText: { flex: 1, color: colors.muted, fontSize: 15 },
   tabs: { flexDirection: "row", gap: 8, padding: 12 },

@@ -106,8 +106,10 @@ function createPush({ pool, fetchImpl = globalThis.fetch, accessToken = "", log 
       await pool.query(`
         INSERT INTO push_tokens(token,user_id,platform,auth_version)
         SELECT $1,u.id,$3,u.auth_version FROM users u WHERE u.id=$2
-        ON CONFLICT (token) DO UPDATE SET user_id=EXCLUDED.user_id, platform=EXCLUDED.platform,
-          auth_version=EXCLUDED.auth_version, updated_at=NOW()`, [token, req.user.id, body.platform]);
+        ON CONFLICT (token) DO UPDATE SET platform=EXCLUDED.platform, auth_version=EXCLUDED.auth_version, updated_at=NOW()
+        WHERE push_tokens.user_id=EXCLUDED.user_id`, [token, req.user.id, body.platform]);
+      // Um token que já é de outra conta não muda de dono (ninguém pode desviar os avisos de outro telemóvel).
+      // Ao terminar sessão, a app apaga o token; só depois outra conta o pode registar nesse telemóvel.
       // No máximo 10 telemóveis por conta: sai o que não abre a app há mais tempo.
       await pool.query(`
         DELETE FROM push_tokens WHERE user_id=$1 AND token NOT IN (

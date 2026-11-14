@@ -17,6 +17,9 @@ let webrtc = null;
 try { webrtc = require("react-native-webrtc"); } catch { webrtc = null; }
 
 const HEARTBEAT_MS = 20_000;
+// Sai do ecrã: volta para trás, ou para a lista de diretos se não houver para onde voltar.
+const leave = () => (router.canGoBack() ? router.back() : router.replace("/live"));
+const closeHeader = { title: "Entrar em direto", headerLeft: () => <Pressable onPress={leave} hitSlop={12} accessibilityLabel="Fechar"><Ionicons name="close" size={26} color={colors.text} /></Pressable> };
 const CATEGORY_LABELS = { conversa: "Conversa", musica: "Música", jogos: "Jogos", desporto: "Desporto", educacao: "Educação", negocios: "Negócios", fe: "Fé", arte: "Arte", outro: "Outro" };
 
 // Publica o vídeo por WHIP: oferta SDP → servidor responde com a resposta SDP.
@@ -128,7 +131,7 @@ export default function GoLive() {
 
   if (!webrtc) {
     return <SafeAreaView style={[styles.screen, styles.center]}>
-      <Stack.Screen options={{ title: "Entrar em direto" }} />
+      <Stack.Screen options={closeHeader} />
       <Ionicons name="radio" size={44} color={colors.accent} />
       <Text style={styles.noteTitle}>Diretos na app instalada</Text>
       <Text style={styles.note}>Transmitir do telemóvel usa um módulo de vídeo que o Expo Go não tem. Na app instalada (Play Store, App Store ou versão de teste) funciona. Por agora, usa o estúdio do site.</Text>
@@ -137,7 +140,7 @@ export default function GoLive() {
   }
   if (config && !config.browserPublish) {
     return <SafeAreaView style={[styles.screen, styles.center]}>
-      <Stack.Screen options={{ title: "Entrar em direto" }} />
+      <Stack.Screen options={closeHeader} />
       <Text style={styles.noteTitle}>Ainda não disponível</Text>
       <Text style={styles.note}>Este servidor ainda não tem o servidor de vídeo ligado (MediaMTX). Sem ele, os diretos só se fazem no estúdio do site.</Text>
       <Button label="Abrir o estúdio no site" icon="open" onPress={() => Linking.openURL(`${WEB_URL}/live`)} />
@@ -151,7 +154,7 @@ export default function GoLive() {
     {stream && <RTCView streamURL={stream.toURL()} style={StyleSheet.absoluteFill} objectFit="cover" mirror={facing === "user"} />}
     <SafeAreaView style={styles.overlay} edges={["top", "bottom"]}>
       <View style={styles.top}>
-        <Pressable onPress={() => (live ? end() : router.back())} hitSlop={12} accessibilityLabel={live ? "Terminar" : "Fechar"}>
+        <Pressable onPress={() => (live ? end() : leave())} hitSlop={12} accessibilityLabel={live ? "Terminar" : "Fechar"}>
           <Ionicons name="close" size={30} color="#fff" />
         </Pressable>
         {live && <View style={styles.badge}><Text style={styles.badgeText}>AO VIVO</Text></View>}

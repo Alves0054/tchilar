@@ -389,6 +389,8 @@ test("push: the phone of the person gets the notification once, and a revoked se
   const token = `ExponentPushToken[it${Date.now()}abcdef]`;
   assert.equal((await call("POST", "/push-tokens", users.bruno, { token: "not-a-token", platform: "ios" })).status, 400);
   assert.equal((await call("POST", "/push-tokens", users.bruno, { token, platform: "android" })).status, 204);
+  await call("POST", "/push-tokens", users.carla, { token, platform: "android" });
+  assert.equal((await pool.query("SELECT user_id FROM push_tokens WHERE token=$1", [token])).rows[0].user_id, users.bruno.id, "outra conta não fica com o token");
   const sent = [];
   const fetchImpl = async (_url, options) => {
     const chunk = JSON.parse(options.body);

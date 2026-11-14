@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import { Image } from "expo-image";
 import { router, useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from "react-native";
@@ -73,11 +74,19 @@ export default function Reels() {
         </Pressable>
       </View>}
     />}
-    <Text style={[styles.title, { top: insets.top + 8 }]}>Reels</Text>
+    <View style={[styles.topBar, { top: insets.top + 6 }]}>
+      {router.canGoBack() && <Pressable onPress={() => router.back()} hitSlop={12} accessibilityLabel="Voltar">
+        <Ionicons name="chevron-back" size={30} color="#fff" />
+      </Pressable>}
+      <Image source={require("../../../assets/tchilar-splash-dark.png")} style={styles.logo} contentFit="contain" accessibilityLabel="Tchilar Reels" />
+    </View>
   </View>;
 }
 
 const styles = StyleSheet.create({
+  topBar: { position: "absolute", left: 10, flexDirection: "row", alignItems: "center", gap: 6 },
+  logo: { width: 115, height: 28 },
+  titleText: { color: "#fff", fontSize: 22, fontWeight: "800", textShadowColor: "rgba(0,0,0,0.5)", textShadowRadius: 6 },
   screen: { flex: 1, backgroundColor: "#000" },
   center: { marginTop: 200 },
   message: { color: "#fff", textAlign: "center", marginTop: 200, paddingHorizontal: 24 },

@@ -1,9 +1,9 @@
 import { router, useFocusEffect } from "expo-router";
 import { useCallback, useState } from "react";
 import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
-import { Avatar } from "../../../components/Avatar";
-import { api } from "../../../lib/api";
-import { colors, relativeTime } from "../../../lib/theme";
+import { Avatar } from "../components/Avatar";
+import { api } from "../lib/api";
+import { colors, relativeTime } from "../lib/theme";
 
 // Para onde vai cada notificação (igual ao que o servidor manda nos avisos push).
 export function notificationRoute(item) {

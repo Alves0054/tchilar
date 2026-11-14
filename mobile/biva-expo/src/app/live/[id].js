@@ -70,7 +70,8 @@ export default function LiveViewer() {
 
   const ended = feed?.status && feed.status !== "live";
   return <SafeAreaView style={[styles.screen, { paddingTop: top }]} edges={["bottom"]}>
-    <Stack.Screen options={{ title: live?.title || "Direto" }} />
+    <Stack.Screen options={{ title: live?.title || "Direto", headerLeft: () => <Pressable onPress={() => (router.canGoBack() ? router.back() : router.replace("/live"))} hitSlop={12} accessibilityLabel="Voltar">
+      <Ionicons name="chevron-back" size={28} color={colors.text} /></Pressable> }} />
     <View style={styles.video}>
       {live?.playback?.hls && !ended ? <VideoPost uri={live.playback.hls} playing fullScreen style={StyleSheet.absoluteFill} />
         : <View style={styles.noVideo}>

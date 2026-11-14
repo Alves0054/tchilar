@@ -1,9 +1,9 @@
 import { router, useFocusEffect } from "expo-router";
 import { useCallback, useState } from "react";
 import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
-import { Avatar } from "../components/Avatar";
-import { api } from "../lib/api";
-import { colors, relativeTime } from "../lib/theme";
+import { Avatar } from "../../../components/Avatar";
+import { api } from "../../../lib/api";
+import { colors, relativeTime } from "../../../lib/theme";
 
 export default function Messages() {
   const [conversations, setConversations] = useState(null);
