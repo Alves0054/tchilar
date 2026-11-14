@@ -49,7 +49,6 @@ export function HomeNow({ now }) {
 // Porque é que esta sugestão aparece (o motivo ajuda a pessoa a decidir).
 function personReason(person) {
   if (person.mutual_count) return `${person.mutual_count} ${person.mutual_count === 1 ? "amigo" : "amigos"} em comum`;
-  if (person.same_province) return "Da tua província";
   return "Chegou há pouco ao Tchilar";
 }
 function communityReason(item, noun) {

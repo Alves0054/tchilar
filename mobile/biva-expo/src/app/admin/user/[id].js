@@ -65,14 +65,14 @@ export default function AdminUser() {
         options={[["", "Sem acesso"], ["moderation", "Moderação"], ["finance", "Finanças"], ["super", "Administração total"]]} />
     </Card>}
     <Card title="Atividade">
-      <Stats items={[["Publicações", count(user.posts)], ["Amigos", count(user.friends)], ["Seguidores", count(user.followers)], ["Gastou no Tchilar", kz(data.spent)],
+      <Stats items={[["Publicações", count(user.posts)], ["Amigos", count(user.friends)], ["Seguidores", count(user.followers)], !data.money_hidden && ["Gastou no Tchilar", kz(data.spent)],
         ["Denúncias recebidas", count(user.reports_total), user.reports_open ? `${user.reports_open} abertas` : null], ["Denúncias feitas", count(user.reports_made)]]} />
       <Row icon="calendar" title="Conta criada" subtitle={dateTime(user.created_at)} />
       <Row icon="time" title="Última atividade" subtitle={user.last_seen_at ? dateTime(user.last_seen_at) : "Nunca"} />
       <Row icon="location" title="Província" subtitle={user.province || "—"} />
       <Row icon="people" title="Convidado por" subtitle={user.referred_by ? `@${user.referred_by}` : "—"} />
     </Card>
-    <Card title="Pagamentos">
+    {!data.money_hidden && <><Card title="Pagamentos">
       {data.payments.length === 0 ? <Empty text="Sem pagamentos." /> : data.payments.map(payment => <Row key={`${payment.kind}-${payment.id}`} icon="receipt"
         title={`${kz(payment.amount)} · ${payment.description}`} subtitle={`${payment.receipt} · ${dateTime(payment.paid_at)} · ${payment.method_label}`}
         right={<Badge label={payment.status_label} tone={payment.status === "paid" ? "good" : "warning"} />} />)}
@@ -80,7 +80,7 @@ export default function AdminUser() {
     <Card title="Levantamentos">
       {data.payouts.length === 0 ? <Empty text="Sem levantamentos." /> : data.payouts.map(payout => <Row key={payout.id} icon="cash"
         title={kz(payout.amount)} subtitle={`${payout.bank_name} · IBAN •••• ${payout.iban_last4} · ${dateTime(payout.created_at)}`} right={<Badge label={payout.status} />} />)}
-    </Card>
+    </Card></>}
     <Card title="Denúncias sobre esta conta">
       {data.reports.length === 0 ? <Empty text="Nenhuma denúncia." /> : data.reports.map(report => <Row key={report.id} icon="flag"
         title={report.reason} subtitle={`${report.target_type} · ${dateTime(report.created_at)}`} right={<Badge label={report.status} />} />)}

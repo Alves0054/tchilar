@@ -70,18 +70,18 @@ function registerHomeRoutes(app, { pool, auth, blockedBetween }) {
         ORDER BY friend_count DESC, p.page_type IN (SELECT page_type FROM my_types) DESC, follower_count DESC, p.created_at DESC
         LIMIT 4`, [me]),
       // Pessoas que talvez conheças: amigos de amigos primeiro, depois quem é da tua província, depois quem chegou há pouco.
+      // A província só serve para ordenar: não vai na resposta (ninguém escolheu mostrá-la).
       pool.query(`
         SELECT u.id,u.username,u.display_name,u.avatar_url,
           (SELECT COUNT(*) FROM friendships f
-            WHERE (f.user_a_id=u.id AND f.user_b_id IN (${friendIds})) OR (f.user_b_id=u.id AND f.user_a_id IN (${friendIds})))::int AS mutual_count,
-          (u.province IS NOT NULL AND u.province=(SELECT province FROM users WHERE id=$1)) AS same_province
+            WHERE (f.user_a_id=u.id AND f.user_b_id IN (${friendIds})) OR (f.user_b_id=u.id AND f.user_a_id IN (${friendIds})))::int AS mutual_count
         FROM users u
         WHERE u.id<>$1 AND u.suspended_at IS NULL AND u.email_verified
           AND u.id NOT IN (${friendIds})
           AND NOT EXISTS(SELECT 1 FROM friend_requests r WHERE r.status='pending'
             AND ((r.requester_id=$1 AND r.addressee_id=u.id) OR (r.requester_id=u.id AND r.addressee_id=$1)))
           AND NOT ${blockedBetween("$1", "u.id")}
-        ORDER BY mutual_count DESC, same_province DESC, u.created_at DESC
+        ORDER BY mutual_count DESC, (u.province IS NOT NULL AND u.province=(SELECT province FROM users WHERE id=$1)) DESC, u.created_at DESC
         LIMIT 6`, [me])
     ]);
     res.json({

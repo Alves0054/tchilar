@@ -252,7 +252,7 @@ export function AdminUserDetail({ userId, canManageTeam = false, canModerate = f
         <Kpi label="Publicações" value={number(user.posts)} />
         <Kpi label="Amigos" value={number(user.friends)} />
         <Kpi label="Seguidores" value={number(user.followers)} />
-        <Kpi label="Gastou no Tchilar" value={formatPrice(data.spent)} />
+        {!data.money_hidden && <Kpi label="Gastou no Tchilar" value={formatPrice(data.spent)} />}
         <Kpi label="Denúncias recebidas" value={number(user.reports_total)} hint={user.reports_open ? `${user.reports_open} abertas` : null} tone={user.reports_open ? "warning" : ""} />
         <Kpi label="Denúncias feitas" value={number(user.reports_made)} />
       </div>
@@ -268,7 +268,7 @@ export function AdminUserDetail({ userId, canManageTeam = false, canModerate = f
       </dl>
     </section>
 
-    <section className="creator-card">
+    {!data.money_hidden && <><section className="creator-card">
       <h2>Pagamentos</h2>
       {data.payments.length ? <ul className="admin-mini-list">{data.payments.map(payment => <li key={`${payment.kind}-${payment.id}`}>
         <Link to={`/recibos/${payment.kind}/${payment.id}?equipa=1`}>{payment.receipt}</Link>
@@ -284,7 +284,7 @@ export function AdminUserDetail({ userId, canManageTeam = false, canModerate = f
         <span>{payout.bank_name} · IBAN •••• {payout.iban_last4}<small>{dateTime(payout.created_at)}{payout.reference ? ` · ref. ${payout.reference}` : ""}{payout.note ? ` · ${payout.note}` : ""}</small></span>
         <strong>{formatPrice(payout.amount)}</strong><span className="payment-status">{PAYOUT_STATUS[payout.status] || payout.status}</span>
       </li>)}</ul> : <p className="muted">Sem levantamentos.</p>}
-    </section>
+    </section></>}
 
     <section className="creator-card">
       <div className="creator-card-head"><div><h2>Denúncias sobre esta conta</h2></div>{user.reports_open > 0 && <Link className="prefs-link" to="/moderation">Abrir moderação <Icon name="next" size={14} /></Link>}</div>

@@ -158,17 +158,21 @@ function registerAdminRoutes(app, { pool, auth, requireAdmin, requireRole, parse
         r.username AS referred_by
       FROM users u LEFT JOIN users r ON r.id=u.referred_by WHERE u.id=$1`, [id]);
     if (!user.rowCount) return res.status(404).json({ error: "Conta não encontrada." });
+    // Dinheiro (pagamentos e levantamentos) só para quem trata das finanças; a moderação não o vê.
+    const canSeeMoney = ["super", "finance"].includes(req.user.adminRole);
+    const none = { rows: [] };
     const [payments, payouts, reports, actions] = await Promise.all([
-      pool.query(`SELECT * FROM (${PAYMENTS_SQL}) p WHERE p.user_id=$1 ORDER BY p.paid_at DESC LIMIT 20`, [id]),
-      pool.query(`SELECT id,amount::float AS amount,status,bank_name,iban_last4,reference,note,created_at,processed_at
-        FROM payout_requests WHERE user_id=$1 ORDER BY created_at DESC LIMIT 20`, [id]),
+      canSeeMoney ? pool.query(`SELECT * FROM (${PAYMENTS_SQL}) p WHERE p.user_id=$1 ORDER BY p.paid_at DESC LIMIT 20`, [id]) : none,
+      canSeeMoney ? pool.query(`SELECT id,amount::float AS amount,status,bank_name,iban_last4,reference,note,created_at,processed_at
+        FROM payout_requests WHERE user_id=$1 ORDER BY created_at DESC LIMIT 20`, [id]) : none,
       pool.query(`SELECT id,target_type,reason,status,action,created_at FROM reports WHERE target_user_id=$1 ORDER BY created_at DESC LIMIT 20`, [id]),
       pool.query(`${ACTIONS_SQL} WHERE a.target_type='user' AND a.target_id=$1 ORDER BY a.created_at DESC LIMIT 20`, [id])
     ]);
     const paymentRows = payments.rows.map(row => serializePayment(row, { admin: true }));
     res.json({
       user: user.rows[0],
-      spent: paymentRows.filter(item => item.status === "paid").reduce((sum, item) => sum + item.amount, 0),
+      money_hidden: !canSeeMoney,
+      spent: canSeeMoney ? paymentRows.filter(item => item.status === "paid").reduce((sum, item) => sum + item.amount, 0) : null,
       payments: paymentRows,
       payouts: payouts.rows,
       reports: reports.rows,

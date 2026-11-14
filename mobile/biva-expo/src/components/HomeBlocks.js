@@ -55,7 +55,7 @@ export function HomeDiscover({ discover }) {
   const cards = [
     ...discover.people.slice(0, 4).map(person => ({
       key: `u${person.id}`, onPress: () => router.push(`/u/${person.username}`), avatar: person, title: person.display_name,
-      line: person.mutual_count ? `${person.mutual_count} ${person.mutual_count === 1 ? "amigo" : "amigos"} em comum` : person.same_province ? "Da tua província" : "Novo no Tchilar",
+      line: person.mutual_count ? `${person.mutual_count} ${person.mutual_count === 1 ? "amigo" : "amigos"} em comum` : "Novo no Tchilar",
       action: <DiscoverAction label="Adicionar" doneLabel="Enviado" onPress={() => api(`/friends/${person.id}/request`, { method: "POST" })} />
     })),
     ...discover.groups.slice(0, 3).map(group => ({

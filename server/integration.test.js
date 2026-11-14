@@ -397,6 +397,8 @@ test("admin panel: overview, people, manual refunds and the log of what the team
   const overview = await call("GET", "/admin/overview", users.bruno);
   assert.equal(overview.status, 200);
   assert.equal(overview.body.daily.length, 30, "one row per day, zeros included");
+  const home = await call("GET", "/home", users.ana);
+  assert.ok(home.body.discover.people.every(person => !("same_province" in person)), "the province is only used for ordering");
   assert.ok(overview.body.people.total >= 5);
   assert.ok(overview.body.people.unverified >= 1);
   assert.equal((await call("GET", "/admin/overview", users.ana)).status, 403);
@@ -451,6 +453,11 @@ test("team roles: finance sees money, moderation sees content, only super manage
   assert.equal((await call("POST", `/admin/users/${users.dino.id}/role`, users.bruno, { role: "moderation" })).status, 200);
   assert.equal((await call("GET", "/admin/content?type=post", users.dino)).status, 200);
   assert.equal((await call("GET", "/admin/payments", users.dino)).status, 403);
+  // A moderação vê a ficha da pessoa, mas não os pagamentos nem os levantamentos.
+  const card = (await call("GET", `/admin/users/${users.ana.id}`, users.dino)).body;
+  assert.equal(card.money_hidden, true);
+  assert.deepEqual([card.payments, card.payouts, card.spent], [[], [], null]);
+  assert.equal((await call("GET", `/admin/users/${users.ana.id}`, users.carla)).body.money_hidden, false, "finance sees the money");
   const me = (await call("GET", "/auth/me", users.dino)).body;
   assert.equal((me.user || me).admin_role, "moderation");
   assert.equal((await call("POST", `/admin/users/${users.dino.id}/role`, users.bruno, { role: null })).status, 200);
