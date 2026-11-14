@@ -34,7 +34,6 @@ function parsePhone(raw) {
   const phone = typeof raw === "string" ? normalizeAngolanPhone(raw) : null;
   return phone ? { value: phone } : { error: "Indica um telemóvel angolano válido (9 dígitos, começa por 9)." };
 }
-const PHONE_TAKEN = "Este número de telemóvel já está associado a outra conta.";
 const { registerFinanceRoutes } = require("./finance-routes");
 const { decrypt, encrypt, loadKey } = require("./payouts");
 const { generateSecret, otpauthUri, verifyCode } = require("./totp");
@@ -741,7 +740,7 @@ app.post("/api/auth/register", authRateLimit, async (req, res) => {
       ...(verificationUrl && exposeDevAuthLinks && { verificationUrl })
     });
   } catch (error) {
-    if (error.code === "23505") return res.status(409).json({ error: error.constraint === "users_phone_unique" ? PHONE_TAKEN : "Username ou email já utilizado." });
+    if (error.code === "23505") return res.status(409).json({ error: "Username ou email já utilizado." });
     throw error;
   }
 });
@@ -1033,9 +1032,7 @@ app.patch("/api/auth/me", auth, async (req, res) => {
     if (!account.rowCount) return res.status(404).json({ error: "Conta não encontrada." });
     if (!account.rows[0].is_creator) return res.status(403).json({ error: "Só contas de criador podem definir um preço de subscrição." });
   }
-  let result;
-  try {
-    result = await pool.query(`
+  const result = await pool.query(`
       UPDATE users SET display_name=COALESCE($1,display_name),bio=COALESCE($2,bio),
         subscription_price=COALESCE($3,subscription_price),
         location=COALESCE($5,location),profession=COALESCE($6,profession),website=COALESCE($7,website),
@@ -1044,10 +1041,6 @@ app.patch("/api/auth/me", auth, async (req, res) => {
       RETURNING ${OWN_ACCOUNT_FIELDS}`,
     [hasDisplayName ? body.displayName.trim() : null, hasBio ? body.bio.trim() : null, subscriptionPrice, req.user.id,
       location.value ?? null, profession.value ?? null, website ?? null, !phone.skip, phone.value ?? null]);
-  } catch (error) {
-    if (error.code === "23505" && error.constraint === "users_phone_unique") return res.status(409).json({ error: PHONE_TAKEN });
-    throw error;
-  }
   if (!result.rowCount) return res.status(404).json({ error: "Conta não encontrada." });
   res.json({ user: result.rows[0] });
 });

@@ -571,7 +571,7 @@ export function SettingsAccount() {
       {memberSince && <PrefsRow icon="events" title="No Tchilar desde"><span className="prefs-value">{memberSince}</span></PrefsRow>}
       <PrefsRow icon="globe" title="Idioma e região"><span className="prefs-value">Português · Angola (Kz)</span></PrefsRow>
     </PrefsCard>
-    <PrefsCard title="Telemóvel" note="Opcional e privado. Um número só pode estar numa conta.">
+    <PrefsCard title="Telemóvel" note="Opcional e privado: só tu e a equipa o veem.">
       <PhoneSetting />
     </PrefsCard>
     <PrefsCard title="Os teus dados" note="Os teus dados são teus. Podes levá-los contigo ou apagar tudo.">
