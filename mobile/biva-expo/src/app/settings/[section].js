@@ -58,6 +58,21 @@ function Profile() {
 }
 
 // ---------------------------------------------------------------------------------------------
+// Telemóvel da conta: privado; preenche o Multicaixa Express nos pagamentos.
+function PhoneCard() {
+  const { user, refresh } = useSession();
+  const [phone, setPhone] = useState(user.phone || "");
+  const [notice, run] = useNotice();
+  const save = value => run(() => api("/auth/me", { method: "PATCH", body: { phone: value } }).then(() => { setPhone(value.replace(/\D/g, "").slice(-9)); return refresh(); }),
+    value ? "Telemóvel guardado." : "Telemóvel removido.");
+  return <Card title="Telemóvel" subtitle="Opcional e privado: não aparece no perfil. Preenche o Multicaixa Express nos pagamentos.">
+    <Field label="Número de telemóvel" value={phone} onChangeText={setPhone} keyboardType="phone-pad" autoComplete="tel" placeholder="9XX XXX XXX" maxLength={16} />
+    <Button label="Guardar" onPress={() => save(phone.trim())} disabled={!phone.trim()} />
+    {user.phone ? <Button variant="ghost" label="Remover número" onPress={() => save("")} /> : null}
+    <Notice {...notice} />
+  </Card>;
+}
+
 function Account() {
   const { user, signOut } = useSession();
   const [password, setPassword] = useState("");
@@ -73,6 +88,7 @@ function Account() {
       <Row icon="person" title={`@${user.username}`} subtitle={user.is_creator ? "Conta de criador" : "Membro da comunidade"} />
       <Row icon="calendar" title="No Tchilar desde" subtitle={dateOnly(user.created_at)} />
     </Card>
+    <PhoneCard />
     <Card title="Os teus dados" subtitle="Descarrega uma cópia de tudo o que tens no Tchilar.">
       <Button variant="secondary" label="Descarregar os meus dados" icon="download" onPress={() => run(() => downloadAndShare("/auth/me/export", `tchilar-dados-${user.username}.json`, "application/json"))} />
     </Card>

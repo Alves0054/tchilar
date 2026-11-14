@@ -17892,3 +17892,8 @@ button.reels-create-link {
 .tone-live { color: #FFFFFF; background: #D63384; box-shadow: none; }
 .tone-sun, .tone-moon { color: #FFFFFF; background: #3A3A3C; box-shadow: none; }
 .tone-create, .tone-share { color: #FFFFFF; background: #0A84FF; box-shadow: none; }
+
+/* Definições → Conta: telemóvel */
+.prefs-phone { display: grid; gap: 10px; }
+.prefs-phone .entry-hint { margin: 0; }
+.prefs-actions { display: flex; flex-wrap: wrap; gap: 8px; }

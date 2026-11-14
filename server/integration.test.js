@@ -339,6 +339,28 @@ test("birth date is required at sign-up and cannot be changed afterwards", { ski
   assert.equal(saved, yearsAgo(20), "apagar também não muda a data");
 });
 
+test("phone number: optional, Angolan, one per account and never on the public profile", { skip }, async () => {
+  const stamp = Date.now();
+  const register = extra => call("POST", "/auth/register", null, {
+    username: `tel_${stamp}_${extra.n}`, email: `tel${stamp}${extra.n}@example.com`, password: "uma frase bem comprida",
+    displayName: "Tel", birthDate: yearsAgo(25), ...extra.body });
+  assert.equal((await register({ n: 1, body: { phone: "12345" } })).status, 400, "número inválido");
+  assert.equal((await register({ n: 2, body: { phone: "+244 923 456 789" } })).status, 201, "aceita +244 e espaços");
+  assert.equal((await pool.query("SELECT phone FROM users WHERE username=$1", [`tel_${stamp}_2`])).rows[0].phone, "923456789");
+  const taken = await register({ n: 3, body: { phone: "923456789" } });
+  assert.equal(taken.status, 409);
+  assert.match(taken.body.error, /telemóvel/i);
+  assert.equal((await register({ n: 4, body: {} })).status, 201, "é opcional");
+
+  assert.equal((await call("PATCH", "/auth/me", users.carla, { phone: "923456789" })).status, 409, "já é de outra conta");
+  const saved = await call("PATCH", "/auth/me", users.carla, { phone: "00244 912 000 111" });
+  assert.equal(saved.body.user.phone, "912000111");
+  assert.equal((await call("GET", "/auth/me", users.carla)).body.user.phone, "912000111");
+  assert.equal((await call("PATCH", "/auth/me", users.carla, { bio: "sem mexer no telemóvel" })).body.user.phone, "912000111");
+  assert.equal(JSON.stringify((await call("GET", "/users/carla", users.ana)).body).includes("912000111"), false, "não aparece no perfil público");
+  assert.equal((await call("PATCH", "/auth/me", users.carla, { phone: "" })).body.user.phone, null, "vazio apaga");
+});
+
 test("payments: each person sees their receipts and the team sees, filters and exports them all", { skip }, async () => {
   const stars = (await pool.query(
     "INSERT INTO star_purchases(user_id,stars,amount_kz,status,paid_at) VALUES($1,100,1500,'paid',NOW()) RETURNING id", [users.ana.id])).rows[0].id;

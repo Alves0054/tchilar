@@ -507,6 +507,38 @@ export function PrefsStatus({ error, saved }) {
     {saved && <><Icon name="check" size={14} />Guardado</>}
   </p>;
 }
+// Telemóvel da conta: privado, só tu e a equipa o veem. Também preenche o Multicaixa Express nos pagamentos.
+export const formatPhone = phone => phone ? phone.replace(/^(\d{3})(\d{3})(\d{3})$/, "$1 $2 $3") : "";
+
+function PhoneSetting() {
+  const { user, refreshUser } = useContext(UserContext);
+  const [value, setValue] = useState(formatPhone(user.phone));
+  const [state, setState] = useState({ busy: false, message: "", error: "" });
+  const save = async phone => {
+    setState({ busy: true, message: "", error: "" });
+    try {
+      await api("/auth/me", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ phone }) });
+      await refreshUser();
+      setValue(phone ? formatPhone(phone.replace(/\D/g, "").slice(-9)) : "");
+      setState({ busy: false, message: phone ? "Telemóvel guardado." : "Telemóvel removido.", error: "" });
+    } catch (saveError) {
+      setState({ busy: false, message: "", error: saveError.message });
+    }
+  };
+  return <form className="prefs-phone" onSubmit={event => { event.preventDefault(); save(value.trim()); }}>
+    <label className="field">Número de telemóvel
+      <input type="tel" inputMode="tel" autoComplete="tel-national" maxLength={16} placeholder="9XX XXX XXX"
+        value={value} onChange={event => setValue(event.target.value)} aria-describedby="phone-note" /></label>
+    <p className="entry-hint" id="phone-note">Não aparece no perfil. Serve para a equipa te contactar e para preencher o Multicaixa Express nos pagamentos.</p>
+    <div className="prefs-actions">
+      <button className="btn primary" type="submit" disabled={state.busy || !value.trim()}>{state.busy ? "A guardar..." : "Guardar"}</button>
+      {user.phone && <button className="btn" type="button" disabled={state.busy} onClick={() => save("")}>Remover</button>}
+    </div>
+    {(state.message || state.error) && <p className={state.error ? "error prefs-status" : "prefs-saved prefs-status is-visible"} role="status">
+      {state.message && <Icon name="check" size={14} />}{state.message || state.error}</p>}
+  </form>;
+}
+
 export function SettingsAccount() {
   const { user } = useContext(UserContext);
   const [resend, setResend] = useState({ busy: false, message: "", error: "" });
@@ -538,6 +570,9 @@ export function SettingsAccount() {
       </PrefsRow>
       {memberSince && <PrefsRow icon="events" title="No Tchilar desde"><span className="prefs-value">{memberSince}</span></PrefsRow>}
       <PrefsRow icon="globe" title="Idioma e região"><span className="prefs-value">Português · Angola (Kz)</span></PrefsRow>
+    </PrefsCard>
+    <PrefsCard title="Telemóvel" note="Opcional e privado. Um número só pode estar numa conta.">
+      <PhoneSetting />
     </PrefsCard>
     <PrefsCard title="Os teus dados" note="Os teus dados são teus. Podes levá-los contigo ou apagar tudo.">
       <AccountDataControls />

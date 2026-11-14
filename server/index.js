@@ -25,7 +25,16 @@ const { logAdminAction, registerAdminRoutes } = require("./admin-routes");
 const { registerAdminOperations } = require("./admin-operations");
 const { registerLiveRoutes } = require("./live-routes");
 const { createPayments } = require("./payments");
-const { createPaybyrd, createProxyPay } = require("./angola-payments");
+const { createPaybyrd, createProxyPay, normalizeAngolanPhone } = require("./angola-payments");
+
+// Telemóvel da conta (opcional e privado). undefined = não mexer; "" ou null = apagar.
+function parsePhone(raw) {
+  if (raw === undefined) return { skip: true };
+  if (raw === null || (typeof raw === "string" && !raw.trim())) return { value: null };
+  const phone = typeof raw === "string" ? normalizeAngolanPhone(raw) : null;
+  return phone ? { value: phone } : { error: "Indica um telemóvel angolano válido (9 dígitos, começa por 9)." };
+}
+const PHONE_TAKEN = "Este número de telemóvel já está associado a outra conta.";
 const { registerFinanceRoutes } = require("./finance-routes");
 const { decrypt, encrypt, loadKey } = require("./payouts");
 const { generateSecret, otpauthUri, verifyCode } = require("./totp");
@@ -261,7 +270,7 @@ const imageUpload = multer({
 });
 
 // Campos da própria conta devolvidos ao cliente (nunca inclui password_hash nem auth_version).
-const OWN_ACCOUNT_FIELDS = "id,username,email,display_name,bio,avatar_url,cover_url,cover_position,location,website,profession,is_creator,subscription_price,email_verified,is_admin,admin_role,created_at";
+const OWN_ACCOUNT_FIELDS = "id,username,email,display_name,bio,avatar_url,cover_url,cover_position,location,website,profession,is_creator,subscription_price,email_verified,is_admin,admin_role,phone,created_at";
 
 // Apaga um ficheiro de /uploads de forma segura (ignora valores vazios e ficheiros já removidos).
 async function removeUpload(mediaUrl) {
@@ -712,14 +721,16 @@ app.post("/api/auth/register", authRateLimit, async (req, res) => {
     if (!body.birthDate) return res.status(400).json({ error: "Indica a tua data de nascimento." });
     const birth = parseBirthDate(body.birthDate);
     if (birth.error) return res.status(400).json({ error: birth.error });
+    const phone = parsePhone(body.phone);
+    if (phone.error) return res.status(400).json({ error: phone.error });
     const hash = await bcrypt.hash(password, 12);
     // Convite: o nome de utilizador de quem convidou (opcional; ignorado se não existir).
     const invite = typeof body.invite === "string" ? body.invite.trim().toLowerCase().slice(0, 40) : "";
     const referrer = invite ? await pool.query("SELECT id FROM users WHERE username=$1", [invite]) : { rows: [] };
     const result = await pool.query(
-      `INSERT INTO users(username,email,password_hash,display_name,is_creator,subscription_price,email_verified,referred_by,birth_date)
-       VALUES($1,$2,$3,$4,$5,$6,FALSE,$7,$8) RETURNING id,username,email,display_name,is_creator,subscription_price,email_verified`,
-      [username.toLowerCase(), email.toLowerCase(), hash, displayName, isCreator, subscriptionPrice, referrer.rows[0]?.id || null, birth.value]
+      `INSERT INTO users(username,email,password_hash,display_name,is_creator,subscription_price,email_verified,referred_by,birth_date,phone)
+       VALUES($1,$2,$3,$4,$5,$6,FALSE,$7,$8,$9) RETURNING id,username,email,display_name,is_creator,subscription_price,email_verified`,
+      [username.toLowerCase(), email.toLowerCase(), hash, displayName, isCreator, subscriptionPrice, referrer.rows[0]?.id || null, birth.value, phone.value ?? null]
     );
     const user = result.rows[0];
     const verificationToken = await createAuthToken(user.id, "verify_email");
@@ -730,7 +741,7 @@ app.post("/api/auth/register", authRateLimit, async (req, res) => {
       ...(verificationUrl && exposeDevAuthLinks && { verificationUrl })
     });
   } catch (error) {
-    if (error.code === "23505") return res.status(409).json({ error: "Username ou email já utilizado." });
+    if (error.code === "23505") return res.status(409).json({ error: error.constraint === "users_phone_unique" ? PHONE_TAKEN : "Username ou email já utilizado." });
     throw error;
   }
 });
@@ -1004,7 +1015,9 @@ app.patch("/api/auth/me", auth, async (req, res) => {
   }
   const website = websiteText.value === undefined ? undefined : normalizeWebsite(websiteText.value);
   if (website === null) return res.status(400).json({ error: "Indica um endereço de site válido (por exemplo, https://exemplo.ao)." });
-  const hasExtra = [location.value, profession.value, website].some(value => value !== undefined);
+  const phone = parsePhone(body.phone);
+  if (phone.error) return res.status(400).json({ error: phone.error });
+  const hasExtra = [location.value, profession.value, website].some(value => value !== undefined) || !phone.skip;
   if (!hasDisplayName && !hasBio && !hasPrice && !hasExtra) return res.status(400).json({ error: "Indica pelo menos um campo para atualizar." });
   if (hasPrice && subscriptionPrice === null) {
     return res.status(400).json({ error: `O preço de subscrição deve estar entre ${MIN_PRICE} Kz e ${MAX_PRICE} Kz.` });
@@ -1020,14 +1033,21 @@ app.patch("/api/auth/me", auth, async (req, res) => {
     if (!account.rowCount) return res.status(404).json({ error: "Conta não encontrada." });
     if (!account.rows[0].is_creator) return res.status(403).json({ error: "Só contas de criador podem definir um preço de subscrição." });
   }
-  const result = await pool.query(`
-    UPDATE users SET display_name=COALESCE($1,display_name),bio=COALESCE($2,bio),
-      subscription_price=COALESCE($3,subscription_price),
-      location=COALESCE($5,location),profession=COALESCE($6,profession),website=COALESCE($7,website)
-    WHERE id=$4
-    RETURNING ${OWN_ACCOUNT_FIELDS}`,
-  [hasDisplayName ? body.displayName.trim() : null, hasBio ? body.bio.trim() : null, subscriptionPrice, req.user.id,
-    location.value ?? null, profession.value ?? null, website ?? null]);
+  let result;
+  try {
+    result = await pool.query(`
+      UPDATE users SET display_name=COALESCE($1,display_name),bio=COALESCE($2,bio),
+        subscription_price=COALESCE($3,subscription_price),
+        location=COALESCE($5,location),profession=COALESCE($6,profession),website=COALESCE($7,website),
+        phone=CASE WHEN $8::boolean THEN $9 ELSE phone END
+      WHERE id=$4
+      RETURNING ${OWN_ACCOUNT_FIELDS}`,
+    [hasDisplayName ? body.displayName.trim() : null, hasBio ? body.bio.trim() : null, subscriptionPrice, req.user.id,
+      location.value ?? null, profession.value ?? null, website ?? null, !phone.skip, phone.value ?? null]);
+  } catch (error) {
+    if (error.code === "23505" && error.constraint === "users_phone_unique") return res.status(409).json({ error: PHONE_TAKEN });
+    throw error;
+  }
   if (!result.rowCount) return res.status(404).json({ error: "Conta não encontrada." });
   res.json({ user: result.rows[0] });
 });

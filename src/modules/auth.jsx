@@ -113,7 +113,7 @@ export function Auth({ mode }) {
   const isLogin = mode === "login";
   const navigate = useNavigate();
   const { refreshUser } = useContext(UserContext);
-  const [form, setForm] = useState({ firstName: "", lastName: "", username: "", birthDate: "", email: "", password: "", isCreator: false });
+  const [form, setForm] = useState({ firstName: "", lastName: "", username: "", birthDate: "", email: "", phone: "", password: "", isCreator: false });
   const [authParams] = useSearchParams();
   const invite = (authParams.get("convite") || "").trim().toLowerCase();
   const [usernameTouched, setUsernameTouched] = useState(false);
@@ -207,6 +207,7 @@ export function Auth({ mode }) {
           password: form.password,
           isCreator: form.isCreator,
           birthDate: form.birthDate,
+          ...(form.phone.trim() && { phone: form.phone.trim() }),
           ...(invite && { invite }),
           displayName: `${form.firstName} ${form.lastName}`.trim()
         })
@@ -320,6 +321,12 @@ export function Auth({ mode }) {
                 invalid={!!fieldErrors.email} describedBy={fieldErrors.email ? "email-error" : undefined} />
               {fieldError("email")}
             </div>
+
+            {!isLogin && <div className="entry-field">
+              <EntryInput id="phone" label="Telemóvel (opcional)" type="tel" autoComplete="tel-national" inputMode="tel" maxLength={16}
+                value={form.phone} onChange={event => update("phone", event.target.value)} describedBy="phone-help" />
+              <p className="entry-hint" id="phone-help">Não aparece no teu perfil. Serve para a equipa te contactar e para pagar com Multicaixa Express.</p>
+            </div>}
 
             <PasswordField id="password" label="Palavra-passe" value={form.password}
               onChange={event => update("password", event.target.value)}

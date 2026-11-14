@@ -5,6 +5,7 @@ import * as Clipboard from "expo-clipboard";
 import { useEffect, useRef, useState } from "react";
 import { Linking, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { api } from "../lib/api";
+import { useSession } from "../lib/session";
 import { colors } from "../lib/theme";
 import { Button, Field, Notice, kz } from "./ui";
 
@@ -17,7 +18,8 @@ const METHOD_INFO = {
 export function PaymentSheet({ visible, title, amount, start, onClose, onPaid }) {
   const [methods, setMethods] = useState(null);
   const [method, setMethod] = useState(null);
-  const [phone, setPhone] = useState("");
+  const { user } = useSession();
+  const [phone, setPhone] = useState(user?.phone || "");
   const [pending, setPending] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");

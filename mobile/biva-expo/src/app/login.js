@@ -26,7 +26,7 @@ function Input(props) {
 export default function Login() {
   const { user, signIn } = useSession();
   const [mode, setMode] = useState("login");
-  const [form, setForm] = useState({ email: "", password: "", code: "", displayName: "", username: "", birthDate: "", invite: "", isCreator: false });
+  const [form, setForm] = useState({ email: "", password: "", code: "", displayName: "", username: "", birthDate: "", phone: "", invite: "", isCreator: false });
   const [needsCode, setNeedsCode] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -45,7 +45,7 @@ export default function Login() {
         if (!birthDate) throw new Error("Escreve a data de nascimento como DD/MM/AAAA.");
         const result = await api("/auth/register", { method: "POST", body: {
           displayName: form.displayName.trim(), username: form.username.trim().toLowerCase(), email: form.email.trim(),
-          password: form.password, birthDate, isCreator: form.isCreator, ...(form.invite.trim() ? { invite: form.invite.trim() } : {})
+          password: form.password, birthDate, isCreator: form.isCreator, ...(form.phone.trim() ? { phone: form.phone.trim() } : {}), ...(form.invite.trim() ? { invite: form.invite.trim() } : {})
         } });
         setMode("login");
         setMessage(result.message || "Conta criada. Confirma o teu email para entrar.");
@@ -83,6 +83,7 @@ export default function Login() {
             autoComplete={mode === "register" ? "new-password" : "password"} value={form.password} onChangeText={set("password")} editable={!busy} />}
           {mode === "register" && <>
             <Input placeholder="Data de nascimento (DD/MM/AAAA)" keyboardType="number-pad" value={form.birthDate} onChangeText={value => set("birthDate")(formatDateTyping(value))} maxLength={10} editable={!busy} />
+            <Input placeholder="Telemóvel (opcional, 9XX XXX XXX)" keyboardType="phone-pad" autoComplete="tel" value={form.phone} onChangeText={set("phone")} maxLength={16} editable={!busy} />
             <Input placeholder="Código de convite (opcional)" autoCapitalize="none" value={form.invite} onChangeText={set("invite")} editable={!busy} />
             <View style={styles.switchRow}>
               <View style={{ flex: 1 }}><Text style={styles.switchTitle}>Sou criador de conteúdo</Text><Text style={styles.switchHint}>Podes ganhar com subscrições, estrelas e campanhas.</Text></View>

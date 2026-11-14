@@ -146,7 +146,7 @@ function registerAdminRoutes(app, { pool, auth, requireAdmin, requireRole, parse
     const id = parseId(req.params.id);
     if (!id) return res.status(400).json({ error: "Conta inválida." });
     const user = await pool.query(`
-      SELECT u.id,u.username,u.display_name,u.email,u.avatar_url,u.bio,u.location,u.province,u.is_creator,u.is_admin,
+      SELECT u.id,u.username,u.display_name,u.email,u.phone,u.avatar_url,u.bio,u.location,u.province,u.is_creator,u.is_admin,
         u.email_verified,u.created_at,u.last_seen_at,u.suspended_at,u.suspended_reason,u.partner_since,u.admin_role,
         u.totp_enabled_at IS NOT NULL AS two_factor,
         (SELECT COUNT(*) FROM posts p WHERE p.user_id=u.id)::int AS posts,
