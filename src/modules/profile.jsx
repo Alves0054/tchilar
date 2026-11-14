@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { Link, useLocation, useParams, useSearchParams } from "react-router-dom";
 import { AvatarEditor, CoverEditor, downscaleImage } from "../PhotoEditors.jsx";
 import { API_BASE, Avatar, Icon, UserContext, api, formatCount, formatDate, formatPrice, token } from "./core.jsx";
-import { PostCard, ReportDialog } from "./feed.jsx";
+import { Composer, PostCard, ReportDialog } from "./feed.jsx";
 import { useDismiss } from "./layout.jsx";
 import { SupportersCard, VerifiedBadge } from "./shared.jsx";
 
@@ -496,14 +496,10 @@ export function Profile() {
         <SupportersCard username={profile.username} />
       </aside>
       <section className="profile-feed-column" id="profile-posts">
-        {isOwnProfile && <div className="profile-share-prompt card">
-          <Avatar user={profile} />
-          <Link to="/create">Partilha um momento com a comunidade...</Link>
-          <Link className="profile-share-action" to="/create" aria-label="Criar publicação" title="Criar publicação"><Icon name="create" /></Link>
-        </div>}
+        {/* Publicar aqui mesmo, sem sair do perfil (a mesma caixa do Início); a lista atualiza-se a seguir. */}
+        {isOwnProfile && <Composer onPosted={reloadProfilePosts} />}
         <div className="profile-posts-heading">
           <div><p className="feed-section-kicker">{isOwnProfile ? "O teu espaço na comunidade" : `Publicações de @${profile.username}`}</p><h2>Publicações</h2></div>
-          {isOwnProfile && <Link to="/create">Criar publicação <Icon name="externalLink" size={14} /></Link>}
         </div>
         {posts.length ? posts.map(post => <PostCard key={post.id} post={post} onChanged={reloadProfilePosts} />) : <div className="empty card">Ainda não há publicações neste perfil.</div>}
       </section>

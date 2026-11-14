@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
-import { Stack, router } from "expo-router";
+import { Stack, router, useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, Alert, FlatList, Linking, Pressable, RefreshControl, Share, StyleSheet, Text, View } from "react-native";
 import { WEB_URL, api, mediaUri } from "../lib/api";
@@ -40,7 +40,9 @@ export function ProfileView({ username, own = false }) {
       setRefreshing(false);
     }
   }, [username]);
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { if (!own) load(); }, [own, load]);
+  // Ao voltar de publicar (o ecrã de publicar abre por cima), a publicação nova aparece logo.
+  useFocusEffect(useCallback(() => { if (own) load(); }, [own, load]));
 
   const act = async (key, task) => {
     setBusy(key);
@@ -99,6 +101,11 @@ export function ProfileView({ username, own = false }) {
         </Pressable>
       </View>}
     </View>
+    {own && <Pressable style={styles.composer} onPress={() => router.push("/create")} accessibilityLabel="Criar publicação">
+      <Avatar user={profile} size={40} />
+      <Text style={styles.composerText}>Em que estás a pensar?</Text>
+      <Ionicons name="images" size={22} color="#30B350" />
+    </Pressable>}
     <View style={styles.tabs}>{TABS.map(([key, label]) => <Pressable key={key} onPress={() => setTab(key)} style={[styles.tab, tab === key && styles.tabActive]}>
       <Text style={[styles.tabText, tab === key && styles.tabTextActive]}>{label}</Text>
     </Pressable>)}</View>
@@ -156,6 +163,8 @@ const styles = StyleSheet.create({
   buttonText: { color: "#fff", fontWeight: "800", fontSize: 14 },
   secondary: { backgroundColor: colors.primarySoft },
   secondaryText: { color: colors.primary },
+  composer: { flexDirection: "row", alignItems: "center", gap: 10, marginHorizontal: 12, marginTop: 10, marginBottom: 2, padding: 10, borderRadius: 16, backgroundColor: colors.surface, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.line },
+  composerText: { flex: 1, color: colors.muted, fontSize: 15 },
   tabs: { flexDirection: "row", backgroundColor: colors.surface, borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: colors.line, marginBottom: 8 },
   tab: { flex: 1, alignItems: "center", paddingVertical: 12, borderBottomWidth: 3, borderColor: "transparent" },
   tabActive: { borderColor: colors.primary },
