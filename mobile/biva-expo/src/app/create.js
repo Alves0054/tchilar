@@ -93,7 +93,7 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.surface },
   head: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: colors.line },
   title: { flex: 1, color: colors.text, fontSize: 18, fontWeight: "800" },
-  publish: { backgroundColor: colors.primary, paddingHorizontal: 18, height: 38, borderRadius: 19, justifyContent: "center" },
+  publish: { backgroundColor: colors.accent, paddingHorizontal: 18, height: 38, borderRadius: 19, justifyContent: "center" },
   publishText: { color: "#fff", fontWeight: "800" },
   body: { padding: 14, gap: 12 },
   author: { flexDirection: "row", alignItems: "center", gap: 10 },

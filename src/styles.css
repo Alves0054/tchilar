@@ -1,11 +1,9 @@
 /* ==========================================================================
    Tokens de tema Tchilar
-   Paleta base (não alterar sem rever o contraste):
-     primary   #0077B6  logo, botões principais, header
-     accent    #FF6B6B  likes, notificações, badges
-     secondary #00B4D8  links, tabs/estados ativos, ícones ativos
-     ink       #03233A  texto principal; superfícies no modo escuro
-     sand      #F4FAFC  superfícies suaves no modo claro
+   Regra 60-30-10 (não alterar sem rever o contraste):
+     60% preto e branco: primary/ink #0B0B0C (texto, ícones, ligações, estados ativos) sobre branco
+     30% cinzentos neutros: secondary #6E6E73, sand #F4F4F5 (cartões, chips, botões secundários)
+     10% vermelho: accent #E30613, só para botões principais, notificações e destaques
    Fundo: branco no modo claro, preto no modo escuro.
    Todos os estados (hover/pressed/disabled) e tons derivados vivem aqui.
    ========================================================================== */
@@ -14,11 +12,11 @@
   font-synthesis: none;
 
   /* Paleta base */
-  --color-primary: #0077B6;
-  --color-accent: #FF6B6B;
-  --color-secondary: #00B4D8;
-  --color-ink: #03233A;
-  --color-sand: #F4FAFC;
+  --color-primary: #0B0B0C;
+  --color-accent: #E30613;
+  --color-secondary: #6E6E73;
+  --color-ink: #0B0B0C;
+  --color-sand: #F4F4F5;
   --color-white: #FFFFFF;
   --color-black: #000000;
 
@@ -28,27 +26,27 @@
   --color-primary-pressed: color-mix(in srgb, var(--color-primary) 76%, black);
   --color-primary-disabled: color-mix(in srgb, var(--color-primary) 40%, var(--color-white));
   /* Primary como texto: ligeiramente mais escuro para passar 4,5:1 também sobre superfícies cinzentas. */
-  --color-primary-text: #006CA6;
+  --color-primary-text: #0B0B0C;
   --color-primary-soft: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface));
 
   /* Accent — o branco tem só 2,78:1 sobre #FF6B6B: o texto por cima é sempre ink (5,80:1). */
-  --color-on-accent: var(--color-ink);
+  --color-on-accent: var(--color-white);
   --color-on-accent-soft: var(--color-ink);
   --color-accent-hover: color-mix(in srgb, var(--color-accent) 90%, black);
   --color-accent-pressed: color-mix(in srgb, var(--color-accent) 80%, black);
   --color-accent-disabled: color-mix(in srgb, var(--color-accent) 40%, var(--color-white));
   --color-accent-soft: color-mix(in srgb, var(--color-accent) 18%, var(--color-surface));
   /* Para ícones/pontos accent sobre superfícies claras (≥3:1 para elementos não-textuais em todas). */
-  --color-accent-fg: #E05252;
+  --color-accent-fg: #D10A16;
 
   /* Secondary — o #00B4D8 tem 2,46:1 com branco (falha AA).
      --color-secondary-solid: fundos com texto branco; --color-secondary-text: links/tabs sobre claro. */
   --color-on-secondary: var(--color-white);
-  --color-secondary-solid: #00819A;
+  --color-secondary-solid: #3A3A3C;
   --color-secondary-hover: color-mix(in srgb, var(--color-secondary-solid) 88%, black);
   --color-secondary-pressed: color-mix(in srgb, var(--color-secondary-solid) 76%, black);
   --color-secondary-disabled: color-mix(in srgb, var(--color-secondary) 40%, var(--color-white));
-  --color-secondary-text: #00738A;
+  --color-secondary-text: #3A3A3C;
   --color-secondary-soft: color-mix(in srgb, var(--color-secondary) 10%, var(--color-surface));
   --color-secondary-soft-hover: color-mix(in srgb, var(--color-secondary) 18%, var(--color-surface));
   --color-secondary-light: color-mix(in srgb, var(--color-secondary) 45%, var(--color-white));
@@ -83,7 +81,7 @@
   color-scheme: dark;
   /* Fundo preto; superfícies (cartões) em ink; texto sand */
   --color-bg: var(--color-black);
-  --color-surface: var(--color-ink);
+  --color-surface: #161618;
   --color-surface-translucent: color-mix(in srgb, var(--color-surface) 93%, transparent);
   --color-surface-muted: color-mix(in srgb, var(--color-sand) 6%, var(--color-ink));
   --color-surface-strong: color-mix(in srgb, var(--color-sand) 12%, var(--color-ink));
@@ -94,10 +92,11 @@
   --color-text-subtle: color-mix(in srgb, var(--color-sand) 55%, var(--color-ink));
   --shadow-color: black;
 
-  /* Primary como texto falha sobre preto (4,31:1): versão mais clara.
-     O secondary #00B4D8 já passa sobre preto e ink (8,52 e 6,53): usa-se tal como está.
-     Botões mantêm as cores sólidas com texto branco. */
-  --color-primary-text: #6BB2D8;
+  /* No escuro o "preto" da marca passa a branco (texto, ícones, estados ativos); o vermelho mantém-se. */
+  --color-primary: #F2F2F2;
+  --color-on-primary: #0B0B0C;
+  --color-secondary: #A1A1A6;
+  --color-primary-text: #F2F2F2;
   --color-secondary-text: var(--color-secondary);
   --color-secondary-light: var(--color-secondary);
   --color-accent-fg: var(--color-accent);
@@ -105,7 +104,7 @@
   --color-secondary-soft: color-mix(in srgb, var(--color-secondary) 14%, var(--color-surface));
   --color-secondary-soft-hover: color-mix(in srgb, var(--color-secondary) 20%, var(--color-surface));
   --color-accent-soft: color-mix(in srgb, var(--color-accent) 25%, var(--color-surface));
-  --color-on-accent: var(--color-ink);
+  --color-on-accent: var(--color-white);
   --color-on-accent-soft: var(--color-sand);
   --color-danger: #FFB4AB;
   --color-danger-soft: color-mix(in srgb, #FFB4AB 12%, var(--color-surface));
@@ -1574,20 +1573,21 @@ button {
   white-space: nowrap;
 }
 
+/* Botão principal: o vermelho da marca (parte dos 10%). */
 .btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   border: 0;
   border-radius: 7px;
-  background: var(--color-primary);
-  color: var(--color-on-primary);
+  background: var(--color-accent);
+  color: var(--color-on-accent);
   padding: 10px 16px;
   font-weight: 700;
 }
 
 .btn:hover {
-  background: var(--color-primary-hover);
+  background: var(--color-accent-hover);
 }
 
 .btn:disabled {
@@ -4531,8 +4531,8 @@ button {
 }
 
 .entry-card-badge-accent {
-  background: var(--color-primary);
-  color: var(--color-on-primary);
+  background: var(--color-accent);
+  color: var(--color-on-accent);
 }
 
 .entry-card-post {
@@ -4882,12 +4882,12 @@ button {
 
 .entry-btn-primary {
   border: 0;
-  background: var(--color-primary);
-  color: var(--color-on-primary);
+  background: var(--color-accent);
+  color: var(--color-on-accent);
 }
 
 .entry-btn-primary:hover {
-  background: var(--color-primary-hover);
+  background: var(--color-accent-hover);
 }
 
 .entry-btn-primary:active {
@@ -5388,7 +5388,7 @@ button {
 }
 
 .topbar-nav a.active::after {
-  background: var(--color-primary);
+  background: var(--color-accent);
 }
 
 .topbar-nav a:focus-visible {
@@ -10315,10 +10315,11 @@ h1 .verified-badge svg {
 :root {
   --font-display: "Bricolage Grotesque Variable", "Nunito Variable", "Segoe UI Variable", system-ui, sans-serif;
   --font-body: "Nunito Variable", "Nunito", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
-  --grad-lagoa: linear-gradient(145deg, var(--color-primary) 15%, color-mix(in srgb, var(--color-primary) 45%, var(--color-secondary)) 100%);
-  --grad-ceu: linear-gradient(145deg, color-mix(in srgb, var(--color-primary) 55%, var(--color-secondary)) 0%, var(--color-primary) 100%);
-  --grad-coral: linear-gradient(145deg, var(--color-accent) 0%, color-mix(in srgb, var(--color-accent) 72%, #FFFFFF) 100%);
-  --grad-tinta: linear-gradient(145deg, var(--color-ink) 0%, color-mix(in srgb, var(--color-ink) 45%, var(--color-primary)) 100%);
+  /* Ícones de área: preto e cinzentos (parte dos 60/30). O vermelho fica para ações e notificações. */
+  --grad-lagoa: linear-gradient(145deg, #0B0B0C 15%, #2C2C2E 100%);
+  --grad-ceu: linear-gradient(145deg, #2C2C2E 0%, #0B0B0C 100%);
+  --grad-coral: linear-gradient(145deg, #48484A 0%, #6E6E73 100%);
+  --grad-tinta: linear-gradient(145deg, #0B0B0C 0%, #3A3A3C 100%);
   --tile-radius: 32%;
   --tile-lift: inset 0 1px 0 rgba(255, 255, 255, .32), 0 6px 14px -8px color-mix(in srgb, var(--color-primary) 70%, transparent);
 }
@@ -10436,9 +10437,9 @@ h3 {
 .tone-trophy,
 .tone-gift,
 .tone-ad {
-  color: var(--color-ink);
+  color: #FFFFFF;
   background: var(--grad-coral);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .4), 0 6px 14px -8px color-mix(in srgb, var(--color-accent) 80%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .25), 0 6px 14px -8px rgba(0, 0, 0, .45);
 }
 
 .tone-settings,
@@ -12026,7 +12027,7 @@ h3 {
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  background: var(--color-primary);
+  background: var(--color-accent);
 }
 
 /* Mensagens */
@@ -17460,7 +17461,7 @@ button.reels-create-link {
     position: absolute;
     inset: 0 0 auto 0;
     border: 0;
-    border-top: 6px solid #0077B6;
+    border-top: 6px solid #0B0B0C;
     background: #fff;
     color: #000;
     print-color-adjust: exact;
@@ -17867,3 +17868,27 @@ button.reels-create-link {
 @media (max-width: 700px) {
   .topbar-panel { position: fixed; top: 64px; right: 12px; left: 12px; width: auto; max-width: none; }
 }
+
+/* ---------------------------------------------------------------------------------------------
+   Ícones de área: cores vivas e sólidas (sem gradientes), ícone branco.
+   O vermelho da marca não entra aqui: fica para botões principais, notificações e destaques.
+   --------------------------------------------------------------------------------------------- */
+.tone-home, .tone-profile { color: #FFFFFF; background: #0A84FF; box-shadow: none; }
+.tone-friends, .tone-academy { color: #FFFFFF; background: #30B350; box-shadow: none; }
+.tone-groups, .tone-image { color: #FFFFFF; background: #0FA3B1; box-shadow: none; }
+.tone-stats, .tone-ad { color: #FFFFFF; background: #5E5CE6; box-shadow: none; }
+.tone-messages { color: #FFFFFF; background: #2F80ED; box-shadow: none; }
+.tone-reels { color: #FFFFFF; background: #AF52DE; box-shadow: none; }
+.tone-notifications, .tone-pages { color: #FFFFFF; background: #FF8A00; box-shadow: none; }
+.tone-video, .tone-events, .tone-gift { color: #FFFFFF; background: #F06A2A; box-shadow: none; }
+.tone-star, .tone-trophy, .tone-bolt { color: #FFFFFF; background: #E5A000; box-shadow: none; }
+.tone-brand { color: #FFFFFF; background: #1F2937; box-shadow: none; }
+.tone-help { color: #FFFFFF; background: #00A6A6; box-shadow: none; }
+.tone-settings, .tone-shield, .tone-neutral, .tone-logout, .tone-chevronDown, .tone-previous { color: #FFFFFF; background: #3A3A3C; box-shadow: none; }
+.composer-icon.tone-video { background: #F06A2A; box-shadow: none; }
+.composer-icon.tone-image { background: #0FA3B1; box-shadow: none; }
+.home-link-icon svg, .menu-icon svg, .creator-nav-icon svg, .growth-hero-icon svg, .settings-option-icon svg,
+.share-target-icon svg, .ad-kind-icon svg, .composer-icon.tone-video svg, .composer-icon.tone-image svg { fill-opacity: .18; }
+.tone-live { color: #FFFFFF; background: #D63384; box-shadow: none; }
+.tone-sun, .tone-moon { color: #FFFFFF; background: #3A3A3C; box-shadow: none; }
+.tone-create, .tone-share { color: #FFFFFF; background: #0A84FF; box-shadow: none; }

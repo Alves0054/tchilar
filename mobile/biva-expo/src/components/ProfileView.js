@@ -152,7 +152,7 @@ const styles = StyleSheet.create({
   statValue: { color: colors.text, fontSize: 18, fontWeight: "800" },
   statLabel: { color: colors.muted, fontSize: 12 },
   actions: { flexDirection: "row", gap: 8, marginTop: 14, paddingHorizontal: 14 },
-  button: { flexDirection: "row", gap: 6, height: 40, paddingHorizontal: 16, borderRadius: 20, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },
+  button: { flexDirection: "row", gap: 6, height: 40, paddingHorizontal: 16, borderRadius: 20, backgroundColor: colors.accent, alignItems: "center", justifyContent: "center" },
   buttonText: { color: "#fff", fontWeight: "800", fontSize: 14 },
   secondary: { backgroundColor: colors.primarySoft },
   secondaryText: { color: colors.primary },

@@ -122,7 +122,7 @@ const styles = StyleSheet.create({
   switchHint: { color: colors.muted, fontSize: 12 },
   error: { color: colors.danger, fontSize: 14 },
   message: { color: "#1E7A4B", fontSize: 14, fontWeight: "600" },
-  button: { height: 52, borderRadius: 14, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center", marginTop: 4 },
+  button: { height: 52, borderRadius: 14, backgroundColor: colors.accent, alignItems: "center", justifyContent: "center", marginTop: 4 },
   buttonDisabled: { opacity: 0.5 },
   buttonText: { color: "#fff", fontSize: 16, fontWeight: "800" },
   link: { color: colors.primary, fontSize: 15, fontWeight: "600", textAlign: "center", marginTop: 12 },

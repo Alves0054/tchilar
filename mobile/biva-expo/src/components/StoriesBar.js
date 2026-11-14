@@ -69,11 +69,11 @@ const styles = StyleSheet.create({
   list: { paddingHorizontal: 12, paddingVertical: 10, gap: 8 },
   card: { width: 104, height: 168, borderRadius: 14, overflow: "hidden", backgroundColor: colors.surface, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.line },
   createTop: { height: 112, alignItems: "center", justifyContent: "center", backgroundColor: colors.primarySoft },
-  createPlus: { position: "absolute", top: 98, alignSelf: "center", width: 30, height: 30, borderRadius: 15, backgroundColor: colors.primary, borderWidth: 3, borderColor: colors.surface, alignItems: "center", justifyContent: "center" },
+  createPlus: { position: "absolute", top: 98, alignSelf: "center", width: 30, height: 30, borderRadius: 15, backgroundColor: colors.accent, borderWidth: 3, borderColor: colors.surface, alignItems: "center", justifyContent: "center" },
   createText: { marginTop: 22, textAlign: "center", color: colors.text, fontSize: 13, fontWeight: "700" },
   textStory: { alignItems: "center", justifyContent: "center", padding: 8 },
   previewText: { color: "#fff", fontSize: 12, fontWeight: "800", textAlign: "center" },
   shade: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(0,0,0,0.18)" },
-  ring: { position: "absolute", top: 8, left: 8, borderWidth: 3, borderColor: colors.primary, borderRadius: 22 },
+  ring: { position: "absolute", top: 8, left: 8, borderWidth: 3, borderColor: colors.accent, borderRadius: 22 },
   name: { position: "absolute", left: 8, right: 8, bottom: 8, color: "#fff", fontSize: 12, fontWeight: "800", textShadowColor: "rgba(0,0,0,0.6)", textShadowRadius: 4 }
 });

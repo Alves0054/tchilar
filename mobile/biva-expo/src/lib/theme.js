@@ -1,16 +1,18 @@
-// Cores do Tchilar (as mesmas do site).
+// Cores do Tchilar (as mesmas do site), regra 60-30-10:
+// 60% preto e branco (texto, ícones, estados ativos), 30% cinzentos neutros (cartões, chips, botões secundários),
+// 10% vermelho (accent): só botões principais, notificações e destaques.
 export const colors = {
-  primary: "#0077B6",
-  primarySoft: "#E3F2FA",
-  accent: "#FF6B6B",
-  secondary: "#00B4D8",
-  ink: "#03233A",
-  text: "#03233A",
-  muted: "#5B7083",
-  line: "#E2EBF0",
+  primary: "#0B0B0C",
+  primarySoft: "#F1F1F2",
+  accent: "#E30613",
+  secondary: "#6E6E73",
+  ink: "#0B0B0C",
+  text: "#0B0B0C",
+  muted: "#6E6E73",
+  line: "#E5E5EA",
   surface: "#FFFFFF",
-  background: "#F4FAFC",
-  danger: "#D64545"
+  background: "#F4F4F5",
+  danger: "#D10A16"
 };
 
 export function relativeTime(value) {

@@ -115,7 +115,7 @@ const styles = StyleSheet.create({
   video: { width: "100%", aspectRatio: 16 / 9, backgroundColor: "#000" },
   noVideo: { flex: 1, alignItems: "center", justifyContent: "center", gap: 8, padding: 16, backgroundColor: colors.ink },
   noVideoText: { color: "#fff", textAlign: "center" },
-  link: { color: "#7CC8F0", fontWeight: "800" },
+  link: { color: "#FFFFFF", fontWeight: "800", textDecorationLine: "underline" },
   overlay: { position: "absolute", top: 8, left: 8, flexDirection: "row", gap: 8, alignItems: "center" },
   tag: { backgroundColor: colors.accent, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
   tagText: { color: "#fff", fontWeight: "800", fontSize: 12 },

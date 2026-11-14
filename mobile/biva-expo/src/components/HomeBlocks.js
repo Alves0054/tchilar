@@ -15,7 +15,7 @@ const topicLabel = key => catalog.groupTopics.find(topic => topic.key === key)?.
 export function HomeNow({ now }) {
   if (!now) return null;
   const items = [
-    ...now.events.map(event => ({ key: `e${event.id}`, icon: "calendar", tone: "#D64545", title: event.name, line: `Hoje às ${time(event.starts_at)}${event.location ? ` · ${event.location}` : ""}`, onPress: () => router.push("/events") })),
+    ...now.events.map(event => ({ key: `e${event.id}`, icon: "calendar", tone: "#F06A2A", title: event.name, line: `Hoje às ${time(event.starts_at)}${event.location ? ` · ${event.location}` : ""}`, onPress: () => router.push("/events") })),
     ...now.groups.map(group => ({ key: `g${group.id}`, icon: "people", tone: "#2EAA6B", title: group.name, line: `${group.new_posts} ${group.new_posts === 1 ? "publicação nova" : "publicações novas"}`, onPress: () => router.push(`/group/${group.id}`) }))
   ];
   if (!items.length && !now.online.length) return null;

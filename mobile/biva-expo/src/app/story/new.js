@@ -82,7 +82,7 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.ink },
   head: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 14, paddingVertical: 8 },
   title: { flex: 1, color: "#fff", fontSize: 18, fontWeight: "800" },
-  share: { backgroundColor: colors.primary, paddingHorizontal: 16, height: 36, borderRadius: 18, justifyContent: "center" },
+  share: { backgroundColor: colors.accent, paddingHorizontal: 16, height: 36, borderRadius: 18, justifyContent: "center" },
   shareText: { color: "#fff", fontWeight: "800" },
   stage: { flex: 1, marginHorizontal: 12, borderRadius: 18, overflow: "hidden", backgroundColor: "#000" },
   center: { alignItems: "center", justifyContent: "center", padding: 24 },

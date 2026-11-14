@@ -63,6 +63,6 @@ const styles = StyleSheet.create({
   body: { color: colors.text, fontSize: 15, lineHeight: 20 },
   strong: { fontWeight: "800" },
   time: { color: colors.primary, fontSize: 12, fontWeight: "600" },
-  dot: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.primary },
+  dot: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.accent },
   state: { padding: 32, textAlign: "center", color: colors.muted }
 });

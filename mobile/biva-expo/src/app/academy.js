@@ -11,7 +11,7 @@ const ICONS = { profile: "person-circle", create: "create", messages: "chatbubbl
 export default function Academy() {
   return <Page>
     <View style={{ alignItems: "center", gap: 6, padding: 20, borderRadius: 18, backgroundColor: colors.ink }}>
-      <Ionicons name="school" size={34} color="#7CC8F0" />
+      <Ionicons name="school" size={34} color="#30B350" />
       <Text style={{ color: "#fff", fontSize: 22, fontWeight: "800" }}>Cresce como criador</Text>
       <Text style={{ color: "rgba(255,255,255,0.8)", textAlign: "center" }}>Guias curtos para chegares aos 10 mil seguidores e entrares no Programa de Parceiros.</Text>
     </View>

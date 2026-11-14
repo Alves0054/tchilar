@@ -5,21 +5,22 @@ import { Avatar } from "../../../components/Avatar";
 import { useSession } from "../../../lib/session";
 import { colors } from "../../../lib/theme";
 
-// Os mesmos atalhos do Menu do site, todos na app.
+// Os mesmos atalhos do Menu do site, todos na app. Ícones em cores vivas e sólidas (sem vermelho, que fica
+// para botões principais e notificações).
 const SHORTCUTS = [
-  { label: "Amigos", hint: "Pedidos, sugestões e amigos", icon: "person-add", tone: colors.primary, route: "/friends" },
-  { label: "Grupos", hint: "Pessoas com os mesmos interesses", icon: "people", tone: "#2EAA6B", route: "/groups" },
-  { label: "Páginas", hint: "Segue projetos e marcas", icon: "flag", tone: "#E8890C", route: "/pages" },
-  { label: "Eventos", hint: "Encontros perto de ti", icon: "calendar", tone: "#D64545", route: "/events" },
-  { label: "Diretos", hint: "Quem está ao vivo agora", icon: "radio", tone: "#E05252", route: "/live" },
-  { label: "Painel do criador", hint: "Insights, ganhos e promoções", icon: "stats-chart", tone: colors.secondary, route: "/creator" },
-  { label: "Estrelas", hint: "Apoia os teus criadores", icon: "star", tone: "#F5B700", route: "/stars" },
-  { label: "Marcas", hint: "Campanhas com criadores", icon: "briefcase", tone: "#03233A", route: "/brands" },
-  { label: "Desafios", hint: "Participa e ganha prémios", icon: "trophy", tone: "#E8890C", route: "/challenges" },
-  { label: "Academia Tchilar", hint: "Cresce como criador", icon: "school", tone: "#2EAA6B", route: "/academy" },
-  { label: "Convidar amigos", hint: "Ganha estrelas", icon: "gift", tone: colors.accent, route: "/invite" },
-  { label: "Mensagens", hint: "As tuas conversas", icon: "chatbubbles", tone: colors.primary, route: "/messages" },
-  { label: "Reels", hint: "Vídeos da comunidade", icon: "film", tone: "#8E44AD", route: "/reels" }
+  { label: "Amigos", hint: "Pedidos, sugestões e amigos", icon: "person-add", tone: "#30B350", route: "/friends" },
+  { label: "Grupos", hint: "Pessoas com os mesmos interesses", icon: "people", tone: "#0FA3B1", route: "/groups" },
+  { label: "Páginas", hint: "Segue projetos e marcas", icon: "flag", tone: "#FF8A00", route: "/pages" },
+  { label: "Eventos", hint: "Encontros perto de ti", icon: "calendar", tone: "#F06A2A", route: "/events" },
+  { label: "Diretos", hint: "Quem está ao vivo agora", icon: "radio", tone: "#D63384", route: "/live" },
+  { label: "Painel do criador", hint: "Insights, ganhos e promoções", icon: "stats-chart", tone: "#5E5CE6", route: "/creator" },
+  { label: "Estrelas", hint: "Apoia os teus criadores", icon: "star", tone: "#E5A000", route: "/stars" },
+  { label: "Marcas", hint: "Campanhas com criadores", icon: "briefcase", tone: "#1F2937", route: "/brands" },
+  { label: "Desafios", hint: "Participa e ganha prémios", icon: "trophy", tone: "#E5A000", route: "/challenges" },
+  { label: "Academia Tchilar", hint: "Cresce como criador", icon: "school", tone: "#30B350", route: "/academy" },
+  { label: "Convidar amigos", hint: "Ganha estrelas", icon: "gift", tone: "#F06A2A", route: "/invite" },
+  { label: "Mensagens", hint: "As tuas conversas", icon: "chatbubbles", tone: "#2F80ED", route: "/messages" },
+  { label: "Reels", hint: "Vídeos da comunidade", icon: "film", tone: "#AF52DE", route: "/reels" }
 ];
 
 export default function Menu() {
@@ -38,7 +39,7 @@ export default function Menu() {
 
     <View style={styles.grid}>
       {SHORTCUTS.map(item => <Pressable key={item.label} style={styles.tile} onPress={() => router.push(item.route)}>
-        <View style={[styles.tileIcon, { backgroundColor: `${item.tone}1F` }]}><Ionicons name={item.icon} size={22} color={item.tone} /></View>
+        <View style={[styles.tileIcon, { backgroundColor: item.tone }]}><Ionicons name={item.icon} size={22} color="#FFFFFF" /></View>
         <Text style={styles.tileLabel}>{item.label}</Text>
         <Text style={styles.tileHint} numberOfLines={2}>{item.hint}</Text>
       </Pressable>)}

@@ -18,7 +18,7 @@ export default function Events() {
     <CommunityList path="/events" field="events" filters={FILTERS} empty="Não há eventos marcados."
     renderRow={(event, update) => <CommunityCard
       icon="calendar"
-      tone="#D64545"
+      tone="#F06A2A"
       title={event.name}
       lines={[when(event.starts_at), [event.location, `${event.attendee_count} ${event.attendee_count === 1 ? "vai" : "vão"}`].filter(Boolean).join(" · "), event.description]}
       action={<ActionButton label={event.is_attending ? "Vou" : "Participar"} active={event.is_attending} onPress={async () => {

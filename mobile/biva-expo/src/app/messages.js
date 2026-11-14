@@ -49,7 +49,7 @@ const styles = StyleSheet.create({
   time: { color: colors.muted, fontSize: 12 },
   preview: { color: colors.muted, fontSize: 14 },
   previewUnread: { color: colors.text, fontWeight: "700" },
-  count: { minWidth: 22, height: 22, paddingHorizontal: 6, borderRadius: 11, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },
+  count: { minWidth: 22, height: 22, paddingHorizontal: 6, borderRadius: 11, backgroundColor: colors.accent, alignItems: "center", justifyContent: "center" },
   countText: { color: "#fff", fontSize: 12, fontWeight: "800" },
   state: { padding: 32, textAlign: "center", color: colors.muted }
 });

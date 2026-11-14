@@ -112,7 +112,7 @@ const styles = StyleSheet.create({
   statHint: { color: colors.muted, fontSize: 11 },
   btn: { flexDirection: "row", gap: 6, alignItems: "center", justifyContent: "center", height: 46, paddingHorizontal: 18, borderRadius: 23 },
   btnSmall: { height: 34, paddingHorizontal: 12, borderRadius: 17 },
-  btnPrimary: { backgroundColor: colors.primary },
+  btnPrimary: { backgroundColor: colors.accent },
   btnSecondary: { backgroundColor: colors.primarySoft },
   btnDanger: { backgroundColor: colors.danger },
   btnGhost: { backgroundColor: "transparent" },
