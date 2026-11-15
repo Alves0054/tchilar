@@ -1,13 +1,13 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router, useFocusEffect, useNavigation } from "expo-router";
-import { useCallback, useEffect, useLayoutEffect, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
-import { Avatar } from "../../../components/Avatar";
 import { PostCard } from "../../../components/PostCard";
 import { HomeDiscover, HomeNow } from "../../../components/HomeBlocks";
 import { StoriesBar } from "../../../components/StoriesBar";
+import { FeedSkeleton } from "../../../components/Loaders";
 import { api } from "../../../lib/api";
-import { useSession } from "../../../lib/session";
+import { autoplay } from "../../../lib/display";
 import { colors } from "../../../lib/theme";
 
 // Sino de notificações no topo do Início, com o número de não lidas (atualiza ao voltar ao ecrã e a cada 30 s).
@@ -26,12 +26,19 @@ function NotificationsBell() {
   </Pressable>;
 }
 
-// Início: stories, caixa para publicar, "Para ti / A seguir" e as publicações (carrega mais ao chegar ao fim).
+// Início: stories, "Agora", "Para ti / A seguir" e as publicações (carrega mais ao chegar ao fim).
 export default function Feed() {
-  const { user } = useSession();
   const navigation = useNavigation();
   const [scope, setScope] = useState("all");
   const [posts, setPosts] = useState([]);
+  // Vídeo que toca sozinho (sem som): o primeiro vídeo que está pelo menos 60% no ecrã, só com o Início aberto.
+  const [focused, setFocused] = useState(false);
+  useFocusEffect(useCallback(() => { setFocused(true); return () => setFocused(false); }, []));
+  const [playingId, setPlayingId] = useState(null);
+  const onViewable = useRef(({ viewableItems }) => {
+    const video = viewableItems.find(entry => entry.item?.media_type === "video");
+    setPlayingId(video ? video.item.id : null);
+  }).current;
   const [cursor, setCursor] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -75,19 +82,16 @@ export default function Feed() {
     data={posts}
     keyExtractor={item => String(item.id)}
     renderItem={({ item, index }) => <>
-      <PostCard post={item} />
+      <PostCard post={item} autoPlay={autoplay === "always" && focused && item.id === playingId} />
       {index === 2 && <HomeDiscover discover={home?.discover} />}
     </>}
     refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={colors.primary} />}
     onEndReached={() => { if (cursor && !loading) load(cursor); }}
     onEndReachedThreshold={0.5}
+    onViewableItemsChanged={onViewable}
+    viewabilityConfig={VIEWABILITY}
     ListHeaderComponent={<>
       <StoriesBar />
-      <Pressable style={styles.composer} onPress={() => router.push("/create")}>
-        <Avatar user={user} size={40} />
-        <Text style={styles.composerText}>Em que estás a pensar?</Text>
-        <Ionicons name="images" size={22} color="#2EAA6B" />
-      </Pressable>
       <HomeNow now={home?.now} />
       {posts.length > 0 && posts.length < 3 && <HomeDiscover discover={home?.discover} />}
       <View style={styles.tabs}>
@@ -97,22 +101,22 @@ export default function Feed() {
           </Pressable>)}
       </View>
     </>}
-    ListEmptyComponent={loading ? <ActivityIndicator style={styles.state} color={colors.primary} />
+    ListEmptyComponent={loading ? <FeedSkeleton />
       : <Text style={styles.state}>{error || "Ainda não há publicações aqui."}</Text>}
     ListFooterComponent={cursor ? <ActivityIndicator style={{ margin: 16 }} color={colors.primary} /> : null}
   />;
 }
 
+const VIEWABILITY = { itemVisiblePercentThreshold: 60, minimumViewTime: 250 };
+
 const styles = StyleSheet.create({
   headerButton: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
   bellBadge: { position: "absolute", top: 2, right: 0, minWidth: 18, height: 18, paddingHorizontal: 4, borderRadius: 9, backgroundColor: colors.accent, alignItems: "center", justifyContent: "center" },
   bellBadgeText: { color: "#fff", fontSize: 10, fontWeight: "800" },
-  composer: { flexDirection: "row", alignItems: "center", gap: 10, marginHorizontal: 12, padding: 10, borderRadius: 16, backgroundColor: colors.surface, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.line },
-  composerText: { flex: 1, color: colors.muted, fontSize: 15 },
   tabs: { flexDirection: "row", gap: 8, padding: 12 },
   tab: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 999, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line },
   tabActive: { backgroundColor: colors.primary, borderColor: colors.primary },
   tabText: { color: colors.text, fontWeight: "700" },
-  tabTextActive: { color: "#fff" },
+  tabTextActive: { color: colors.onPrimary },
   state: { padding: 32, textAlign: "center", color: colors.muted }
 });

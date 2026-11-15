@@ -79,7 +79,7 @@ function Earnings() {
   return <>
     <Card title="Saldo disponível" subtitle={`Ganhaste ${kz(data.earned)} no total; já levantaste ${kz(data.withdrawn)}.`}>
       <Text style={styles.big}>{kz(data.available)}</Text>
-      <Stats items={[["Programa de Parceiros", kz(data.sources.partnerKz)], ["Estrelas", kz(data.sources.starsKz)], ["Campanhas", kz(data.sources.campaignsKz)], ["Grupos secretos", kz(data.sources.groupsKz)]]} />
+      <Stats items={[["Programa de Parceiros", kz(data.sources.partnerKz)], ["Estrelas", kz(data.sources.starsKz)], ["Campanhas", kz(data.sources.campaignsKz)], ["Grupos secretos", kz(data.sources.groupsKz)], ["Prémios de desafios", kz(data.sources.prizesKz)], ["Cursos vendidos", kz(data.sources.coursesKz)]]} />
       {data.accruing.partnerKz > 0 && <Text style={styles.muted}>Este mês já acumulaste {kz(data.accruing.partnerKz)} (entra no saldo quando o mês fechar).</Text>}
     </Card>
     <Notice {...notice} />
@@ -198,7 +198,7 @@ function Partner() {
   return <>
     <Card title="Programa de Parceiros" subtitle={`Ganhas ${kz(data.rpm)} por cada 1000 visualizações qualificadas. Mínimo para receber: ${kz(data.min_payout)}.`}
       right={data.partner_since ? <Badge label={data.earning ? "A ganhar" : "Em pausa"} tone={data.earning ? "good" : "warning"} /> : null}>
-      {data.checks.map(check => <Row key={check.key} icon={check.met ? "checkmark-circle" : "ellipse-outline"} tone={check.met ? "#1E7A4B" : colors.muted}
+      {data.checks.map(check => <Row key={check.key} icon={check.met ? "checkmark-circle" : "ellipse-outline"} tone={check.met ? colors.good : colors.muted}
         title={check.label} subtitle={check.target ? `${count(check.current)} de ${count(check.target)}` : null} />)}
       {!data.partner_since && <Button label="Aderir ao programa" onPress={join} disabled={!data.eligible} />}
       <Notice {...notice} />

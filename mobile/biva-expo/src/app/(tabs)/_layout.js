@@ -1,7 +1,8 @@
 import { Redirect } from "expo-router";
 import { NativeTabs } from "expo-router/native-tabs";
 import { useEffect, useState } from "react";
-import { ActivityIndicator, AppState, View } from "react-native";
+import { AppState } from "react-native";
+import { BootLogo } from "../../components/Loaders";
 import { api } from "../../lib/api";
 import { useSession } from "../../lib/session";
 import { colors } from "../../lib/theme";
@@ -25,7 +26,8 @@ function useUnreadMessages(enabled) {
 export default function TabsLayout() {
   const { user, ready } = useSession();
   const unreadMessages = useUnreadMessages(Boolean(user));
-  if (!ready) return <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}><ActivityIndicator color={colors.primary} /></View>;
+  // Enquanto confirma a sessão: o logótipo a desfocar e focar (continua o ecrã de arranque nativo).
+  if (!ready) return <BootLogo />;
   if (!user) return <Redirect href="/login" />;
   return <NativeTabs tintColor={colors.primary} minimizeBehavior="onScrollDown">
     <NativeTabs.Trigger name="(home)">

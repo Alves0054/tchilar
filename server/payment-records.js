@@ -7,7 +7,8 @@ const KINDS = {
   ad: { prefix: "P", label: "Promoção" },
   stars: { prefix: "E", label: "Estrelas" },
   campaign: { prefix: "C", label: "Campanha" },
-  group_access: { prefix: "G", label: "Entrada em grupo" }
+  group_access: { prefix: "G", label: "Entrada em grupo" },
+  course: { prefix: "K", label: "Curso" }
 };
 const METHODS = { card: "Cartão", express: "Multicaixa Express", reference: "Pagamento por Referência", demo: "Demonstração (sem cobrança)" };
 const STATUSES = { paid: "Pago", refunded: "Reembolsado", refund_due: "Reembolso por fazer" };
@@ -48,6 +49,11 @@ const PAYMENTS_SQL = `
       'Entrada no grupo «' || COALESCE(sg.name, 'grupo apagado') || '»',
       COALESCE(g.stripe_payment_intent, g.stripe_session_id), ${refundState("g")}
     FROM group_access_purchases g LEFT JOIN social_groups sg ON sg.id=g.group_id WHERE g.status='paid'
+    UNION ALL
+    SELECT 'course', cp.id, cp.user_id, cp.amount_kz::float, cp.paid_at,
+      'Curso «' || COALESCE(co.title, 'curso apagado') || '»',
+      COALESCE(cp.stripe_payment_intent, cp.stripe_session_id), ${refundState("cp")}
+    FROM course_purchases cp LEFT JOIN courses co ON co.id=cp.course_id WHERE cp.status='paid'
   )
   SELECT i.kind, i.ref_id, i.user_id, i.amount_kz, i.paid_at, i.description, i.status, i.card_ref,
     COALESCE(l.method, CASE WHEN i.card_ref IS NOT NULL THEN 'card' ELSE 'demo' END) AS method,

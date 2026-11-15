@@ -4,7 +4,7 @@ import { Alert, FlatList, RefreshControl, StyleSheet, Text, View } from "react-n
 import { PostCard } from "../../components/PostCard";
 import { Badge, Button, Card, Loading } from "../../components/ui";
 import { api } from "../../lib/api";
-import catalog from "../../lib/community-types.json";
+import { pageCategoryPath, pageType } from "../../lib/pages";
 import { useSession } from "../../lib/session";
 import { colors } from "../../lib/theme";
 
@@ -35,8 +35,8 @@ export default function PageScreen() {
 
   if (!page) return error ? <Text style={styles.state}>{error}</Text> : <Loading />;
   const owner = page.owner_username === user?.username;
-  const type = catalog.pageTypes.find(item => item.key === page.page_type);
-  const category = type?.categories.find(item => item.key === page.category)?.label || page.category;
+  const type = pageType(page.page_type);
+  const category = pageCategoryPath(page);
   const toggleFollow = async () => {
     try { await api(`/pages/${page.id}/follow`, { method: page.is_following ? "DELETE" : "POST" }); await load(); } catch (followError) { Alert.alert("Página", followError.message); }
   };

@@ -3,13 +3,15 @@ import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
 import { router, useLocalSearchParams } from "expo-router";
 import { useState } from "react";
-import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Avatar } from "../components/Avatar";
+import { HeaderLogo } from "../components/HeaderLogo";
 import { PhotoEditor } from "../components/PhotoEditor";
 import { VideoEditor } from "../components/VideoEditor";
 import { VideoPost } from "../components/VideoPost";
 import { upload } from "../lib/api";
+import { useKeyboardOverlap } from "../lib/keyboard";
 import { useSession } from "../lib/session";
 import { colors } from "../lib/theme";
 
@@ -28,6 +30,7 @@ export function CreatePost({ inTab = false, groupId, pageId, targetName }) {
   const [original, setOriginal] = useState(null);   // a foto antes de editar (para voltar a editar do zero)
   const [videoEdit, setVideoEdit] = useState(null); // { edit, track } — instruções do editor de vídeo
   const [editing, setEditing] = useState(false);
+  const [keyboardRef, keyboardOverlap] = useKeyboardOverlap();
   const [exclusive, setExclusive] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -66,8 +69,11 @@ export function CreatePost({ inTab = false, groupId, pageId, targetName }) {
   };
   const ready = Boolean(text.trim() || file);
 
+  // A barra de baixo (foto, câmara, direto, exclusivo) sobe sempre por cima do teclado.
   return <SafeAreaView style={styles.screen} edges={["top", "bottom"]}>
-    <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+    <View ref={keyboardRef} style={[styles.screen, { paddingBottom: keyboardOverlap }]}>
+      {/* Este ecrã tem a barra de cima própria (sem a barra nativa): o logótipo entra aqui, como nas outras páginas. */}
+      <View style={styles.logoBar}><HeaderLogo /></View>
       <View style={styles.head}>
         {!inTab && <Pressable onPress={() => router.back()} hitSlop={12}><Ionicons name="close" size={28} color={colors.text} /></Pressable>}
         <Text style={styles.title} numberOfLines={1}>{targetName ? `Publicar em ${targetName}` : "Criar publicação"}</Text>
@@ -98,19 +104,23 @@ export function CreatePost({ inTab = false, groupId, pageId, targetName }) {
           onDone={result => { setVideoEdit(result); setEditing(false); }} />
         : <PhotoEditor asset={original} visible={editing && Boolean(original)} onCancel={() => setEditing(false)}
           onDone={edited => { setFile(edited); setEditing(false); }} />}
-      <View style={styles.tools}>
-        <Pressable style={styles.tool} onPress={() => pick(false)}><Ionicons name="images" size={22} color="#2EAA6B" /><Text style={styles.toolText}>Foto/vídeo</Text></Pressable>
-        <Pressable style={styles.tool} onPress={() => pick(true)}><Ionicons name="camera" size={22} color={colors.primary} /><Text style={styles.toolText}>Câmara</Text></Pressable>
-        {user?.is_creator && !groupId && !pageId && <Pressable style={[styles.tool, exclusive && styles.toolOn]} onPress={() => setExclusive(!exclusive)}>
-          <Ionicons name="lock-closed" size={20} color={exclusive ? "#fff" : colors.accent} /><Text style={[styles.toolText, exclusive && { color: "#fff" }]}>Exclusivo</Text>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" style={styles.toolsBar} contentContainerStyle={styles.tools}>
+        <Pressable style={styles.tool} onPress={() => pick(false)}><Ionicons name="images" size={22} color="#30B350" /><Text style={styles.toolText}>Foto/vídeo</Text></Pressable>
+        <Pressable style={styles.tool} onPress={() => pick(true)}><Ionicons name="camera" size={22} color="#0A84FF" /><Text style={styles.toolText}>Câmara</Text></Pressable>
+        {!groupId && !pageId && <Pressable style={styles.tool} onPress={() => router.push("/live")} accessibilityLabel="Diretos: entrar em direto ou ver quem está ao vivo">
+          <Ionicons name="radio" size={22} color="#D63384" /><Text style={styles.toolText}>Diretos</Text>
         </Pressable>}
-      </View>
-    </KeyboardAvoidingView>
+        {user?.is_creator && !groupId && !pageId && <Pressable style={[styles.tool, exclusive && styles.toolOn]} onPress={() => setExclusive(!exclusive)}>
+          <Ionicons name="lock-closed" size={20} color={exclusive ? "#fff" : "#AF52DE"} /><Text style={[styles.toolText, exclusive && { color: "#fff" }]}>Exclusivo</Text>
+        </Pressable>}
+      </ScrollView>
+    </View>
   </SafeAreaView>;
 }
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.surface },
+  logoBar: { alignItems: "center", paddingTop: 6, paddingBottom: 2 },
   head: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: colors.line },
   title: { flex: 1, color: colors.text, fontSize: 18, fontWeight: "800" },
   publish: { backgroundColor: colors.accent, paddingHorizontal: 18, height: 38, borderRadius: 19, justifyContent: "center" },
@@ -128,7 +138,8 @@ const styles = StyleSheet.create({
   editFile: { position: "absolute", left: 10, bottom: 10, flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, height: 34, borderRadius: 17, backgroundColor: "rgba(0,0,0,0.6)" },
   editText: { color: "#fff", fontWeight: "800" },
   error: { color: colors.danger },
-  tools: { flexDirection: "row", gap: 8, padding: 12, borderTopWidth: StyleSheet.hairlineWidth, borderColor: colors.line },
+  toolsBar: { flexGrow: 0, borderTopWidth: StyleSheet.hairlineWidth, borderColor: colors.line, backgroundColor: colors.surface },
+  tools: { flexDirection: "row", gap: 8, padding: 12 },
   tool: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, height: 40, borderRadius: 20, backgroundColor: colors.background },
   toolOn: { backgroundColor: colors.accent },
   toolText: { color: colors.text, fontWeight: "700" }

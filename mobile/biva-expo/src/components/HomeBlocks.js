@@ -4,12 +4,11 @@ import { router } from "expo-router";
 import { useState } from "react";
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { api } from "../lib/api";
-import catalog from "../lib/community-types.json";
+import { groupCategoryLabel } from "../lib/groups";
 import { colors } from "../lib/theme";
 import { Avatar } from "./Avatar";
 
 const time = value => new Date(value).toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" });
-const topicLabel = key => catalog.groupTopics.find(topic => topic.key === key)?.label || "Geral";
 
 // Faixa horizontal com o que está a acontecer agora.
 export function HomeNow({ now }) {
@@ -60,7 +59,7 @@ export function HomeDiscover({ discover }) {
     })),
     ...discover.groups.slice(0, 3).map(group => ({
       key: `g${group.id}`, onPress: () => router.push(`/group/${group.id}`), icon: "people", tone: "#2EAA6B", title: group.name,
-      line: group.friend_count ? `${group.friend_count} ${group.friend_count === 1 ? "amigo participa" : "amigos participam"}` : `${topicLabel(group.topic)} · ${group.member_count} membros`,
+      line: group.friend_count ? `${group.friend_count} ${group.friend_count === 1 ? "amigo participa" : "amigos participam"}` : `${groupCategoryLabel(group)} · ${group.member_count} membros`,
       action: <DiscoverAction label={group.requires_approval ? "Pedir" : "Participar"} doneLabel={group.requires_approval ? "Pedido" : "Membro"} onPress={() => api(`/groups/${group.id}/join`, { method: "POST" })} />
     })),
     ...discover.pages.slice(0, 3).map(page => ({
@@ -99,6 +98,6 @@ const styles = StyleSheet.create({
   bigIcon: { width: 64, height: 64, borderRadius: 18, alignItems: "center", justifyContent: "center" },
   action: { marginTop: 4, alignSelf: "stretch", height: 34, borderRadius: 17, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },
   actionDone: { backgroundColor: colors.primarySoft },
-  actionText: { color: "#fff", fontWeight: "800", fontSize: 13 },
+  actionText: { color: colors.onPrimary, fontWeight: "800", fontSize: 13 },
   actionTextDone: { color: colors.primary }
 });

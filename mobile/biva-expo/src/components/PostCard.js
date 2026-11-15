@@ -11,10 +11,14 @@ import { Avatar } from "./Avatar";
 import { TextWithTags } from "./TextWithTags";
 import { REPORT_REASONS, useOptions } from "./OptionsSheet";
 import { usePrompt } from "./usePrompt";
+import { ShareSheet } from "./ShareSheet";
 import { VideoPost } from "./VideoPost";
+import { fontSize } from "../lib/display";
 
 // Uma publicação do feed. O gosto muda logo no ecrã e volta atrás se a API recusar.
-export function PostCard({ post, showCommentButton = true, onRemoved }) {
+// extraOptions: opções a mais no menu "…" (ex.: a equipa de um grupo fixa ou esconde a publicação).
+export function PostCard({ post, showCommentButton = true, onRemoved, autoPlay = false, extraOptions = [] }) {
+  const [sharing, setSharing] = useState(false);
   const { user } = useSession();
   const [liked, setLiked] = useState(Boolean(post.liked));
   const [likes, setLikes] = useState(Number(post.likes || 0));
@@ -45,14 +49,12 @@ export function PostCard({ post, showCommentButton = true, onRemoved }) {
   // Partilhar: no próprio perfil do Tchilar (com comentário opcional) ou para outra app (WhatsApp, SMS...).
   const share = async () => {
     const key = await choose("Partilhar", [
-      { key: "profile", label: "Partilhar no meu perfil", icon: "repeat" },
+      { key: "profile", label: "Partilhar no Tchilar", icon: "repeat" },
       { key: "external", label: "Enviar para outra app", icon: "share-outline" }
     ]);
-    if (key === "profile") {
-      try { await api(`/posts/${post.id}/share`, { method: "POST", body: { profile: true, body: "" } }); setShares(value => value + 1); Alert.alert("Tchilar", "Partilhado no teu perfil."); }
-      catch (error) { Alert.alert("Tchilar", error.message); }
-    }
-    if (key === "external") Share.share({ message: `${post.display_name} no Tchilar: ${post.body ? `${post.body.slice(0, 120)} ` : ""}${WEB_URL}/u/${post.username}` }).catch(() => {});
+    // No Tchilar: perfil, páginas e grupos (até 5), com um comentário opcional.
+    if (key === "profile") setSharing(true);
+    if (key === "external") Share.share({ message: `${post.display_name} no Tchilar: ${post.body ? `${post.body.slice(0, 120)} ` : ""}${WEB_URL}/posts/${post.id}` }).catch(() => {});
   };
   // Estrelas: oferecer ao autor (sai do teu saldo; podes comprar mais em Estrelas).
   const giveStars = async () => {
@@ -67,9 +69,10 @@ export function PostCard({ post, showCommentButton = true, onRemoved }) {
     }
   };
   const more = async () => {
-    const key = await choose(null, mine
+    const key = await choose(null, [...extraOptions.map(({ onPress, ...option }) => option), ...(mine
       ? [{ key: "edit", label: "Editar publicação", icon: "create-outline" }, { key: "delete", label: "Apagar publicação", icon: "trash-outline", danger: true }]
-      : [{ key: "profile", label: `Ver perfil de ${post.display_name}`, icon: "person-outline" }, { key: "report", label: "Denunciar publicação", icon: "flag-outline", danger: true }]);
+      : [{ key: "profile", label: `Ver perfil de ${post.display_name}`, icon: "person-outline" }, { key: "report", label: "Denunciar publicação", icon: "flag-outline", danger: true }])]);
+    extraOptions.find(option => option.key === key)?.onPress();
     if (key === "profile") router.push(`/u/${post.username}`);
     if (key === "edit") {
       const next = await ask({ title: "Editar publicação", initial: body, placeholder: "Escreve a publicação", confirmLabel: "Guardar", optional: Boolean(post.media_url) });
@@ -96,14 +99,14 @@ export function PostCard({ post, showCommentButton = true, onRemoved }) {
         <Avatar user={post} size={42} />
         <View style={styles.headText}>
           <Text style={styles.name} numberOfLines={1}>{post.display_name}{post.is_verified ? " ✓" : ""}</Text>
-          <Text style={styles.meta}>@{post.username} · {relativeTime(post.created_at)}{post.group_name ? ` · ${post.group_name}` : ""}{post.is_exclusive ? " · 🔒 Exclusivo" : ""}{edited ? " · editado" : ""}</Text>
+          <Text style={styles.meta}>@{post.username} · {relativeTime(post.created_at)}{post.group_name ? ` · ${post.group_name}` : ""}{post.pinned_at && post.group_id ? " · Fixada" : ""}{post.is_exclusive ? " · 🔒 Exclusivo" : ""}{edited ? " · editado" : ""}</Text>
         </View>
       </Pressable>
       <Pressable onPress={more} hitSlop={10} accessibilityLabel="Mais opções"><Ionicons name="ellipsis-horizontal" size={20} color={colors.muted} /></Pressable>
     </View>
     {Boolean(body) && <TextWithTags style={styles.body} text={body} />}
     {media && post.media_type === "image" && <Image source={{ uri: media }} style={styles.media} contentFit="cover" transition={200} />}
-    {media && post.media_type === "video" && <VideoPost uri={media} style={styles.media} edit={post.video_edit} music={post.music} />}
+    {media && post.media_type === "video" && <VideoPost uri={media} style={styles.media} edit={post.video_edit} music={post.music} playing={autoPlay} muted={autoPlay} />}
     {post.shared && !post.shared.unavailable && <View style={styles.shared}>
       <Text style={styles.sharedName}>{post.shared.display_name}</Text>
       {Boolean(post.shared.body) && <TextWithTags style={styles.body} numberOfLines={4} text={post.shared.body} />}
@@ -128,6 +131,7 @@ export function PostCard({ post, showCommentButton = true, onRemoved }) {
       </Pressable>}
     </View>
     {options}
+    <ShareSheet post={post} visible={sharing} onClose={() => setSharing(false)} onShared={count => { setShares(value => value + 1); Alert.alert("Tchilar", count > 1 ? `Partilhado em ${count} sítios.` : "Partilhado."); }} />
     {editor}
   </View>;
 }
@@ -139,7 +143,7 @@ const styles = StyleSheet.create({
   headText: { flex: 1 },
   name: { color: colors.text, fontSize: 16, fontWeight: "700" },
   meta: { color: colors.muted, fontSize: 13, marginTop: 1 },
-  body: { color: colors.text, fontSize: 15, lineHeight: 21, paddingHorizontal: 14, marginTop: 10 },
+  body: { color: colors.text, fontSize: fontSize(15), lineHeight: fontSize(21), paddingHorizontal: 14, marginTop: 10 },
   media: { width: "100%", aspectRatio: 1, marginTop: 10, backgroundColor: colors.primarySoft },
   shared: { marginHorizontal: 14, marginTop: 10, padding: 10, borderRadius: 12, borderWidth: 1, borderColor: colors.line },
   sharedName: { color: colors.text, fontWeight: "700", paddingHorizontal: 14 },

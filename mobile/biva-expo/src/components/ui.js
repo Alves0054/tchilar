@@ -2,6 +2,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { colors } from "../lib/theme";
+import { ListSkeleton } from "./Loaders";
 
 export const kz = value => `${Number(value || 0).toLocaleString("pt-PT", { maximumFractionDigits: 2 })} Kz`;
 export const count = value => Number(value || 0).toLocaleString("pt-PT");
@@ -15,8 +16,9 @@ export function Page({ children, refreshing = false, onRefresh, padded = true })
   </ScrollView>;
 }
 
-export function Loading() {
-  return <ActivityIndicator style={{ marginTop: 40 }} color={colors.primary} />;
+// Enquanto um ecrã carrega: a forma do ecrã (cartões e linhas a pulsar), não um ecrã branco com uma roda.
+export function Loading({ cards = 3 }) {
+  return <ListSkeleton cards={cards} />;
 }
 
 export function Card({ title, subtitle, right, children, style }) {
@@ -82,7 +84,7 @@ export function Row({ icon, title, subtitle, right, onPress, tone }) {
 }
 
 export function Badge({ label, tone = "neutral" }) {
-  const tones = { neutral: [colors.background, colors.text], good: ["#E3F6EC", "#1E7A4B"], warning: ["#FFF1DC", "#9A5B00"], danger: ["#FDE7E7", colors.danger], info: [colors.primarySoft, colors.primary] };
+  const tones = { neutral: [colors.background, colors.text], good: [colors.goodSoft, colors.good], warning: [colors.warningSoft, colors.warning], danger: [colors.dangerSoft, colors.danger], info: [colors.primarySoft, colors.primary] };
   const [bg, fg] = tones[tone] || tones.neutral;
   return <View style={[styles.badge, { backgroundColor: bg }]}><Text style={[styles.badgeText, { color: fg }]}>{label}</Text></View>;
 }
@@ -90,8 +92,8 @@ export function Badge({ label, tone = "neutral" }) {
 export function Notice({ error, message }) {
   if (!error && !message) return null;
   return <View style={[styles.notice, error ? styles.noticeError : styles.noticeOk]}>
-    <Ionicons name={error ? "alert-circle" : "checkmark-circle"} size={18} color={error ? colors.danger : "#1E7A4B"} />
-    <Text style={[styles.noticeText, { color: error ? colors.danger : "#1E7A4B" }]}>{error || message}</Text>
+    <Ionicons name={error ? "alert-circle" : "checkmark-circle"} size={18} color={error ? colors.danger : colors.good} />
+    <Text style={[styles.noticeText, { color: error ? colors.danger : colors.good }]}>{error || message}</Text>
   </View>;
 }
 
@@ -126,7 +128,7 @@ const styles = StyleSheet.create({
   chip: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 999, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line },
   chipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
   chipText: { color: colors.text, fontWeight: "700" },
-  chipTextActive: { color: "#fff" },
+  chipTextActive: { color: colors.onPrimary },
   row: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: colors.line },
   rowIcon: { width: 38, height: 38, borderRadius: 12, backgroundColor: colors.background, alignItems: "center", justifyContent: "center" },
   rowTitle: { color: colors.text, fontSize: 15, fontWeight: "700" },
@@ -134,8 +136,8 @@ const styles = StyleSheet.create({
   badge: { alignSelf: "flex-start", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999 },
   badgeText: { fontSize: 12, fontWeight: "800" },
   notice: { flexDirection: "row", gap: 8, alignItems: "center", padding: 10, borderRadius: 12 },
-  noticeError: { backgroundColor: "#FDE7E7" },
-  noticeOk: { backgroundColor: "#E3F6EC" },
+  noticeError: { backgroundColor: colors.dangerSoft },
+  noticeOk: { backgroundColor: colors.goodSoft },
   noticeText: { flex: 1, fontWeight: "600" },
   empty: { alignItems: "center", gap: 8, padding: 24 },
   emptyText: { color: colors.muted, textAlign: "center" }

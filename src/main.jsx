@@ -6,7 +6,7 @@ import "@fontsource-variable/bricolage-grotesque";
 import "./styles.css";
 import { Auth, ForgotPassword, ResetPassword, VerifyEmail } from "./modules/auth.jsx";
 import { applyDevicePrefs, readDevicePrefs } from "./modules/core.jsx";
-import { Home } from "./modules/feed.jsx";
+import { Home, PostPage } from "./modules/feed.jsx";
 import { Layout } from "./modules/layout.jsx";
 import { installGlobalErrorReporting, PageErrorBoundary } from "./modules/errors.jsx";
 
@@ -20,9 +20,9 @@ const Events = lazy(() => import("./modules/events.jsx").then(module => ({ defau
 const Search = lazy(() => import("./modules/search.jsx").then(module => ({ default: module.Search })));
 const Friends = lazy(() => import("./modules/friends.jsx").then(module => ({ default: module.Friends })));
 const Groups = lazy(() => import("./modules/groups.jsx").then(module => ({ default: module.Groups })));
-const AcademyPage = lazy(() => import("./modules/growth.jsx").then(module => ({ default: module.AcademyPage })));
+const AcademyPage = lazy(() => import("./modules/academy.jsx").then(module => ({ default: module.AcademyPage })));
 const BrandsPage = lazy(() => import("./modules/growth.jsx").then(module => ({ default: module.BrandsPage })));
-const ChallengesPage = lazy(() => import("./modules/growth.jsx").then(module => ({ default: module.ChallengesPage })));
+const ChallengesPage = lazy(() => import("./modules/challenges.jsx").then(module => ({ default: module.ChallengesPage })));
 const InvitePage = lazy(() => import("./modules/growth.jsx").then(module => ({ default: module.InvitePage })));
 const StarsPage = lazy(() => import("./modules/growth.jsx").then(module => ({ default: module.StarsPage })));
 const About = lazy(() => import("./modules/info.jsx").then(module => ({ default: module.About })));
@@ -32,6 +32,7 @@ const Privacy = lazy(() => import("./modules/info.jsx").then(module => ({ defaul
 const Terms = lazy(() => import("./modules/info.jsx").then(module => ({ default: module.Terms })));
 const LivePage = lazy(() => import("./modules/live.jsx").then(module => ({ default: module.LivePage })));
 const Messages = lazy(() => import("./modules/messages.jsx").then(module => ({ default: module.Messages })));
+const CallPage = lazy(() => import("./modules/group-call.jsx").then(module => ({ default: module.CallPage })));
 const Notifications = lazy(() => import("./modules/notifications.jsx").then(module => ({ default: module.Notifications })));
 const Pages = lazy(() => import("./modules/pages.jsx").then(module => ({ default: module.Pages })));
 const Profile = lazy(() => import("./modules/profile.jsx").then(module => ({ default: module.Profile })));
@@ -41,7 +42,11 @@ const Settings = lazy(() => import("./modules/settings.jsx").then(module => ({ d
 
 // Enquanto a área pedida chega. Fica com o tamanho de uma página para não saltar.
 function PageLoading() {
-  return <section className="page narrow" aria-busy="true"><div className="empty card page-loading" role="status">A carregar...</div></section>;
+  // Áreas que carregam à parte: o mesmo logótipo a desfocar e focar, mais pequeno.
+  return <section className="page-boot" aria-busy="true" role="status" aria-label="A carregar">
+    <img className="page-boot-light" src="/tchilar-logo-full.png" alt="" />
+    <img className="page-boot-dark" src="/tchilar-logo-full-dark.png" alt="" />
+  </section>;
 }
 
 function App() {
@@ -62,6 +67,8 @@ function App() {
     <Route path="/messages/:userId" element={<Messages />} />
     <Route path="/groups" element={<Groups />} />
     <Route path="/groups/:groupId" element={<Groups />} />
+    <Route path="/posts/:postId" element={<PostPage />} />
+    <Route path="/calls/:callId" element={<CallPage />} />
     <Route path="/pages" element={<Pages />} />
     <Route path="/pages/:pageId" element={<Pages />} />
     <Route path="/events" element={<Events />} />
@@ -78,6 +85,8 @@ function App() {
     <Route path="/desafios/:challengeId" element={<ChallengesPage />} />
     <Route path="/convidar" element={<InvitePage />} />
     <Route path="/academia" element={<AcademyPage />} />
+    <Route path="/academia/:tab" element={<AcademyPage />} />
+    <Route path="/academia/:tab/:courseId" element={<AcademyPage />} />
     <Route path="/live" element={<LivePage />} />
     <Route path="/live/:liveId" element={<LivePage />} />
     <Route path="/publicidade" element={<AdRules />} />

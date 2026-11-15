@@ -2,7 +2,7 @@ import { useContext, useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Icon, UserContext, api } from "./core.jsx";
-import { InfoLinks } from "./shared.jsx";
+import { InfoLinks, StoreButtons } from "./shared.jsx";
 
 export const PASSWORD_MIN = 8;
 export const USERNAME_PATTERN = /^[a-z0-9._]{3,40}$/;
@@ -71,9 +71,16 @@ export function SwapLink({ to, onClick, ...props }) {
   };
   return <Link to={to} onClick={handleClick} {...props} />;
 }
+// Logótipo completo (com o texto "Tchilar"): versão preta no tema claro e branca no escuro.
+export function BrandLogo() {
+  return <>
+    <img className="brand-logo is-light" src="/tchilar-logo-full.png" alt="" />
+    <img className="brand-logo is-dark" src="/tchilar-logo-full-dark.png" alt="" />
+  </>;
+}
 export function EntryShowcase({ mode }) {
   return <div className="entry-showcase">
-    <Link className="entry-logo" to="/" aria-label="Tchilar, página inicial"><img src="/tchilar-logo.png" alt="" /></Link>
+    <Link className="entry-logo" to="/" aria-label="Tchilar, página inicial"><BrandLogo /></Link>
     <div className="entry-collage" aria-hidden="true">
       <figure className="entry-card entry-card-story">
         <span className="entry-story-bars"><i /><i /><i /></span>
@@ -264,7 +271,12 @@ export function Auth({ mode }) {
     <EntryShowcase mode={mode} />
     <div className="entry-main">
       <div className="entry-panel">
-        <Link className="entry-mobile-logo" to="/" aria-label="Tchilar, página inicial"><img src="/tchilar-logo-full.png" alt="Tchilar" /></Link>
+        <Link className="entry-mobile-logo" to="/" aria-label="Tchilar, página inicial"><BrandLogo /></Link>
+        {!sentTo && <nav className="entry-switch" data-mode={mode} aria-label="Entrar ou criar conta">
+          <span className="entry-switch-pill" aria-hidden="true" />
+          <SwapLink to="/login" aria-current={isLogin ? "page" : undefined}>Entrar</SwapLink>
+          <SwapLink to="/register" aria-current={isLogin ? undefined : "page"}>Criar conta</SwapLink>
+        </nav>}
         <header className="entry-head">
           {!isLogin && <SwapLink className="entry-back" to="/login" aria-label="Voltar a entrar"><Icon name="previous" size={22} /></SwapLink>}
           <h1>{heading}</h1>
@@ -280,7 +292,7 @@ export function Auth({ mode }) {
             <button className="entry-btn entry-btn-outline" type="button" disabled={busy} onClick={() => resend(sentTo)}>{busy ? "A reenviar..." : "Reenviar email"}</button>
             <SwapLink className="entry-link" to="/login">Já confirmei, quero entrar</SwapLink>
           </div>
-          : <form className="entry-form" onSubmit={submit} noValidate>
+          : <form key={mode} className={`entry-form entry-form-${mode}`} onSubmit={submit} noValidate>
             {!isLogin && <div className="entry-names">
               <div className="entry-field">
                 <EntryInput id="first-name" label="Nome próprio" required autoComplete="given-name" maxLength={50}
@@ -370,13 +382,11 @@ export function Auth({ mode }) {
 
             {isLogin && <Link className="entry-link" to="/forgot-password">Esqueceste-te da palavra-passe?</Link>}
 
-            <SwapLink className="entry-btn entry-btn-outline entry-alt" to={isLogin ? "/register" : "/login"}>
-              {isLogin ? "Criar nova conta" : "Já tenho conta"}
-            </SwapLink>
           </form>}
 
         <footer className="entry-foot">
-          <span className="entry-wordmark"><img src="/tchilar-logo.png" alt="" /> tchilar</span>
+          <span className="entry-wordmark"><BrandLogo /></span>
+          <StoreButtons />
           <InfoLinks />
         </footer>
       </div>
@@ -460,7 +470,7 @@ export function VerifyEmail() {
           </form>}
         </div>
         <footer className="entry-foot">
-          <span className="entry-wordmark"><img src="/tchilar-logo.png" alt="" /> tchilar</span>
+          <span className="entry-wordmark"><BrandLogo /></span>
           <InfoLinks />
         </footer>
       </div>

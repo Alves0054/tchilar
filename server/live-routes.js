@@ -12,6 +12,7 @@
 // A presença é contada em memória (server/live-presence.js) em vez de uma escrita por espectador.
 const crypto = require("crypto");
 const { GIFT_AMOUNTS } = require("./growth");
+const { GIFTS, giftByKey } = require("./live-gifts");
 const { LivePresence, pollInterval } = require("./live-presence");
 const { LiveReactions } = require("./live-reactions");
 const {
@@ -127,7 +128,7 @@ function registerLiveRoutes(app, deps) {
     const { iceServers, iceTransportPolicy } = req.user ? turnConfig(req.user.id) : { iceServers: [STUN], iceTransportPolicy: "all" };
     res.json({
       mode: media ? "cdn" : "p2p", iceServers, iceTransportPolicy, maxVideoViewers: MAX_VIDEO_VIEWERS,
-      giftAmounts: GIFT_AMOUNTS, categories: LIVE_CATEGORIES, obs: Boolean(media), browserPublish: Boolean(media && config.whipUrl)
+      giftAmounts: GIFT_AMOUNTS, gifts: GIFTS, categories: LIVE_CATEGORIES, obs: Boolean(media), browserPublish: Boolean(media && config.whipUrl)
     });
   });
 
@@ -315,7 +316,7 @@ function registerLiveRoutes(app, deps) {
         FROM lives l WHERE l.id=$1`, [id]),
       pool.query(`
         SELECT * FROM (
-          SELECT c.id,c.body,c.stars,c.created_at,u.id AS user_id,u.username,u.display_name,u.avatar_url
+          SELECT c.id,c.body,c.stars,c.gift,c.created_at,u.id AS user_id,u.username,u.display_name,u.avatar_url
           FROM live_comments c LEFT JOIN users u ON u.id=c.user_id
           WHERE c.live_id=$1 AND c.hidden_at IS NULL ORDER BY c.id DESC LIMIT ${FEED_COMMENTS}
         ) recent ORDER BY id ASC`, [id]),
@@ -453,10 +454,13 @@ function registerLiveRoutes(app, deps) {
   });
 
   // Estrelas durante o direto: mesmas regras das ofertas em publicações, e aparecem no chat.
+  // Estrelas soltas (1, 5, 10, 50, 100) ou um presente do catálogo ({ gift: "coroa" }): paga-se com estrelas.
   app.post("/api/lives/:id/stars", auth, async (req, res) => {
     const id = parseId(req.params.id);
-    const amount = Number(req.body?.amount);
-    if (!id || !GIFT_AMOUNTS.includes(amount)) return res.status(400).json({ error: "Quantidade de estrelas inválida." });
+    const gift = req.body?.gift === undefined ? null : giftByKey(req.body.gift);
+    if (req.body?.gift !== undefined && !gift) return res.status(400).json({ error: "Presente inválido." });
+    const amount = gift ? gift.stars : Number(req.body?.amount);
+    if (!id || (!gift && !GIFT_AMOUNTS.includes(amount))) return res.status(400).json({ error: "Quantidade de estrelas inválida." });
     const live = await loadLive(id, req.user.id);
     if (!live || live.status !== "live") return res.status(409).json({ error: "Este direto já terminou." });
     if (live.host_id === req.user.id) return res.status(400).json({ error: "Não podes oferecer estrelas a ti próprio." });
@@ -467,8 +471,8 @@ function registerLiveRoutes(app, deps) {
       await client.query(
         "INSERT INTO star_ledger(user_id,amount,kind,counterpart_id,live_id) VALUES($1,$2,'gift_sent',$3,$4),($3,$5,'gift_received',$1,$4)",
         [req.user.id, -amount, live.host_id, id, amount]);
-      await client.query("INSERT INTO live_comments(live_id,user_id,body,stars) VALUES($1,$2,$3,$4)",
-        [id, req.user.id, `ofereceu ${amount} ${amount === 1 ? "estrela" : "estrelas"}`, amount]);
+      await client.query("INSERT INTO live_comments(live_id,user_id,body,stars,gift) VALUES($1,$2,$3,$4,$5)",
+        [id, req.user.id, gift ? `ofereceu ${gift.name}` : `ofereceu ${amount} ${amount === 1 ? "estrela" : "estrelas"}`, amount, gift?.key || null]);
       return { balance: balance - amount };
     });
     if (outcome.error) return res.status(402).json(outcome);

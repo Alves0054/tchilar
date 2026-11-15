@@ -6,6 +6,10 @@ test("push opens the right screen in the app", () => {
   assert.equal(pushPath({ type: "message", actor_id: 7 }), "/chat/7");
   assert.equal(pushPath({ type: "payment" }), "/settings/pagamentos");
   assert.equal(pushPath({ type: "like", actor_username: "joana" }), "/u/joana");
+  assert.equal(pushPath({ type: "like", actor_username: "joana", post_id: 12 }), "/post/12", "gosto numa publicação abre a publicação");
+  assert.equal(pushPath({ type: "privacy", text: "Novo início de sessão: Chrome · Windows." }), "/settings/seguranca");
+  assert.equal(pushPath({ type: "group_call", actor_username: "joana", group_id: 4 }), "/group/4", "chamada no grupo abre o grupo");
+  assert.equal(pushPath({ type: "call", actor_username: "joana", call_id: 9 }), "/call/direct/9", "está a ligar-te abre a chamada");
   assert.equal(pushPath({ type: "system" }), "/notifications");
 });
 

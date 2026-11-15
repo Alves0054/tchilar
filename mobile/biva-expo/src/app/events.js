@@ -17,6 +17,7 @@ export default function Events() {
       <Ionicons name="add-circle" size={28} color={colors.primary} /></Pressable> }} />
     <CommunityList path="/events" field="events" filters={FILTERS} empty="Não há eventos marcados."
     renderRow={(event, update) => <CommunityCard
+      onPress={() => router.push(`/event/${event.id}`)}
       icon="calendar"
       tone="#F06A2A"
       title={event.name}

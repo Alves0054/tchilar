@@ -27,7 +27,7 @@ function registerHomeRoutes(app, { pool, auth, blockedBetween }) {
         ORDER BY e.starts_at LIMIT 3`, [me]),
       // Grupos onde participas com publicações de outras pessoas nas últimas 24 horas.
       pool.query(`
-        SELECT g.id,g.name,g.topic,COUNT(p.id)::int AS new_posts,MAX(p.created_at) AS last_post_at
+        SELECT g.id,g.name,g.group_type,g.category,g.subcategory,COUNT(p.id)::int AS new_posts,MAX(p.created_at) AS last_post_at
         FROM group_members m
         JOIN social_groups g ON g.id=m.group_id
         JOIN posts p ON p.group_id=g.id AND p.user_id<>$1 AND p.hidden_at IS NULL AND p.created_at > NOW() - INTERVAL '24 hours'
@@ -41,11 +41,11 @@ function registerHomeRoutes(app, { pool, auth, blockedBetween }) {
       // temas onde já participas, depois os mais movimentados (membros + publicações da última semana).
       pool.query(`
         WITH my_topics AS (
-          SELECT DISTINCT g.topic FROM group_members m JOIN social_groups g ON g.id=m.group_id WHERE m.user_id=$1)
-        SELECT g.id,g.name,g.description,g.topic,g.requires_approval,
+          SELECT DISTINCT g.category FROM group_members m JOIN social_groups g ON g.id=m.group_id WHERE m.user_id=$1)
+        SELECT g.id,g.name,g.description,g.group_type,g.category,g.subcategory,g.requires_approval,g.invite_only,
           (SELECT COUNT(*) FROM group_members m WHERE m.group_id=g.id)::int AS member_count,
           (SELECT COUNT(*) FROM group_members m WHERE m.group_id=g.id AND m.user_id IN (${friendIds}))::int AS friend_count,
-          g.topic IN (SELECT topic FROM my_topics) AS same_topic
+          g.category IN (SELECT category FROM my_topics) AS same_topic
         FROM social_groups g
         WHERE NOT g.is_secret AND g.hidden_at IS NULL AND g.owner_id<>$1
           AND NOT EXISTS(SELECT 1 FROM group_members m WHERE m.group_id=g.id AND m.user_id=$1)
@@ -60,7 +60,7 @@ function registerHomeRoutes(app, { pool, auth, blockedBetween }) {
       pool.query(`
         WITH my_types AS (
           SELECT DISTINCT p.page_type FROM page_followers f JOIN pages p ON p.id=f.page_id WHERE f.user_id=$1)
-        SELECT p.id,p.name,p.page_type,p.category,
+        SELECT p.id,p.name,p.page_type,p.category,p.subcategory,
           (SELECT COUNT(*) FROM page_followers f WHERE f.page_id=p.id)::int AS follower_count,
           (SELECT COUNT(*) FROM page_followers f WHERE f.page_id=p.id AND f.user_id IN (${friendIds}))::int AS friend_count
         FROM pages p

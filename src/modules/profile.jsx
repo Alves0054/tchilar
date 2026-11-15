@@ -385,7 +385,7 @@ export function Profile() {
         {!isAboutPage && !profile.cover_url && <>
           <span className="profile-cover-kicker">TCHILAR <i /> ESPAÇO DE CRIAÇÃO</span>
           <span className="profile-cover-message">Histórias que<br /><em>nos aproximam.</em></span>
-          <span className="profile-cover-mark" aria-hidden="true">B</span>
+          <img className="profile-cover-mark" src="/tchilar-logo.png" alt="" aria-hidden="true" />
           <span className="profile-cover-orbit profile-cover-orbit-one" />
           <span className="profile-cover-orbit profile-cover-orbit-two" />
         </>}

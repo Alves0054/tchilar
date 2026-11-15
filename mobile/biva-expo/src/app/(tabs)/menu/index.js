@@ -12,15 +12,12 @@ const SHORTCUTS = [
   { label: "Grupos", hint: "Pessoas com os mesmos interesses", icon: "people", tone: "#0FA3B1", route: "/groups" },
   { label: "Páginas", hint: "Segue projetos e marcas", icon: "flag", tone: "#FF8A00", route: "/pages" },
   { label: "Eventos", hint: "Encontros perto de ti", icon: "calendar", tone: "#F06A2A", route: "/events" },
-  { label: "Diretos", hint: "Quem está ao vivo agora", icon: "radio", tone: "#D63384", route: "/live" },
   { label: "Painel do criador", hint: "Insights, ganhos e promoções", icon: "stats-chart", tone: "#5E5CE6", route: "/creator" },
   { label: "Estrelas", hint: "Apoia os teus criadores", icon: "star", tone: "#E5A000", route: "/stars" },
-  { label: "Marcas", hint: "Campanhas com criadores", icon: "briefcase", tone: "#1F2937", route: "/brands" },
+  { label: "Marcas", hint: "Campanhas com criadores", icon: "briefcase", tone: "#2F80ED", route: "/brands" },
   { label: "Desafios", hint: "Participa e ganha prémios", icon: "trophy", tone: "#E5A000", route: "/challenges" },
   { label: "Academia Tchilar", hint: "Cresce como criador", icon: "school", tone: "#30B350", route: "/academy" },
-  { label: "Convidar amigos", hint: "Ganha estrelas", icon: "gift", tone: "#F06A2A", route: "/invite" },
-  { label: "Mensagens", hint: "As tuas conversas", icon: "chatbubbles", tone: "#2F80ED", route: "/messages" },
-  { label: "Reels", hint: "Vídeos da comunidade", icon: "film", tone: "#AF52DE", route: "/reels" }
+  { label: "Convidar amigos", hint: "Ganha estrelas", icon: "gift", tone: "#F06A2A", route: "/invite" }
 ];
 
 export default function Menu() {

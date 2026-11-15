@@ -1,79 +1,1692 @@
 {
-  "groupTopics": [
-    { "key": "geral", "label": "Geral", "icon": "groups" },
-    { "key": "amigos", "label": "Amigos e família", "icon": "friends" },
-    { "key": "bairro", "label": "Bairro e cidade", "icon": "location" },
-    { "key": "compra-venda", "label": "Compra e venda", "icon": "card" },
-    { "key": "empreender", "label": "Negócios e empreendedorismo", "icon": "stats" },
-    { "key": "trabalho", "label": "Emprego e carreira", "icon": "brand" },
-    { "key": "estudo", "label": "Estudo e escola", "icon": "academy" },
-    { "key": "tecnologia", "label": "Tecnologia", "icon": "devices" },
-    { "key": "desporto", "label": "Desporto", "icon": "trophy" },
-    { "key": "jogos", "label": "Jogos", "icon": "play" },
-    { "key": "musica", "label": "Música e dança", "icon": "sound" },
-    { "key": "arte", "label": "Arte e fotografia", "icon": "camera" },
-    { "key": "moda", "label": "Moda e beleza", "icon": "spark" },
-    { "key": "culinaria", "label": "Culinária", "icon": "gift" },
-    { "key": "saude", "label": "Saúde e bem-estar", "icon": "heart" },
-    { "key": "pais", "label": "Pais e filhos", "icon": "profile" },
-    { "key": "fe", "label": "Fé e espiritualidade", "icon": "star" },
-    { "key": "viagens", "label": "Viagens", "icon": "globe" },
-    { "key": "causas", "label": "Causas e voluntariado", "icon": "shield" },
-    { "key": "fas", "label": "Clube de fãs", "icon": "like" }
-  ],
   "groupPrivacy": [
-    { "key": "public", "label": "Público", "icon": "groups", "help": "Aparece em Grupos e qualquer pessoa pode entrar." },
-    { "key": "private", "label": "Privado", "icon": "shield", "help": "Aparece em Grupos, mas és tu que aprovas quem entra." },
-    { "key": "secret", "label": "Secreto · +18", "icon": "lock", "help": "Não aparece na lista: só quem escreve o nome exato o encontra. Só para maiores de 18, com entrada paga." }
+    {
+      "key": "public",
+      "label": "Público",
+      "icon": "groups",
+      "ion": "earth",
+      "help": "Aparece em Grupos e qualquer pessoa pode entrar."
+    },
+    {
+      "key": "approval",
+      "label": "Com aprovação",
+      "icon": "check",
+      "ion": "checkmark-done",
+      "help": "Aparece em Grupos; quem quer entrar pede e um administrador aprova."
+    },
+    {
+      "key": "private",
+      "label": "Privado",
+      "icon": "shield",
+      "ion": "shield-checkmark",
+      "help": "Aparece em Grupos, mas só entra quem um administrador convidar."
+    },
+    {
+      "key": "secret",
+      "label": "Secreto · +18",
+      "icon": "lock",
+      "ion": "lock-closed",
+      "help": "Não aparece nas pesquisas nem na lista: só quem escreve o nome exato o encontra. Só para maiores de 18, com entrada paga."
+    }
+  ],
+  "groupTypes": [
+    {
+      "key": "comunitario",
+      "label": "Comunitário",
+      "help": "Comunidades e convivência",
+      "icon": "groups",
+      "ion": "people",
+      "category": "comunidade"
+    },
+    {
+      "key": "profissional",
+      "label": "Profissional",
+      "help": "Profissionais e empresas",
+      "icon": "brand",
+      "ion": "briefcase",
+      "category": "negocios"
+    },
+    {
+      "key": "educativo",
+      "label": "Educativo",
+      "help": "Aprendizagem",
+      "icon": "academy",
+      "ion": "school",
+      "category": "educacao"
+    },
+    {
+      "key": "discussao",
+      "label": "Discussão",
+      "help": "Troca de opiniões e debates",
+      "icon": "messages",
+      "ion": "chatbubbles",
+      "category": "politica"
+    },
+    {
+      "key": "compra-venda",
+      "label": "Compra e venda",
+      "help": "Comércio entre membros",
+      "icon": "card",
+      "ion": "pricetags",
+      "category": "compra-venda"
+    },
+    {
+      "key": "eventos",
+      "label": "Eventos",
+      "help": "Organizar encontros e atividades",
+      "icon": "events",
+      "ion": "calendar",
+      "category": "comunidade"
+    },
+    {
+      "key": "fas",
+      "label": "Fãs",
+      "help": "Artistas, marcas ou personalidades",
+      "icon": "heart",
+      "ion": "heart",
+      "category": "musica-entretenimento"
+    },
+    {
+      "key": "apoio",
+      "label": "Apoio",
+      "help": "Partilha de experiências e ajuda mútua",
+      "icon": "friends",
+      "ion": "hand-left",
+      "category": "saude"
+    },
+    {
+      "key": "local",
+      "label": "Local",
+      "help": "Pessoas de uma região",
+      "icon": "location",
+      "ion": "location",
+      "category": "comunidade"
+    },
+    {
+      "key": "estudo",
+      "label": "Estudo",
+      "help": "Materiais e conhecimentos",
+      "icon": "pages",
+      "ion": "book",
+      "category": "educacao"
+    },
+    {
+      "key": "entretenimento",
+      "label": "Entretenimento",
+      "help": "Diversão, humor e lazer",
+      "icon": "play",
+      "ion": "happy",
+      "category": "humor"
+    },
+    {
+      "key": "anuncios",
+      "label": "Anúncios",
+      "help": "Informações e oportunidades",
+      "icon": "notifications",
+      "ion": "megaphone",
+      "category": "carreira"
+    },
+    {
+      "key": "projetos",
+      "label": "Projetos",
+      "help": "Colaborar em projetos",
+      "icon": "bolt",
+      "ion": "construct",
+      "category": "tecnologia-criatividade"
+    },
+    {
+      "key": "jogos",
+      "label": "Jogos",
+      "help": "Jogadores e comunidades gaming",
+      "icon": "play",
+      "ion": "game-controller",
+      "category": "jogos"
+    },
+    {
+      "key": "networking",
+      "label": "Networking",
+      "help": "Contactos e oportunidades profissionais",
+      "icon": "friends",
+      "ion": "git-network",
+      "category": "carreira"
+    },
+    {
+      "key": "voluntariado",
+      "label": "Voluntariado",
+      "help": "Ações sociais e solidariedade",
+      "icon": "heart",
+      "ion": "hand-right",
+      "category": "solidariedade"
+    }
+  ],
+  "groupCategories": [
+    {
+      "key": "comunidade",
+      "label": "Comunidade e sociedade",
+      "icon": "groups",
+      "subcategories": [
+        {
+          "key": "comunidade-local",
+          "label": "Comunidade local"
+        },
+        {
+          "key": "bairro-e-municipio",
+          "label": "Bairro e município"
+        },
+        {
+          "key": "amizades",
+          "label": "Amizades"
+        },
+        {
+          "key": "novas-amizades",
+          "label": "Novas amizades"
+        },
+        {
+          "key": "jovens",
+          "label": "Jovens"
+        },
+        {
+          "key": "familias",
+          "label": "Famílias"
+        },
+        {
+          "key": "pais-e-maes",
+          "label": "Pais e mães"
+        },
+        {
+          "key": "cidadania",
+          "label": "Cidadania"
+        },
+        {
+          "key": "acoes-comunitarias",
+          "label": "Ações comunitárias"
+        }
+      ]
+    },
+    {
+      "key": "educacao",
+      "label": "Educação e aprendizagem",
+      "icon": "academy",
+      "subcategories": [
+        {
+          "key": "estudantes",
+          "label": "Estudantes"
+        },
+        {
+          "key": "universitarios",
+          "label": "Universitários"
+        },
+        {
+          "key": "professores",
+          "label": "Professores"
+        },
+        {
+          "key": "explicacoes",
+          "label": "Explicações"
+        },
+        {
+          "key": "cursos-online",
+          "label": "Cursos online"
+        },
+        {
+          "key": "bolsas-de-estudo",
+          "label": "Bolsas de estudo"
+        },
+        {
+          "key": "linguas",
+          "label": "Línguas"
+        },
+        {
+          "key": "preparacao-para-exames",
+          "label": "Preparação para exames"
+        },
+        {
+          "key": "investigacao",
+          "label": "Investigação"
+        }
+      ]
+    },
+    {
+      "key": "negocios",
+      "label": "Negócios e empreendedorismo",
+      "icon": "brand",
+      "subcategories": [
+        {
+          "key": "empreendedores",
+          "label": "Empreendedores"
+        },
+        {
+          "key": "empresarios",
+          "label": "Empresários"
+        },
+        {
+          "key": "startups",
+          "label": "Startups"
+        },
+        {
+          "key": "investidores",
+          "label": "Investidores"
+        },
+        {
+          "key": "networking",
+          "label": "Networking"
+        },
+        {
+          "key": "marketing",
+          "label": "Marketing"
+        },
+        {
+          "key": "vendas",
+          "label": "Vendas"
+        },
+        {
+          "key": "oportunidades-de-negocio",
+          "label": "Oportunidades de negócio"
+        },
+        {
+          "key": "gestao-empresarial",
+          "label": "Gestão empresarial"
+        }
+      ]
+    },
+    {
+      "key": "tecnologia-criatividade",
+      "label": "Tecnologia e criatividade",
+      "icon": "devices",
+      "subcategories": [
+        {
+          "key": "programacao",
+          "label": "Programação"
+        },
+        {
+          "key": "desenvolvimento-web",
+          "label": "Desenvolvimento web"
+        },
+        {
+          "key": "aplicacoes-moveis",
+          "label": "Aplicações móveis"
+        },
+        {
+          "key": "inteligencia-artificial",
+          "label": "Inteligência artificial"
+        },
+        {
+          "key": "design-grafico",
+          "label": "Design gráfico"
+        },
+        {
+          "key": "fotografia",
+          "label": "Fotografia"
+        },
+        {
+          "key": "edicao-de-video",
+          "label": "Edição de vídeo"
+        },
+        {
+          "key": "producao-musical",
+          "label": "Produção musical"
+        },
+        {
+          "key": "audiovisual",
+          "label": "Audiovisual"
+        },
+        {
+          "key": "robotica",
+          "label": "Robótica"
+        }
+      ]
+    },
+    {
+      "key": "desporto",
+      "label": "Desporto",
+      "icon": "trophy",
+      "subcategories": [
+        {
+          "key": "futebol",
+          "label": "Futebol"
+        },
+        {
+          "key": "basquetebol",
+          "label": "Basquetebol"
+        },
+        {
+          "key": "andebol",
+          "label": "Andebol"
+        },
+        {
+          "key": "voleibol",
+          "label": "Voleibol"
+        },
+        {
+          "key": "atletismo",
+          "label": "Atletismo"
+        },
+        {
+          "key": "artes-marciais",
+          "label": "Artes marciais"
+        },
+        {
+          "key": "fitness",
+          "label": "Fitness"
+        },
+        {
+          "key": "musculacao",
+          "label": "Musculação"
+        },
+        {
+          "key": "corrida",
+          "label": "Corrida"
+        },
+        {
+          "key": "ciclismo",
+          "label": "Ciclismo"
+        }
+      ]
+    },
+    {
+      "key": "musica-entretenimento",
+      "label": "Música e entretenimento",
+      "icon": "mic",
+      "subcategories": [
+        {
+          "key": "musica-angolana",
+          "label": "Música angolana"
+        },
+        {
+          "key": "kuduro",
+          "label": "Kuduro"
+        },
+        {
+          "key": "afrobeat",
+          "label": "Afrobeat"
+        },
+        {
+          "key": "rap-e-hip-hop",
+          "label": "Rap e Hip-Hop"
+        },
+        {
+          "key": "gospel",
+          "label": "Gospel"
+        },
+        {
+          "key": "kizomba",
+          "label": "Kizomba"
+        },
+        {
+          "key": "semba",
+          "label": "Semba"
+        },
+        {
+          "key": "djs",
+          "label": "DJs"
+        },
+        {
+          "key": "cinema",
+          "label": "Cinema"
+        },
+        {
+          "key": "series-e-televisao",
+          "label": "Séries e televisão"
+        },
+        {
+          "key": "humor-e-memes",
+          "label": "Humor e memes"
+        }
+      ]
+    },
+    {
+      "key": "moda-beleza",
+      "label": "Moda e beleza",
+      "icon": "spark",
+      "subcategories": [
+        {
+          "key": "moda-masculina",
+          "label": "Moda masculina"
+        },
+        {
+          "key": "moda-feminina",
+          "label": "Moda feminina"
+        },
+        {
+          "key": "maquilhagem",
+          "label": "Maquilhagem"
+        },
+        {
+          "key": "cabeleireiros",
+          "label": "Cabeleireiros"
+        },
+        {
+          "key": "barbearias",
+          "label": "Barbearias"
+        },
+        {
+          "key": "modelos",
+          "label": "Modelos"
+        },
+        {
+          "key": "estilistas",
+          "label": "Estilistas"
+        },
+        {
+          "key": "cuidados-pessoais",
+          "label": "Cuidados pessoais"
+        }
+      ]
+    },
+    {
+      "key": "gastronomia",
+      "label": "Gastronomia",
+      "icon": "location",
+      "subcategories": [
+        {
+          "key": "culinaria-angolana",
+          "label": "Culinária angolana"
+        },
+        {
+          "key": "receitas",
+          "label": "Receitas"
+        },
+        {
+          "key": "restaurantes",
+          "label": "Restaurantes"
+        },
+        {
+          "key": "confeitaria",
+          "label": "Confeitaria"
+        },
+        {
+          "key": "pastelaria",
+          "label": "Pastelaria"
+        },
+        {
+          "key": "chefs",
+          "label": "Chefs"
+        },
+        {
+          "key": "comida-saudavel",
+          "label": "Comida saudável"
+        },
+        {
+          "key": "gastronomia-internacional",
+          "label": "Gastronomia internacional"
+        }
+      ]
+    },
+    {
+      "key": "viagens",
+      "label": "Viagens e turismo",
+      "icon": "globe",
+      "subcategories": [
+        {
+          "key": "turismo-em-angola",
+          "label": "Turismo em Angola"
+        },
+        {
+          "key": "viagens-internacionais",
+          "label": "Viagens internacionais"
+        },
+        {
+          "key": "aventuras",
+          "label": "Aventuras"
+        },
+        {
+          "key": "excursoes",
+          "label": "Excursões"
+        },
+        {
+          "key": "praias",
+          "label": "Praias"
+        },
+        {
+          "key": "campismo",
+          "label": "Campismo"
+        },
+        {
+          "key": "guias-turisticos",
+          "label": "Guias turísticos"
+        },
+        {
+          "key": "intercambio-cultural",
+          "label": "Intercâmbio cultural"
+        }
+      ]
+    },
+    {
+      "key": "cultura",
+      "label": "Cultura e conhecimento",
+      "icon": "pages",
+      "subcategories": [
+        {
+          "key": "literatura",
+          "label": "Literatura"
+        },
+        {
+          "key": "livros",
+          "label": "Livros"
+        },
+        {
+          "key": "historia-de-angola",
+          "label": "História de Angola"
+        },
+        {
+          "key": "cultura-africana",
+          "label": "Cultura africana"
+        },
+        {
+          "key": "filosofia",
+          "label": "Filosofia"
+        },
+        {
+          "key": "ciencia",
+          "label": "Ciência"
+        },
+        {
+          "key": "astronomia",
+          "label": "Astronomia"
+        },
+        {
+          "key": "linguas-e-tradicoes",
+          "label": "Línguas e tradições"
+        }
+      ]
+    },
+    {
+      "key": "saude",
+      "label": "Saúde e bem-estar",
+      "icon": "heart",
+      "subcategories": [
+        {
+          "key": "fitness",
+          "label": "Fitness"
+        },
+        {
+          "key": "nutricao",
+          "label": "Nutrição"
+        },
+        {
+          "key": "saude-mental",
+          "label": "Saúde mental"
+        },
+        {
+          "key": "meditacao",
+          "label": "Meditação"
+        },
+        {
+          "key": "bem-estar",
+          "label": "Bem-estar"
+        },
+        {
+          "key": "vida-saudavel",
+          "label": "Vida saudável"
+        },
+        {
+          "key": "yoga",
+          "label": "Yoga"
+        },
+        {
+          "key": "cuidados-pessoais",
+          "label": "Cuidados pessoais"
+        }
+      ]
+    },
+    {
+      "key": "compra-venda",
+      "label": "Compra e venda",
+      "icon": "card",
+      "subcategories": [
+        {
+          "key": "imoveis",
+          "label": "Imóveis"
+        },
+        {
+          "key": "automoveis",
+          "label": "Automóveis"
+        },
+        {
+          "key": "telemoveis",
+          "label": "Telemóveis"
+        },
+        {
+          "key": "computadores",
+          "label": "Computadores"
+        },
+        {
+          "key": "eletronica",
+          "label": "Eletrónica"
+        },
+        {
+          "key": "vestuario",
+          "label": "Vestuário"
+        },
+        {
+          "key": "mobiliario",
+          "label": "Mobiliário"
+        },
+        {
+          "key": "produtos-usados",
+          "label": "Produtos usados"
+        },
+        {
+          "key": "servicos",
+          "label": "Serviços"
+        },
+        {
+          "key": "comercio-local",
+          "label": "Comércio local"
+        }
+      ]
+    },
+    {
+      "key": "jogos",
+      "label": "Jogos e gaming",
+      "icon": "play",
+      "subcategories": [
+        {
+          "key": "playstation",
+          "label": "PlayStation"
+        },
+        {
+          "key": "xbox",
+          "label": "Xbox"
+        },
+        {
+          "key": "pc-gaming",
+          "label": "PC Gaming"
+        },
+        {
+          "key": "mobile-gaming",
+          "label": "Mobile Gaming"
+        },
+        {
+          "key": "free-fire",
+          "label": "Free Fire"
+        },
+        {
+          "key": "pubg",
+          "label": "PUBG"
+        },
+        {
+          "key": "gta",
+          "label": "GTA"
+        },
+        {
+          "key": "fifa-ea-sports-fc",
+          "label": "FIFA / EA Sports FC"
+        },
+        {
+          "key": "e-sports",
+          "label": "E-sports"
+        },
+        {
+          "key": "streamers",
+          "label": "Streamers"
+        }
+      ]
+    },
+    {
+      "key": "solidariedade",
+      "label": "Solidariedade e voluntariado",
+      "icon": "heart",
+      "subcategories": [
+        {
+          "key": "acoes-solidarias",
+          "label": "Ações solidárias"
+        },
+        {
+          "key": "doacoes",
+          "label": "Doações"
+        },
+        {
+          "key": "voluntariado",
+          "label": "Voluntariado"
+        },
+        {
+          "key": "apoio-comunitario",
+          "label": "Apoio comunitário"
+        },
+        {
+          "key": "protecao-infantil",
+          "label": "Proteção infantil"
+        },
+        {
+          "key": "protecao-animal",
+          "label": "Proteção animal"
+        },
+        {
+          "key": "projetos-sociais",
+          "label": "Projetos sociais"
+        }
+      ]
+    },
+    {
+      "key": "carreira",
+      "label": "Carreira e emprego",
+      "icon": "brand",
+      "subcategories": [
+        {
+          "key": "ofertas-de-emprego",
+          "label": "Ofertas de emprego"
+        },
+        {
+          "key": "estagios",
+          "label": "Estágios"
+        },
+        {
+          "key": "recrutamento",
+          "label": "Recrutamento"
+        },
+        {
+          "key": "freelancers",
+          "label": "Freelancers"
+        },
+        {
+          "key": "oportunidades-internacionais",
+          "label": "Oportunidades internacionais"
+        },
+        {
+          "key": "curriculos",
+          "label": "Currículos"
+        },
+        {
+          "key": "orientacao-profissional",
+          "label": "Orientação profissional"
+        },
+        {
+          "key": "concursos-publicos",
+          "label": "Concursos públicos"
+        }
+      ]
+    },
+    {
+      "key": "politica",
+      "label": "Política e atualidade",
+      "icon": "pages",
+      "subcategories": [
+        {
+          "key": "atualidade-nacional",
+          "label": "Atualidade nacional"
+        },
+        {
+          "key": "atualidade-internacional",
+          "label": "Atualidade internacional"
+        },
+        {
+          "key": "sociedade",
+          "label": "Sociedade"
+        },
+        {
+          "key": "cidadania",
+          "label": "Cidadania"
+        },
+        {
+          "key": "debate-publico",
+          "label": "Debate público"
+        },
+        {
+          "key": "administracao-publica",
+          "label": "Administração pública"
+        },
+        {
+          "key": "economia",
+          "label": "Economia"
+        }
+      ]
+    },
+    {
+      "key": "religiao",
+      "label": "Religião e espiritualidade",
+      "icon": "heart",
+      "subcategories": [
+        {
+          "key": "cristianismo",
+          "label": "Cristianismo"
+        },
+        {
+          "key": "estudos-biblicos",
+          "label": "Estudos bíblicos"
+        },
+        {
+          "key": "igrejas",
+          "label": "Igrejas"
+        },
+        {
+          "key": "juventude-religiosa",
+          "label": "Juventude religiosa"
+        },
+        {
+          "key": "louvor-e-adoracao",
+          "label": "Louvor e adoração"
+        },
+        {
+          "key": "espiritualidade",
+          "label": "Espiritualidade"
+        },
+        {
+          "key": "comunidades-religiosas",
+          "label": "Comunidades religiosas"
+        }
+      ]
+    },
+    {
+      "key": "transportes",
+      "label": "Automóveis e transportes",
+      "icon": "location",
+      "subcategories": [
+        {
+          "key": "carros",
+          "label": "Carros"
+        },
+        {
+          "key": "motas",
+          "label": "Motas"
+        },
+        {
+          "key": "mecanica",
+          "label": "Mecânica"
+        },
+        {
+          "key": "automobilismo",
+          "label": "Automobilismo"
+        },
+        {
+          "key": "transporte-publico",
+          "label": "Transporte público"
+        },
+        {
+          "key": "camionistas",
+          "label": "Camionistas"
+        },
+        {
+          "key": "viagens-rodoviarias",
+          "label": "Viagens rodoviárias"
+        }
+      ]
+    },
+    {
+      "key": "animais",
+      "label": "Animais e animais de estimação",
+      "icon": "heart",
+      "subcategories": []
+    },
+    {
+      "key": "agricultura",
+      "label": "Agricultura e pecuária",
+      "icon": "globe",
+      "subcategories": []
+    },
+    {
+      "key": "imobiliario",
+      "label": "Imobiliário e construção",
+      "icon": "home",
+      "subcategories": []
+    },
+    {
+      "key": "direito",
+      "label": "Direito e advocacia",
+      "icon": "shield",
+      "subcategories": []
+    },
+    {
+      "key": "financas",
+      "label": "Finanças e investimentos",
+      "icon": "stats",
+      "subcategories": []
+    },
+    {
+      "key": "ciencia",
+      "label": "Ciência e tecnologia",
+      "icon": "devices",
+      "subcategories": []
+    },
+    {
+      "key": "relacionamentos",
+      "label": "Relacionamentos e amizade",
+      "icon": "friends",
+      "subcategories": []
+    },
+    {
+      "key": "casamento",
+      "label": "Casamento e eventos",
+      "icon": "events",
+      "subcategories": []
+    },
+    {
+      "key": "hobbies",
+      "label": "Hobbies e colecionismo",
+      "icon": "star",
+      "subcategories": []
+    },
+    {
+      "key": "natureza",
+      "label": "Natureza e meio ambiente",
+      "icon": "globe",
+      "subcategories": []
+    },
+    {
+      "key": "fotografia-artes",
+      "label": "Fotografia e artes visuais",
+      "icon": "camera",
+      "subcategories": []
+    },
+    {
+      "key": "internacional",
+      "label": "Comunidades internacionais",
+      "icon": "globe",
+      "subcategories": []
+    },
+    {
+      "key": "angola-diaspora",
+      "label": "Angola e diáspora",
+      "icon": "location",
+      "subcategories": []
+    },
+    {
+      "key": "humor",
+      "label": "Humor e entretenimento digital",
+      "icon": "play",
+      "subcategories": []
+    }
   ],
   "pageTypes": [
-    { "key": "negocio", "label": "Negócio local", "icon": "location", "categories": [
-      { "key": "restaurante", "label": "Restaurante e café" },
-      { "key": "loja", "label": "Loja" },
-      { "key": "beleza", "label": "Salão e beleza" },
-      { "key": "saude", "label": "Clínica e saúde" },
-      { "key": "servicos", "label": "Serviços" },
-      { "key": "alojamento", "label": "Hotel e alojamento" },
-      { "key": "automoveis", "label": "Automóveis" },
-      { "key": "imobiliaria", "label": "Imobiliária" }
-    ] },
-    { "key": "empresa", "label": "Empresa ou marca", "icon": "brand", "categories": [
-      { "key": "marca", "label": "Marca" },
-      { "key": "tecnologia", "label": "Tecnologia" },
-      { "key": "moda", "label": "Moda e vestuário" },
-      { "key": "comida", "label": "Comida e bebida" },
-      { "key": "media", "label": "Comunicação social" },
-      { "key": "financas", "label": "Banca e finanças" },
-      { "key": "telecom", "label": "Telecomunicações" }
-    ] },
-    { "key": "figura", "label": "Figura pública", "icon": "verified", "categories": [
-      { "key": "artista", "label": "Artista" },
-      { "key": "musico", "label": "Músico ou banda" },
-      { "key": "criador", "label": "Criador de conteúdo" },
-      { "key": "atleta", "label": "Atleta" },
-      { "key": "jornalista", "label": "Jornalista" },
-      { "key": "politica", "label": "Figura política" }
-    ] },
-    { "key": "entretenimento", "label": "Entretenimento", "icon": "play", "categories": [
-      { "key": "filmes", "label": "Filmes e séries" },
-      { "key": "eventos", "label": "Eventos e festas" },
-      { "key": "programa", "label": "Programa de TV ou rádio" },
-      { "key": "jogos", "label": "Jogos" },
-      { "key": "livros", "label": "Livros e revistas" }
-    ] },
-    { "key": "organizacao", "label": "Organização", "icon": "shield", "categories": [
-      { "key": "ong", "label": "Organização sem fins lucrativos" },
-      { "key": "escola", "label": "Escola ou universidade" },
-      { "key": "religiosa", "label": "Igreja ou organização religiosa" },
-      { "key": "clube", "label": "Clube desportivo" },
-      { "key": "associacao", "label": "Associação" },
-      { "key": "publico", "label": "Serviço público" }
-    ] },
-    { "key": "comunidade", "label": "Comunidade", "icon": "groups", "categories": [
-      { "key": "comunidade", "label": "Comunidade" },
-      { "key": "causa", "label": "Causa" },
-      { "key": "noticias", "label": "Notícias locais" },
-      { "key": "fas", "label": "Página de fãs" }
-    ] }
+    {
+      "key": "pessoal",
+      "label": "Página pessoal",
+      "icon": "profile",
+      "ion": "person",
+      "category": "sociedade",
+      "group": "Pessoas"
+    },
+    {
+      "key": "criador",
+      "label": "Criador de conteúdo",
+      "icon": "spark",
+      "ion": "sparkles",
+      "category": "audiovisual",
+      "group": "Pessoas"
+    },
+    {
+      "key": "figura-publica",
+      "label": "Figura pública",
+      "icon": "verified",
+      "ion": "star",
+      "category": "sociedade",
+      "group": "Pessoas"
+    },
+    {
+      "key": "empresa",
+      "label": "Empresa",
+      "icon": "brand",
+      "ion": "business",
+      "category": "negocios",
+      "group": "Negócios"
+    },
+    {
+      "key": "marca",
+      "label": "Marca",
+      "icon": "brand",
+      "ion": "pricetag",
+      "category": "negocios",
+      "group": "Negócios"
+    },
+    {
+      "key": "loja",
+      "label": "Loja",
+      "icon": "card",
+      "ion": "storefront",
+      "category": "negocios",
+      "group": "Negócios"
+    },
+    {
+      "key": "produtos",
+      "label": "Produtos",
+      "icon": "layers",
+      "ion": "cube",
+      "category": "negocios",
+      "group": "Negócios"
+    },
+    {
+      "key": "servicos",
+      "label": "Serviços",
+      "icon": "settings",
+      "ion": "construct",
+      "category": "negocios",
+      "group": "Negócios"
+    },
+    {
+      "key": "instituicao",
+      "label": "Instituição",
+      "icon": "shield",
+      "ion": "library",
+      "category": "governo",
+      "group": "Organizações"
+    },
+    {
+      "key": "organizacao",
+      "label": "Organização",
+      "icon": "groups",
+      "ion": "people-circle",
+      "category": "sociedade",
+      "group": "Organizações"
+    },
+    {
+      "key": "ong",
+      "label": "ONG",
+      "icon": "heart",
+      "ion": "heart-circle",
+      "category": "sociedade",
+      "group": "Organizações"
+    },
+    {
+      "key": "comunidade",
+      "label": "Comunidade",
+      "icon": "groups",
+      "ion": "people",
+      "category": "sociedade",
+      "group": "Organizações"
+    },
+    {
+      "key": "entretenimento",
+      "label": "Entretenimento",
+      "icon": "play",
+      "ion": "film",
+      "category": "audiovisual",
+      "group": "Media e entretenimento"
+    },
+    {
+      "key": "artista",
+      "label": "Artista",
+      "icon": "create",
+      "ion": "color-palette",
+      "category": "arte",
+      "group": "Pessoas"
+    },
+    {
+      "key": "banda",
+      "label": "Banda musical",
+      "icon": "mic",
+      "ion": "musical-notes",
+      "category": "musica",
+      "group": "Media e entretenimento"
+    },
+    {
+      "key": "influenciador",
+      "label": "Influenciador digital",
+      "icon": "star",
+      "ion": "megaphone",
+      "category": "moda-beleza",
+      "group": "Pessoas"
+    },
+    {
+      "key": "imprensa",
+      "label": "Imprensa",
+      "icon": "pages",
+      "ion": "newspaper",
+      "category": "comunicacao",
+      "group": "Media e entretenimento"
+    },
+    {
+      "key": "noticias",
+      "label": "Notícias",
+      "icon": "notifications",
+      "ion": "reader",
+      "category": "comunicacao",
+      "group": "Media e entretenimento"
+    },
+    {
+      "key": "programa-tv",
+      "label": "Programa de televisão",
+      "icon": "video",
+      "ion": "tv",
+      "category": "comunicacao",
+      "group": "Media e entretenimento"
+    },
+    {
+      "key": "podcast",
+      "label": "Podcast",
+      "icon": "mic",
+      "ion": "mic",
+      "category": "musica",
+      "group": "Media e entretenimento"
+    },
+    {
+      "key": "evento",
+      "label": "Evento",
+      "icon": "events",
+      "ion": "calendar",
+      "category": "arte",
+      "group": "Media e entretenimento"
+    },
+    {
+      "key": "equipa",
+      "label": "Equipa desportiva",
+      "icon": "trophy",
+      "ion": "football",
+      "category": "desporto",
+      "group": "Desporto"
+    },
+    {
+      "key": "clube",
+      "label": "Clube",
+      "icon": "trophy",
+      "ion": "ribbon",
+      "category": "desporto",
+      "group": "Desporto"
+    },
+    {
+      "key": "restaurante",
+      "label": "Restaurante",
+      "icon": "location",
+      "ion": "restaurant",
+      "category": "alimentacao",
+      "group": "Negócios"
+    },
+    {
+      "key": "hotel",
+      "label": "Hotel",
+      "icon": "home",
+      "ion": "bed",
+      "category": "viagens",
+      "group": "Negócios"
+    },
+    {
+      "key": "estabelecimento",
+      "label": "Estabelecimento comercial",
+      "icon": "location",
+      "ion": "bag-handle",
+      "category": "negocios",
+      "group": "Negócios"
+    },
+    {
+      "key": "educacao",
+      "label": "Educação",
+      "icon": "academy",
+      "ion": "school",
+      "category": "educacao",
+      "group": "Organizações"
+    },
+    {
+      "key": "projeto",
+      "label": "Projeto",
+      "icon": "bolt",
+      "ion": "rocket",
+      "category": "negocios",
+      "group": "Negócios"
+    },
+    {
+      "key": "videojogos",
+      "label": "Videojogos",
+      "icon": "play",
+      "ion": "game-controller",
+      "category": "tecnologia",
+      "group": "Media e entretenimento"
+    },
+    {
+      "key": "governamental",
+      "label": "Página governamental",
+      "icon": "shield",
+      "ion": "flag",
+      "category": "governo",
+      "group": "Organizações"
+    }
+  ],
+  "pageCategories": [
+    {
+      "key": "musica",
+      "label": "Música e áudio",
+      "icon": "mic",
+      "subcategories": [
+        {
+          "key": "cantores-e-musicos",
+          "label": "Cantores e músicos"
+        },
+        {
+          "key": "bandas-e-grupos-musicais",
+          "label": "Bandas e grupos musicais"
+        },
+        {
+          "key": "produtoras-musicais",
+          "label": "Produtoras musicais"
+        },
+        {
+          "key": "djs",
+          "label": "DJs"
+        },
+        {
+          "key": "estudios-de-gravacao",
+          "label": "Estúdios de gravação"
+        },
+        {
+          "key": "podcasts",
+          "label": "Podcasts"
+        },
+        {
+          "key": "radios",
+          "label": "Rádios"
+        }
+      ]
+    },
+    {
+      "key": "audiovisual",
+      "label": "Cinema e audiovisual",
+      "icon": "video",
+      "subcategories": [
+        {
+          "key": "produtoras-audiovisuais",
+          "label": "Produtoras audiovisuais"
+        },
+        {
+          "key": "realizadores",
+          "label": "Realizadores"
+        },
+        {
+          "key": "atores",
+          "label": "Atores"
+        },
+        {
+          "key": "fotografos",
+          "label": "Fotógrafos"
+        },
+        {
+          "key": "editores-de-video",
+          "label": "Editores de vídeo"
+        },
+        {
+          "key": "cinematografos",
+          "label": "Cinematógrafos"
+        },
+        {
+          "key": "criadores-de-filmes",
+          "label": "Criadores de filmes"
+        }
+      ]
+    },
+    {
+      "key": "moda-beleza",
+      "label": "Moda e beleza",
+      "icon": "spark",
+      "subcategories": [
+        {
+          "key": "moda-masculina",
+          "label": "Moda masculina"
+        },
+        {
+          "key": "moda-feminina",
+          "label": "Moda feminina"
+        },
+        {
+          "key": "moda-infantil",
+          "label": "Moda infantil"
+        },
+        {
+          "key": "modelos",
+          "label": "Modelos"
+        },
+        {
+          "key": "maquilhagem",
+          "label": "Maquilhagem"
+        },
+        {
+          "key": "cabeleireiros",
+          "label": "Cabeleireiros"
+        },
+        {
+          "key": "barbearias",
+          "label": "Barbearias"
+        },
+        {
+          "key": "estilistas",
+          "label": "Estilistas"
+        }
+      ]
+    },
+    {
+      "key": "negocios",
+      "label": "Negócios e empresas",
+      "icon": "brand",
+      "subcategories": [
+        {
+          "key": "empresas",
+          "label": "Empresas"
+        },
+        {
+          "key": "startups",
+          "label": "Startups"
+        },
+        {
+          "key": "consultorias",
+          "label": "Consultorias"
+        },
+        {
+          "key": "agencias",
+          "label": "Agências"
+        },
+        {
+          "key": "comercio",
+          "label": "Comércio"
+        },
+        {
+          "key": "servicos-profissionais",
+          "label": "Serviços profissionais"
+        },
+        {
+          "key": "empreendedores",
+          "label": "Empreendedores"
+        }
+      ]
+    },
+    {
+      "key": "alimentacao",
+      "label": "Alimentação e gastronomia",
+      "icon": "location",
+      "subcategories": [
+        {
+          "key": "restaurantes",
+          "label": "Restaurantes"
+        },
+        {
+          "key": "pastelarias",
+          "label": "Pastelarias"
+        },
+        {
+          "key": "cafes",
+          "label": "Cafés"
+        },
+        {
+          "key": "bares",
+          "label": "Bares"
+        },
+        {
+          "key": "catering",
+          "label": "Catering"
+        },
+        {
+          "key": "chefs",
+          "label": "Chefs"
+        },
+        {
+          "key": "gastronomia-tradicional",
+          "label": "Gastronomia tradicional"
+        }
+      ]
+    },
+    {
+      "key": "desporto",
+      "label": "Desporto",
+      "icon": "trophy",
+      "subcategories": [
+        {
+          "key": "futebol",
+          "label": "Futebol"
+        },
+        {
+          "key": "basquetebol",
+          "label": "Basquetebol"
+        },
+        {
+          "key": "andebol",
+          "label": "Andebol"
+        },
+        {
+          "key": "atletismo",
+          "label": "Atletismo"
+        },
+        {
+          "key": "artes-marciais",
+          "label": "Artes marciais"
+        },
+        {
+          "key": "ginasios",
+          "label": "Ginásios"
+        },
+        {
+          "key": "clubes-e-atletas",
+          "label": "Clubes e atletas"
+        }
+      ]
+    },
+    {
+      "key": "educacao",
+      "label": "Educação",
+      "icon": "academy",
+      "subcategories": [
+        {
+          "key": "escolas",
+          "label": "Escolas"
+        },
+        {
+          "key": "universidades",
+          "label": "Universidades"
+        },
+        {
+          "key": "institutos",
+          "label": "Institutos"
+        },
+        {
+          "key": "professores",
+          "label": "Professores"
+        },
+        {
+          "key": "cursos",
+          "label": "Cursos"
+        },
+        {
+          "key": "formacao-profissional",
+          "label": "Formação profissional"
+        },
+        {
+          "key": "explicadores",
+          "label": "Explicadores"
+        }
+      ]
+    },
+    {
+      "key": "viagens",
+      "label": "Viagens e turismo",
+      "icon": "globe",
+      "subcategories": [
+        {
+          "key": "agencias-de-viagens",
+          "label": "Agências de viagens"
+        },
+        {
+          "key": "hoteis",
+          "label": "Hotéis"
+        },
+        {
+          "key": "turismo-local",
+          "label": "Turismo local"
+        },
+        {
+          "key": "guias-turisticos",
+          "label": "Guias turísticos"
+        },
+        {
+          "key": "companhias-aereas",
+          "label": "Companhias aéreas"
+        },
+        {
+          "key": "aluguer-de-viaturas",
+          "label": "Aluguer de viaturas"
+        }
+      ]
+    },
+    {
+      "key": "tecnologia",
+      "label": "Tecnologia e gaming",
+      "icon": "devices",
+      "subcategories": [
+        {
+          "key": "tecnologia",
+          "label": "Tecnologia"
+        },
+        {
+          "key": "desenvolvimento-de-software",
+          "label": "Desenvolvimento de software"
+        },
+        {
+          "key": "programacao",
+          "label": "Programação"
+        },
+        {
+          "key": "inteligencia-artificial",
+          "label": "Inteligência artificial"
+        },
+        {
+          "key": "videojogos",
+          "label": "Videojogos"
+        },
+        {
+          "key": "streamers",
+          "label": "Streamers"
+        },
+        {
+          "key": "e-sports",
+          "label": "E-sports"
+        }
+      ]
+    },
+    {
+      "key": "comunicacao",
+      "label": "Comunicação e imprensa",
+      "icon": "pages",
+      "subcategories": [
+        {
+          "key": "jornais",
+          "label": "Jornais"
+        },
+        {
+          "key": "revistas",
+          "label": "Revistas"
+        },
+        {
+          "key": "televisao",
+          "label": "Televisão"
+        },
+        {
+          "key": "portais-de-noticias",
+          "label": "Portais de notícias"
+        },
+        {
+          "key": "jornalistas",
+          "label": "Jornalistas"
+        },
+        {
+          "key": "agencias-de-comunicacao",
+          "label": "Agências de comunicação"
+        }
+      ]
+    },
+    {
+      "key": "arte",
+      "label": "Arte e cultura",
+      "icon": "create",
+      "subcategories": [
+        {
+          "key": "pintura",
+          "label": "Pintura"
+        },
+        {
+          "key": "escultura",
+          "label": "Escultura"
+        },
+        {
+          "key": "danca",
+          "label": "Dança"
+        },
+        {
+          "key": "teatro",
+          "label": "Teatro"
+        },
+        {
+          "key": "literatura",
+          "label": "Literatura"
+        },
+        {
+          "key": "artesanato",
+          "label": "Artesanato"
+        },
+        {
+          "key": "museus",
+          "label": "Museus"
+        }
+      ]
+    },
+    {
+      "key": "saude",
+      "label": "Saúde e bem-estar",
+      "icon": "heart",
+      "subcategories": [
+        {
+          "key": "clinicas",
+          "label": "Clínicas"
+        },
+        {
+          "key": "hospitais",
+          "label": "Hospitais"
+        },
+        {
+          "key": "farmacias",
+          "label": "Farmácias"
+        },
+        {
+          "key": "medicos",
+          "label": "Médicos"
+        },
+        {
+          "key": "psicologos",
+          "label": "Psicólogos"
+        },
+        {
+          "key": "nutricao",
+          "label": "Nutrição"
+        },
+        {
+          "key": "fitness-e-bem-estar",
+          "label": "Fitness e bem-estar"
+        }
+      ]
+    },
+    {
+      "key": "transportes",
+      "label": "Automóveis e transportes",
+      "icon": "location",
+      "subcategories": []
+    },
+    {
+      "key": "imobiliario",
+      "label": "Imobiliário e construção",
+      "icon": "home",
+      "subcategories": []
+    },
+    {
+      "key": "agricultura",
+      "label": "Agricultura e pecuária",
+      "icon": "globe",
+      "subcategories": []
+    },
+    {
+      "key": "sociedade",
+      "label": "Política e sociedade",
+      "icon": "groups",
+      "subcategories": []
+    },
+    {
+      "key": "governo",
+      "label": "Governo e instituições públicas",
+      "icon": "shield",
+      "subcategories": []
+    },
+    {
+      "key": "religiao",
+      "label": "Religião e espiritualidade",
+      "icon": "heart",
+      "subcategories": []
+    },
+    {
+      "key": "familia",
+      "label": "Família e maternidade",
+      "icon": "friends",
+      "subcategories": []
+    }
   ]
 }

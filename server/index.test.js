@@ -86,7 +86,7 @@ test("unknown API routes return a JSON 404", async () => {
 });
 
 test("creating a post requires a body or media", async () => {
-  const token = jwt.sign({ id: 1, username: "tester" }, process.env.JWT_SECRET);
+  const token = jwt.sign({ id: 1, username: "tester" }, process.env.JWT_SECRET, { expiresIn: "1h" });
   const response = await fetch(`${baseUrl}/api/posts`, {
     method: "POST",
     headers: {
@@ -106,7 +106,7 @@ test("stories require authentication", async () => {
 });
 
 test("creating a story requires text or media", async () => {
-  const token = jwt.sign({ id: 1, username: "tester" }, process.env.JWT_SECRET);
+  const token = jwt.sign({ id: 1, username: "tester" }, process.env.JWT_SECRET, { expiresIn: "1h" });
   const response = await fetch(`${baseUrl}/api/stories`, {
     method: "POST",
     headers: {
@@ -136,13 +136,13 @@ test("deleting a post requires authentication and a valid id", async () => {
   assert.equal(unauthenticated.status, 401);
   const invalidId = await fetch(`${baseUrl}/api/posts/not-a-number`, {
     method: "DELETE",
-    headers: { Authorization: "Bearer " + jwt.sign({ id: 1, username: "tester" }, process.env.JWT_SECRET) }
+    headers: { Authorization: "Bearer " + jwt.sign({ id: 1, username: "tester" }, process.env.JWT_SECRET, { expiresIn: "1h" }) }
   });
   assert.equal(invalidId.status, 400);
 });
 
 test("post deletion is scoped to the authenticated owner", async () => {
-  const token = jwt.sign({ id: 1, username: "tester" }, process.env.JWT_SECRET);
+  const token = jwt.sign({ id: 1, username: "tester" }, process.env.JWT_SECRET, { expiresIn: "1h" });
   postDeleteMock = values => {
     assert.deepEqual(values, [42, 1]);
     return { rowCount: 1, rows: [{ id: 42, media_url: "" }] };
@@ -160,7 +160,7 @@ test("post deletion is scoped to the authenticated owner", async () => {
 });
 
 test("post deletion returns not found when the authenticated user is not the owner", async () => {
-  const token = jwt.sign({ id: 1, username: "tester" }, process.env.JWT_SECRET);
+  const token = jwt.sign({ id: 1, username: "tester" }, process.env.JWT_SECRET, { expiresIn: "1h" });
   postDeleteMock = () => ({ rowCount: 0, rows: [] });
   try {
     const response = await fetch(`${baseUrl}/api/posts/42`, {
@@ -175,7 +175,7 @@ test("post deletion returns not found when the authenticated user is not the own
 });
 
 test("invalid message recipients are rejected before database access", async () => {
-  const token = jwt.sign({ id: 1, username: "tester" }, process.env.JWT_SECRET);
+  const token = jwt.sign({ id: 1, username: "tester" }, process.env.JWT_SECRET, { expiresIn: "1h" });
   const response = await fetch(`${baseUrl}/api/messages/1`, {
     headers: { Authorization: `Bearer ${token}` }
   });
@@ -184,7 +184,7 @@ test("invalid message recipients are rejected before database access", async () 
 });
 
 test("uploads reject unsupported file formats", async () => {
-  const token = jwt.sign({ id: 1, username: "tester" }, process.env.JWT_SECRET);
+  const token = jwt.sign({ id: 1, username: "tester" }, process.env.JWT_SECRET, { expiresIn: "1h" });
   const form = new FormData();
   form.append("body", "");
   form.append("media", new Blob(["<svg></svg>"], { type: "image/svg+xml" }), "image.svg");
@@ -286,7 +286,7 @@ test("stripe events without Tchilar metadata are ignored", async () => {
 });
 
 test("users cannot subscribe to themselves", async () => {
-  const token = jwt.sign({ id: 1, username: "tester" }, process.env.JWT_SECRET);
+  const token = jwt.sign({ id: 1, username: "tester" }, process.env.JWT_SECRET, { expiresIn: "1h" });
   const response = await fetch(`${baseUrl}/api/subscriptions/1`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}` }
@@ -295,7 +295,7 @@ test("users cannot subscribe to themselves", async () => {
 });
 
 test("subscription price updates are validated before database access", async () => {
-  const token = jwt.sign({ id: 1, username: "tester" }, process.env.JWT_SECRET);
+  const token = jwt.sign({ id: 1, username: "tester" }, process.env.JWT_SECRET, { expiresIn: "1h" });
   for (const subscriptionPrice of [0, -5, 4.99, 600000, 2500.999, "abc"]) {
     const response = await fetch(`${baseUrl}/api/auth/me`, {
       method: "PATCH",
@@ -306,7 +306,7 @@ test("subscription price updates are validated before database access", async ()
   }
 });
 
-const userToken = () => jwt.sign({ id: 1, username: "tester" }, process.env.JWT_SECRET);
+const userToken = () => jwt.sign({ id: 1, username: "tester" }, process.env.JWT_SECRET, { expiresIn: "1h" });
 const authJson = body => ({
   headers: { Authorization: `Bearer ${userToken()}`, "Content-Type": "application/json" },
   body: JSON.stringify(body)
@@ -534,7 +534,7 @@ test("account security endpoints require a session", async () => {
 });
 
 test("changing the password validates the new password before checking the old one", async () => {
-  const token = jwt.sign({ id: 1, username: "ana", version: 0 }, process.env.JWT_SECRET);
+  const token = jwt.sign({ id: 1, username: "ana", version: 0 }, process.env.JWT_SECRET, { expiresIn: "1h" });
   const response = await fetch(`${baseUrl}/api/auth/password`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
@@ -577,7 +577,7 @@ test("registration refuses a display name over 100 characters", async () => {
 });
 
 test("internal errors return a reference and log the stack without the query string", async () => {
-  const token = jwt.sign({ id: 1, username: "tester" }, process.env.JWT_SECRET);
+  const token = jwt.sign({ id: 1, username: "tester" }, process.env.JWT_SECRET, { expiresIn: "1h" });
   queryMock = sql => (sql.includes("email_verified") && sql.includes("FROM users WHERE id=$1") ? Promise.reject(new Error("base de dados em baixo")) : null);
   const logged = [];
   const original = console.error;

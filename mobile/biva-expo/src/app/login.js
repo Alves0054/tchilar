@@ -1,11 +1,14 @@
 import { Image } from "expo-image";
 import { Redirect } from "expo-router";
-import { useState } from "react";
-import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from "react-native";
+import { useRef, useState } from "react";
+import { ActivityIndicator, Animated, Easing, KeyboardAvoidingView, LayoutAnimation, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { api } from "../lib/api";
 import { useSession } from "../lib/session";
-import { colors } from "../lib/theme";
+import { colors, isDark } from "../lib/theme";
+
+// Ordem dos ecrãs: decide para que lado o formulário desliza (para a frente → da direita; para trás → da esquerda).
+const ORDER = { forgot: -1, login: 0, register: 1 };
 
 const PASSWORD_MIN = 8;
 // Data de nascimento escrita como DD/MM/AAAA → AAAA-MM-DD (o formato da API).
@@ -24,16 +27,40 @@ function Input(props) {
 
 // Entrar, criar conta e recuperar a palavra-passe: tudo na app, como no site.
 export default function Login() {
-  const { user, signIn } = useSession();
+  const { user, signIn, expiredNotice } = useSession();
   const [mode, setMode] = useState("login");
   const [form, setForm] = useState({ email: "", password: "", code: "", displayName: "", username: "", birthDate: "", phone: "", invite: "", isCreator: false });
   const [needsCode, setNeedsCode] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
-  if (user) return <Redirect href="/" />;
   const set = key => value => setForm(current => ({ ...current, [key]: value }));
-  const switchTo = next => { setMode(next); setError(""); setMessage(""); setNeedsCode(false); };
+  // Animação ao mudar entre Entrar, Criar conta e Recuperar: o formulário sai para um lado e entra pelo outro,
+  // e a pílula do seletor desliza para o separador escolhido.
+  const slide = useRef(new Animated.Value(0)).current;      // -1 … 1: posição horizontal do formulário
+  const fade = useRef(new Animated.Value(1)).current;
+  const pill = useRef(new Animated.Value(0)).current;       // 0 = Entrar, 1 = Criar conta
+  const [tabsWidth, setTabsWidth] = useState(0);
+  // Já com sessão: vai para o Início. Fica depois de todos os hooks (o React exige o mesmo número de hooks em cada desenho).
+  if (user) return <Redirect href="/" />;
+  const switchTo = next => {
+    if (next === mode) return;
+    const direction = ORDER[next] > ORDER[mode] ? 1 : -1;
+    if (next !== "forgot") Animated.spring(pill, { toValue: next === "register" ? 1 : 0, useNativeDriver: true, speed: 18, bounciness: 6 }).start();
+    Animated.parallel([
+      Animated.timing(slide, { toValue: -direction, duration: 140, easing: Easing.in(Easing.quad), useNativeDriver: true }),
+      Animated.timing(fade, { toValue: 0, duration: 140, useNativeDriver: true })
+    ]).start(() => {
+      LayoutAnimation.configureNext(LayoutAnimation.create(200, "easeInEaseOut", "opacity"));
+      setMode(next); setError(""); setMessage(""); setNeedsCode(false);
+      slide.setValue(direction);
+      Animated.parallel([
+        Animated.timing(slide, { toValue: 0, duration: 240, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+        Animated.timing(fade, { toValue: 1, duration: 240, useNativeDriver: true })
+      ]).start();
+    });
+  };
+  const formMotion = { opacity: fade, transform: [{ translateX: slide.interpolate({ inputRange: [-1, 1], outputRange: [-40, 40] }) }] };
 
   const submit = async () => {
     setBusy(true); setError(""); setMessage("");
@@ -47,8 +74,9 @@ export default function Login() {
           displayName: form.displayName.trim(), username: form.username.trim().toLowerCase(), email: form.email.trim(),
           password: form.password, birthDate, isCreator: form.isCreator, ...(form.phone.trim() ? { phone: form.phone.trim() } : {}), ...(form.invite.trim() ? { invite: form.invite.trim() } : {})
         } });
-        setMode("login");
-        setMessage(result.message || "Conta criada. Confirma o teu email para entrar.");
+        // Volta a "Entrar" com a mesma animação; a mensagem aparece depois de o formulário entrar.
+        switchTo("login");
+        setTimeout(() => setMessage(result.message || "Conta criada. Confirma o teu email para entrar."), 420);
       } else {
         await api("/auth/forgot-password", { method: "POST", body: { email: form.email.trim() } });
         setMessage("Se existir uma conta com este email, enviámos uma ligação para redefinir a palavra-passe.");
@@ -69,7 +97,19 @@ export default function Login() {
   return <SafeAreaView style={styles.safe}>
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
       <ScrollView contentContainerStyle={styles.wrap} keyboardShouldPersistTaps="handled">
-        <Image source={require("../../assets/tchilar-icon.png")} style={styles.logo} contentFit="contain" />
+        <Image source={isDark ? require("../../assets/tchilar-splash-dark.png") : require("../../assets/tchilar-logo-full.png")}
+          style={styles.logo} contentFit="contain" accessibilityLabel="Tchilar" />
+
+        {mode !== "forgot" && <View style={styles.tabs} onLayout={event => setTabsWidth(event.nativeEvent.layout.width)}>
+          {tabsWidth > 0 && <Animated.View style={[styles.pill, { width: (tabsWidth - 8) / 2,
+            transform: [{ translateX: pill.interpolate({ inputRange: [0, 1], outputRange: [0, (tabsWidth - 8) / 2] }) }] }]} />}
+          {[["login", "Entrar"], ["register", "Criar conta"]].map(([key, label]) => <Pressable key={key} style={styles.tab} onPress={() => switchTo(key)}
+            accessibilityRole="tab" accessibilityState={{ selected: mode === key }}>
+            <Text style={[styles.tabText, mode === key && styles.tabTextOn]}>{label}</Text>
+          </Pressable>)}
+        </View>}
+
+        <Animated.View style={[{ gap: 10 }, formMotion]}>
         <Text style={styles.title}>{titles[mode][0]}</Text>
         <Text style={styles.subtitle}>{titles[mode][1]}</Text>
 
@@ -91,6 +131,7 @@ export default function Login() {
             </View>
           </>}
           {mode === "login" && needsCode && <Input placeholder="Código de 6 dígitos" keyboardType="number-pad" maxLength={6} autoComplete="one-time-code" value={form.code} onChangeText={set("code")} editable={!busy} />}
+          {Boolean(expiredNotice) && !error && !message && mode === "login" && <Text style={styles.expired}>{expiredNotice}</Text>}
           {Boolean(error) && <Text style={styles.error} accessibilityRole="alert">{error}</Text>}
           {Boolean(message) && <Text style={styles.message}>{message}</Text>}
           <Pressable style={[styles.button, (busy || !ready) && styles.buttonDisabled]} onPress={submit} disabled={busy || !ready}>
@@ -100,11 +141,10 @@ export default function Login() {
 
         {mode === "login" && <>
           <Pressable onPress={() => switchTo("forgot")}><Text style={styles.link}>Esqueceste a palavra-passe?</Text></Pressable>
-          <View style={styles.divider} />
-          <Pressable style={styles.secondaryButton} onPress={() => switchTo("register")}><Text style={styles.secondaryText}>Criar conta nova</Text></Pressable>
         </>}
-        {mode !== "login" && <Pressable onPress={() => switchTo("login")}><Text style={styles.link}>Já tenho conta: entrar</Text></Pressable>}
+        {mode === "forgot" && <Pressable onPress={() => switchTo("login")}><Text style={styles.link}>Voltar a entrar</Text></Pressable>}
         {mode === "register" && <Text style={styles.legal}>Ao criar conta aceitas os Termos de utilização e a Política de privacidade do Tchilar.</Text>}
+        </Animated.View>
       </ScrollView>
     </KeyboardAvoidingView>
   </SafeAreaView>;
@@ -113,7 +153,13 @@ export default function Login() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.surface },
   wrap: { flexGrow: 1, justifyContent: "center", padding: 24, gap: 10 },
-  logo: { width: 84, height: 84, alignSelf: "center" },
+  logo: { width: 210, height: 52, alignSelf: "center", marginBottom: 8 },
+  tabs: { flexDirection: "row", padding: 4, borderRadius: 16, backgroundColor: colors.background, marginBottom: 6 },
+  pill: { position: "absolute", top: 4, left: 4, bottom: 4, borderRadius: 12, backgroundColor: colors.surface,
+    shadowColor: "#000", shadowOpacity: 0.12, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2 },
+  tab: { flex: 1, alignItems: "center", paddingVertical: 11 },
+  tabText: { color: colors.muted, fontWeight: "800", fontSize: 15 },
+  tabTextOn: { color: colors.text },
   title: { color: colors.text, fontSize: 28, fontWeight: "800", textAlign: "center", marginTop: 8 },
   subtitle: { color: colors.muted, fontSize: 15, textAlign: "center", marginBottom: 12 },
   form: { gap: 12 },
@@ -122,13 +168,11 @@ const styles = StyleSheet.create({
   switchTitle: { color: colors.text, fontWeight: "700" },
   switchHint: { color: colors.muted, fontSize: 12 },
   error: { color: colors.danger, fontSize: 14 },
-  message: { color: "#1E7A4B", fontSize: 14, fontWeight: "600" },
+  expired: { color: colors.text, fontSize: 14, fontWeight: "700", textAlign: "center" },
+  message: { color: colors.good, fontSize: 14, fontWeight: "600" },
   button: { height: 52, borderRadius: 14, backgroundColor: colors.accent, alignItems: "center", justifyContent: "center", marginTop: 4 },
   buttonDisabled: { opacity: 0.5 },
   buttonText: { color: "#fff", fontSize: 16, fontWeight: "800" },
   link: { color: colors.primary, fontSize: 15, fontWeight: "600", textAlign: "center", marginTop: 12 },
-  divider: { height: StyleSheet.hairlineWidth, backgroundColor: colors.line, marginVertical: 12 },
-  secondaryButton: { height: 50, borderRadius: 14, borderWidth: 1.5, borderColor: colors.primary, alignItems: "center", justifyContent: "center" },
-  secondaryText: { color: colors.primary, fontSize: 16, fontWeight: "800" },
   legal: { color: colors.muted, fontSize: 12, textAlign: "center", marginTop: 8 }
 });

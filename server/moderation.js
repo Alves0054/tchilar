@@ -12,7 +12,7 @@ const REPORT_REASONS = {
   other: "Outro motivo"
 };
 
-const MODERATION_ACTIONS = ["dismiss", "hide_post", "restore_post", "delete_comment", "suspend_user", "unsuspend_user"];
+const MODERATION_ACTIONS = ["dismiss", "hide_post", "restore_post", "delete_comment", "hide_course", "restore_course", "hide_group", "restore_group", "suspend_user", "unsuspend_user"];
 
 // Condição SQL: verdadeira quando existe um bloqueio, em qualquer sentido, entre $me e a coluna indicada.
 function blockedBetween(meParam, otherColumn) {

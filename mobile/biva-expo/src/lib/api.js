@@ -1,5 +1,7 @@
 // Ligação à API do Tchilar (a mesma do site). O endereço vem de EXPO_PUBLIC_API_URL (.env.local).
+import * as Device from "expo-device";
 import * as SecureStore from "expo-secure-store";
+import { Platform } from "react-native";
 
 export const API_URL = (process.env.EXPO_PUBLIC_API_URL || "https://api.tchilar.ao").replace(/\/$/, "");
 // Site do Tchilar: áreas que a app ainda não tem abrem aqui.
@@ -38,7 +40,10 @@ export async function upload(path, fields, file, fieldName = "media") {
     throw new Error("Sem ligação ao Tchilar. Tenta outra vez.");
   }
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.error || "Não foi possível enviar.");
+  if (!response.ok) {
+    await checkExpired(response, data, token);
+    throw new Error(data.error || "Não foi possível enviar.");
+  }
   return data;
 }
 const TOKEN_KEY = "biva-token";
@@ -51,6 +56,20 @@ export const clearToken = () => SecureStore.deleteItemAsync(TOKEN_KEY);
 // Endereço completo de uma foto ou vídeo (a API devolve caminhos como /uploads/abc.jpg).
 export const mediaUri = path => (!path ? null : /^https?:/.test(path) ? path : `${API_URL}${path}`);
 
+// Sessão terminada (expirou, foi terminada noutro dispositivo ou a palavra-passe mudou): a API responde 401 com
+// sessionExpired. A app apaga o token e a sessão (session.js) volta ao ecrã de entrar, com uma mensagem.
+let sessionExpiredHandler = null;
+export const onSessionExpired = handler => { sessionExpiredHandler = handler; };
+async function checkExpired(response, data, token) {
+  if (response.status === 401 && token && data?.sessionExpired) {
+    await clearToken();
+    sessionExpiredHandler?.();
+  }
+}
+
+// Nome deste telemóvel, para a lista "Onde tens sessão iniciada" (ex.: "iPhone 15 · iOS 18.1").
+const DEVICE_LABEL = [Device.modelName || (Platform.OS === "ios" ? "iPhone" : "Android"), `${Platform.OS === "ios" ? "iOS" : "Android"} ${Device.osVersion || ""}`.trim()].join(" · ");
+
 export async function api(path, { method = "GET", body } = {}) {
   const token = await readToken();
   let response;
@@ -59,7 +78,8 @@ export async function api(path, { method = "GET", body } = {}) {
       method,
       headers: {
         ...(body ? { "Content-Type": "application/json" } : {}),
-        ...(token ? { Authorization: `Bearer ${token}` } : {})
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        "X-Tchilar-Device": DEVICE_LABEL
       },
       body: body ? JSON.stringify(body) : undefined
     });
@@ -68,6 +88,7 @@ export async function api(path, { method = "GET", body } = {}) {
   }
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
+    await checkExpired(response, data, token);
     const error = new Error(data.error || "Não foi possível concluir o pedido.");
     error.status = response.status;
     error.data = data;

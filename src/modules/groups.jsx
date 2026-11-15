@@ -4,7 +4,10 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { Avatar, Icon, UserContext, api, formatCount, formatPrice } from "./core.jsx";
 import { Composer, PostCard } from "./feed.jsx";
 import { PaymentDialog, pageMonogram, pageTone } from "./shared.jsx";
-import { GROUP_PRIVACY, GROUP_TOPICS, groupPrivacyOf, groupTopic } from "./community-types.js";
+import { GROUP_CATEGORIES, GROUP_PRIVACY, GROUP_TYPES, groupCategory, groupCategoryLabel, groupCategoryPath, groupPrivacyOf, groupType } from "./community-types.js";
+import { ReportDialog } from "./feed.jsx";
+import { GroupCallBar, GroupCallRoom } from "./group-call.jsx";
+import { GroupChat, GroupEvents, GroupFiles, GroupMembers, GroupPolls, GroupSettings, GroupStats, isTeam } from "./group-tabs.jsx";
 
 const SECRET_MIN_PRICE = 500;
 const SECRET_MAX_PRICE = 500000;
@@ -14,14 +17,16 @@ export function SecretBadge() {
   return <span className="group-secret-badge"><Icon name="lock" size={12} /> Secreto · +18</span>;
 }
 
+// Tipo e área do grupo: "Jogos · Free Fire".
 export function GroupTopicChip({ group }) {
-  const topic = groupTopic(group.topic);
-  return <span className="page-category"><Icon name={topic.icon} size={13} /> {topic.label}</span>;
+  return <span className="page-category"><Icon name={groupCategory(group.category).icon} size={13} /> {groupType(group.group_type).label} · {groupCategoryLabel(group)}</span>;
 }
-export function PrivateBadge() {
-  return <span className="group-private-badge"><Icon name="shield" size={12} /> Privado</span>;
+// Selo de entrada: "Com aprovação" ou "Privado" (o secreto tem o seu próprio selo).
+export function PrivateBadge({ group }) {
+  if (group?.invite_only) return <span className="group-private-badge"><Icon name="shield" size={12} /> Privado</span>;
+  return <span className="group-private-badge"><Icon name="check" size={12} /> Com aprovação</span>;
 }
-// Pedidos de entrada num grupo privado, vistos só pelo dono.
+// Pedidos de entrada num grupo com aprovação, vistos pela equipa do grupo.
 export function GroupRequests({ group, onChanged }) {
   const [requests, setRequests] = useState(null);
   const [busyId, setBusyId] = useState(null);
@@ -73,6 +78,11 @@ export function MemberStack({ members = [], total }) {
 export function JoinGroupButton({ group, user, busy, onJoin, onLeave, onPay }) {
   if (!user) return <Link className="btn" to="/login">Entrar para participar</Link>;
   if (group.owner_username === user.username) return <Link className="btn secondary" to={`/groups/${group.id}`}><Icon name="settings" size={15} /> Gerir</Link>;
+  if (group.invite_only && !group.is_member) {
+    return group.has_invite
+      ? <button className="btn" type="button" disabled={busy} onClick={() => onJoin(group)}><Icon name="check" size={15} /> Aceitar convite</button>
+      : <span className="btn secondary is-static" aria-disabled="true"><Icon name="shield" size={15} /> Só por convite</span>;
+  }
   if (group.is_secret && !group.is_member) {
     return <button className="btn" type="button" disabled={busy} onClick={() => onPay(group)}>
       <Icon name="lock" size={15} /> Entrar por {formatPrice(group.access_price)}</button>;
@@ -106,7 +116,7 @@ export function GroupCard({ group, user, busy, onJoin, onLeave, onPay }) {
     <div className="page-card-body">
       <Link to={`/groups/${group.id}`} className="page-card-logo-link" aria-hidden="true" tabIndex={-1}><GroupLogo group={group} /></Link>
       <h2><Link to={`/groups/${group.id}`}>{group.name}</Link></h2>
-      <span className="group-card-kind"><GroupTopicChip group={group} />{group.is_secret && <SecretBadge />}{group.requires_approval && <PrivateBadge />}</span>
+      <span className="group-card-kind"><GroupTopicChip group={group} />{group.is_secret && <SecretBadge />}{(group.requires_approval || group.invite_only) && <PrivateBadge group={group} />}</span>
       <p className="page-card-description">{group.description || "Um espaço para a comunidade."}</p>
       <div className="group-card-meta">
         <MemberStack members={group.member_preview} total={group.member_count} />
@@ -120,7 +130,11 @@ export function GroupCard({ group, user, busy, onJoin, onLeave, onPay }) {
   </article>;
 }
 export function CreateGroupDialog({ viewer, onClose, onCreated }) {
-  const [form, setForm] = useState({ name: "", description: "", topic: "geral", privacy: "public", accessPrice: "" });
+  const [form, setForm] = useState({ name: "", description: "", groupType: "", category: "", subcategory: "", rules: "", privacy: "public", accessPrice: "" });
+  const kind = GROUP_TYPES.find(item => item.key === form.groupType);
+  const area = form.category ? groupCategory(form.category) : null;
+  // O tipo sugere a categoria (um grupo de compra e venda → Compra e venda); a pessoa pode trocar.
+  const chooseType = key => { const next = GROUP_TYPES.find(item => item.key === key); setForm({ ...form, groupType: key, category: next?.category || "", subcategory: "" }); };
   const isSecret = form.privacy === "secret";
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -134,7 +148,7 @@ export function CreateGroupDialog({ viewer, onClose, onCreated }) {
     setBusy(true);
     setError("");
     try {
-      const payload = { name: form.name, description: form.description, topic: form.topic, privacy: form.privacy, ...(isSecret && { accessPrice: Number(form.accessPrice) }) };
+      const payload = { name: form.name, description: form.description, rules: form.rules, groupType: form.groupType, category: form.category, subcategory: form.subcategory || undefined, privacy: form.privacy, ...(isSecret && { accessPrice: Number(form.accessPrice) }) };
       const result = await api("/groups", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       onCreated(result.group);
     } catch (createError) {
@@ -142,14 +156,15 @@ export function CreateGroupDialog({ viewer, onClose, onCreated }) {
       setBusy(false);
     }
   };
-  const preview = { name: form.name || "Nome do grupo", topic: form.topic };
+  const preview = { name: form.name || "Nome do grupo", group_type: form.groupType || "comunitario", category: form.category || "comunidade", subcategory: form.subcategory, requires_approval: form.privacy === "approval", invite_only: form.privacy === "private" };
   const canSecret = Boolean(viewer?.adult);
   const price = Number(form.accessPrice);
   const priceValid = !isSecret || (price >= SECRET_MIN_PRICE && price <= SECRET_MAX_PRICE);
   const nameValid = !isSecret || form.name.trim().length >= 3;
   const privacyNote = {
-    public: "Só os membros veem e publicam no grupo. Tu ficas como administrador.",
-    private: "Recebes os pedidos de entrada no grupo e decides quem entra. Só os membros veem e publicam.",
+    public: "Só os membros veem e publicam no grupo. Tu ficas como dono e podes nomear administradores e moderadores.",
+    approval: "Recebes os pedidos de entrada e decides quem entra (os teus moderadores também). Só os membros veem e publicam.",
+    private: "Ninguém entra sem convite: tu e a tua equipa convidam pelo nome de utilizador.",
     secret: "Partilha o nome exato só com quem queres convidar. Tu ficas como administrador."
   }[form.privacy];
   return createPortal(<div className="modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget && !busy) onClose(); }}>
@@ -163,9 +178,22 @@ export function CreateGroupDialog({ viewer, onClose, onCreated }) {
           <label>Nome<input required autoFocus maxLength={100} value={form.name} onChange={event => setForm({ ...form, name: event.target.value })} placeholder="Ex.: Fotógrafos de Luanda" /></label>
           <label>Sobre o que é <small>{form.description.length}/2000</small><textarea rows={5} maxLength={2000} value={form.description}
             onChange={event => setForm({ ...form, description: event.target.value })} placeholder="Diz quem deve participar e o que se partilha aqui." /></label>
-          <label>Tema<select value={form.topic} onChange={event => setForm({ ...form, topic: event.target.value })}>
-            {GROUP_TOPICS.map(topic => <option key={topic.key} value={topic.key}>{topic.label}</option>)}
-          </select></label>
+          <label>Tipo de grupo<span className="select-with-icon">
+            <Icon name={kind?.icon || "groups"} size={17} />
+            <select required value={form.groupType} onChange={event => chooseType(event.target.value)}>
+              <option value="" disabled>Escolhe o tipo</option>
+              {GROUP_TYPES.map(item => <option key={item.key} value={item.key}>{item.label} — {item.help}</option>)}
+            </select>
+          </span></label>
+          {kind && <div className="create-page-areas">
+            <label>Categoria<select value={form.category} onChange={event => setForm({ ...form, category: event.target.value, subcategory: "" })}>
+              {GROUP_CATEGORIES.map(item => <option key={item.key} value={item.key}>{item.label}</option>)}
+            </select></label>
+            {area?.subcategories.length > 0 && <label>Subcategoria (opcional)<select value={form.subcategory} onChange={event => setForm({ ...form, subcategory: event.target.value })}>
+              <option value="">Sem subcategoria</option>
+              {area.subcategories.map(item => <option key={item.key} value={item.key}>{item.label}</option>)}
+            </select></label>}
+          </div>}
           <fieldset className="group-type-choice">
             <legend>Quem pode entrar</legend>
             {GROUP_PRIVACY.map(option => {
@@ -186,6 +214,8 @@ export function CreateGroupDialog({ viewer, onClose, onCreated }) {
             <small id="group-price-help">Pagamento único, entre {formatPrice(SECRET_MIN_PRICE)} e {formatPrice(SECRET_MAX_PRICE)}. Recebes 70% de cada entrada nos teus ganhos.</small>
           </label>}
           <p className="muted create-page-note">{privacyNote}</p>
+          <label>Regras do grupo <small>opcional</small><textarea rows={3} maxLength={3000} value={form.rules}
+            onChange={event => setForm({ ...form, rules: event.target.value })} placeholder={"Ex.: Respeito por todos. Sem spam."} /></label>
         </div>
         <div className="create-page-preview" aria-label="Pré-visualização">
           <small>Pré-visualização</small>
@@ -194,7 +224,7 @@ export function CreateGroupDialog({ viewer, onClose, onCreated }) {
             <div className="page-card-body">
               <GroupLogo group={preview} />
               <h2>{preview.name}</h2>
-              <span className="group-card-kind"><GroupTopicChip group={preview} />{isSecret && <SecretBadge />}{form.privacy === "private" && <PrivateBadge />}</span>
+              <span className="group-card-kind"><GroupTopicChip group={preview} />{isSecret && <SecretBadge />}{["approval", "private"].includes(form.privacy) && <PrivateBadge group={preview} />}</span>
               <p className="page-card-description">{form.description || "A descrição aparece aqui."}</p>
             </div>
           </div>
@@ -203,29 +233,161 @@ export function CreateGroupDialog({ viewer, onClose, onCreated }) {
       {error && <p className="error" role="alert">{error}</p>}
       <div className="modal-actions">
         <button className="btn secondary" type="button" onClick={onClose} disabled={busy}>Cancelar</button>
-        <button className="btn" type="submit" disabled={busy || !form.name.trim() || !priceValid || !nameValid}>{busy ? "A criar..." : isSecret ? "Criar grupo secreto" : "Criar grupo"}</button>
+        <button className="btn" type="submit" disabled={busy || !form.name.trim() || !form.groupType || !priceValid || !nameValid}>{busy ? "A criar..." : isSecret ? "Criar grupo secreto" : "Criar grupo"}</button>
       </div>
     </form>
   </div>, document.body);
 }
+// Página de um grupo: cabeçalho, separadores (Publicações, Chat, Eventos, Sondagens, Ficheiros, Membros, Sobre,
+// e para a equipa Estatísticas e Definições). Carrega o grupo pelo número (funciona mesmo fora da lista).
+const GROUP_TABS = [
+  ["posts", "Publicações", "pages"], ["chat", "Chat", "messages"], ["events", "Eventos", "events"], ["polls", "Sondagens", "stats"],
+  ["files", "Ficheiros", "layers"], ["members", "Membros", "friends"], ["about", "Sobre e regras", "info"]
+];
+function GroupPage({ groupId, user, onListChanged }) {
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const [group, setGroup] = useState(null);
+  const [posts, setPosts] = useState(null);
+  const [pinned, setPinned] = useState([]);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [tab, setTab] = useState("posts");
+  const [reporting, setReporting] = useState(false);
+  const [calling, setCalling] = useState(null); // "voice" | "video" quando estou na chamada
+  const load = () => api(`/groups/${groupId}`).then(result => { setGroup(result.group); setError(""); }).catch(loadError => { setGroup(false); setError(loadError.message); });
+  const loadPosts = () => Promise.all([api(`/posts?groupId=${groupId}`), api(`/posts?groupId=${groupId}&pinned=1`)])
+    .then(([all, top]) => { setPinned(top.posts); setPosts(all.posts.filter(post => !top.posts.some(item => item.id === post.id))); })
+    .catch(loadError => setError(loadError.message));
+  useEffect(() => { setGroup(null); setTab("posts"); load(); window.scrollTo(0, 0); }, [groupId, user?.id]);
+  useEffect(() => { setPosts(null); if (group?.is_member) loadPosts(); }, [groupId, group?.is_member]);
+
+  if (group === null) return <div className="page narrow"><div className="empty card">A carregar grupo...</div></div>;
+  if (!group) return <div className="page narrow"><div className="empty card">{searchParams.get("pagamento") === "sucesso"
+    ? <>Estamos a confirmar o teu pagamento. Assim que for confirmado, o grupo aparece em <Link to="/groups">Grupos › Participas</Link>.</>
+    : <>{error || "Este grupo não existe ou foi apagado."} <Link to="/groups">Ver todos os grupos</Link></>}</div></div>;
+
+  const role = group.my_role;
+  const owner = role === "owner";
+  const team = isTeam(role);
+  const admin = owner || role === "admin";
+  const tabs = [...GROUP_TABS, ...(team ? [["stats", "Estatísticas", "stats"]] : []), ...(admin ? [["settings", "Definições", "settings"]] : [])];
+  const privacy = GROUP_PRIVACY.find(option => option.key === groupPrivacyOf(group));
+
+  const setMembership = async joining => {
+    setBusy(true); setError("");
+    try { await api(`/groups/${group.id}/${joining ? "join" : "leave"}`, { method: "POST" }); await load(); onListChanged(); }
+    catch (membershipError) { setError(membershipError.message); }
+    finally { setBusy(false); }
+  };
+  const deleteGroup = async () => {
+    if (!window.confirm(`Apagar o grupo «${group.name}» e tudo o que tem? Esta ação não pode ser desfeita.`)) return;
+    setBusy(true);
+    try { await api(`/groups/${group.id}`, { method: "DELETE" }); onListChanged(); navigate("/groups"); }
+    catch (deleteError) { setError(deleteError.message); setBusy(false); }
+  };
+  // Ações da equipa no menu de cada publicação.
+  const postActions = post => team ? [
+    post.pinned_at
+      ? { label: "Desafixar", icon: "unpin", onClick: () => api(`/groups/${group.id}/pins/${post.id}`, { method: "DELETE" }).then(loadPosts).catch(e => setError(e.message)) }
+      : { label: "Fixar no topo", icon: "pin", onClick: () => api(`/groups/${group.id}/pins/${post.id}`, { method: "POST" }).then(loadPosts).catch(e => setError(e.message)) },
+    ...(post.user_id !== user?.id ? [{ label: "Esconder (não cumpre as regras)", icon: "block", danger: true,
+      onClick: () => window.confirm("Esconder esta publicação do grupo? O autor é avisado.") && api(`/groups/${group.id}/posts/${post.id}/hide`, { method: "POST" }).then(loadPosts).catch(e => setError(e.message)) }] : [])
+  ] : [];
+  const joinButton = <JoinGroupButton group={group} user={user} busy={busy} onJoin={() => setMembership(true)} onLeave={() => setMembership(false)} />;
+
+  return <div className="pages-view page-detail group-page">
+    <Link className="page-back" to="/groups"><Icon name="previous" size={18} /> Todos os grupos</Link>
+    <section className="page-hero card">
+      <div className={`page-hero-cover tone-page-${pageTone(group.name)}`}><span className="page-hero-mark" aria-hidden="true">{pageMonogram(group.name)}</span></div>
+      <div className="page-hero-body">
+        <GroupLogo group={group} size="large" />
+        <div className="page-hero-text">
+          <h1>{group.name}</h1>
+          <p><GroupTopicChip group={group} />{group.is_secret && <SecretBadge />}{(group.requires_approval || group.invite_only) && <PrivateBadge group={group} />}
+            <span>{formatCount(group.member_count)} {group.member_count === 1 ? "membro" : "membros"}</span>
+            <MemberStack members={group.member_preview} total={group.member_count} /></p>
+        </div>
+        <div className="page-hero-actions">
+          {owner ? <button className="btn secondary danger-text" type="button" disabled={busy} onClick={deleteGroup}><Icon name="trash" size={15} /> Apagar grupo</button> : joinButton}
+        </div>
+      </div>
+      {group.is_member && <nav className="group-tabs" aria-label="Secções do grupo">
+        {tabs.map(([id, label, icon]) => <button key={id} type="button" aria-current={tab === id ? "page" : undefined} onClick={() => setTab(id)}>
+          <Icon name={icon} size={15} /> {label}{id === "members" && group.request_count > 0 && <span className="group-tab-count">{group.request_count}</span>}
+        </button>)}
+      </nav>}
+    </section>
+    {error && <p className="error" role="alert">{error}</p>}
+    {group.is_member && !calling && <GroupCallBar group={group} onJoin={setCalling} />}
+    {calling && <GroupCallRoom group={group} kind={calling} me={user} onClose={() => setCalling(null)} />}
+
+    {!group.is_member ? <div className="page-detail-grid">
+      <GroupAbout group={group} privacy={privacy} onReport={user ? () => setReporting(true) : null} />
+      <div className="empty card page-empty group-locked">
+        <span className="group-lock-icon"><Icon name="shield" size={26} /></span>
+        <p>{group.has_requested ? "O teu pedido está à espera da equipa do grupo. Quando for aceite, vês tudo aqui."
+          : group.invite_only ? (group.has_invite ? "Foste convidado para este grupo. Aceita o convite para entrares." : "Este grupo é privado: só entra quem for convidado por um administrador.")
+            : group.requires_approval ? "Pede para entrar e a equipa do grupo decide."
+              : "As publicações, o chat e os ficheiros deste grupo só são visíveis para os membros."}</p>
+        {joinButton}
+      </div>
+    </div> : tab === "posts" ? <div className="page-detail-grid">
+      <GroupAbout group={group} privacy={privacy} compact onReport={() => setReporting(true)} />
+      <section className="page-posts" aria-label="Publicações do grupo">
+        {team && group.requires_approval && <GroupRequests group={group} onChanged={() => { load(); onListChanged(); }} />}
+        <Composer target={{ type: "group", id: group.id }} onPosted={loadPosts} />
+        {pinned.map(post => <PostCard key={post.id} post={post} onChanged={loadPosts} extraActions={postActions(post)} />)}
+        {!posts && <div className="empty card">A carregar publicações...</div>}
+        {posts?.map(post => <PostCard key={post.id} post={post} onChanged={loadPosts} extraActions={postActions(post)} />)}
+        {posts && !posts.length && !pinned.length && <div className="empty card page-empty"><GroupLogo group={group} /><p>Ainda não há conversa neste grupo. Começa tu: apresenta-te ou faz uma pergunta.</p></div>}
+      </section>
+    </div> : <div className="group-tab-panel">
+      {tab === "chat" && <GroupChat group={group} me={user} />}
+      {tab === "events" && <GroupEvents group={group} />}
+      {tab === "polls" && <GroupPolls group={group} me={user} />}
+      {tab === "files" && <GroupFiles group={group} me={user} />}
+      {tab === "members" && <>{team && group.requires_approval && <GroupRequests group={group} onChanged={() => { load(); onListChanged(); }} />}<GroupMembers group={group} me={user} onChanged={load} /></>}
+      {tab === "about" && <GroupAbout group={group} privacy={privacy} onReport={() => setReporting(true)} />}
+      {tab === "stats" && <GroupStats group={group} />}
+      {tab === "settings" && <GroupSettings group={group} onSaved={() => { load(); onListChanged(); }} />}
+    </div>}
+    {reporting && <ReportDialog targetType="group" targetId={group.id} onClose={() => setReporting(false)} />}
+  </div>;
+}
+
+// "Sobre": descrição, regras, tipo, categoria, quem pode entrar e denunciar.
+function GroupAbout({ group, privacy, compact = false, onReport }) {
+  return <aside className="page-about card">
+    <h2>Sobre</h2>
+    <p>{group.description || "Um espaço para a comunidade."}</p>
+    <ul>
+      <li><Icon name={groupType(group.group_type).icon} size={16} /><span>Grupo {groupType(group.group_type).label.toLowerCase()}</span></li>
+      <li><Icon name={groupCategory(group.category).icon} size={16} /><span>{groupCategoryPath(group)}</span></li>
+      <li><Icon name={privacy?.icon || "groups"} size={16} /><span>{privacy?.label}: {privacy?.help}</span></li>
+      {group.is_secret && <li><Icon name="info" size={16} /><span>Entrada de {formatPrice(group.access_price)}</span></li>}
+      <li><Icon name="profile" size={16} /><span>Criado por <Link to={`/u/${group.owner_username}`}>{group.owner_name}</Link></span></li>
+      <li><Icon name="events" size={16} /><span>Desde {new Date(group.created_at).toLocaleDateString("pt-PT", { month: "long", year: "numeric" })}</span></li>
+    </ul>
+    {group.rules && <div className="group-rules"><h3>Regras</h3><p>{compact && group.rules.length > 280 ? `${group.rules.slice(0, 280)}…` : group.rules}</p></div>}
+    {onReport && <button type="button" className="course-report" onClick={onReport}><Icon name="report" size={14} /> Denunciar grupo</button>}
+  </aside>;
+}
+
 export function Groups() {
   const { groupId } = useParams();
   const navigate = useNavigate();
   const { user } = useContext(UserContext);
   const [groups, setGroups] = useState(null);
-  const [posts, setPosts] = useState(null);
   const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
+  const busy = false;
   const [creating, setCreating] = useState(false);
   const [tab, setTab] = useState("discover");
   const [query, setQuery] = useState("");
-  const [topic, setTopic] = useState("");
+  const [topic, setTopic] = useState("");   // categoria escolhida no filtro
   const [viewer, setViewer] = useState(null);
   const [secretFound, setSecretFound] = useState([]);
   const [paying, setPaying] = useState(null);
-  const [searchParams] = useSearchParams();
-  const group = groups?.find(item => String(item.id) === groupId);
-  const ownsGroup = Boolean(group && user && group.owner_username === user.username);
 
   const loadGroups = async () => {
     try {
@@ -237,7 +399,6 @@ export function Groups() {
       setError(loadError.message);
     }
   };
-  const loadPosts = id => api(`/posts?groupId=${encodeURIComponent(id)}`).then(result => setPosts(result.posts)).catch(loadError => setError(loadError.message));
 
   useEffect(() => { loadGroups(); }, [user?.id]);
   // Os grupos secretos só aparecem quando se escreve o nome exato (e só para maiores de 18: o servidor decide).
@@ -257,13 +418,6 @@ export function Groups() {
   const paymentDialog = paying && <PaymentDialog title={`Entrar no grupo «${paying.group.name}»`} amountKz={paying.group.access_price} onPay={paying.onPay}
     onDone={() => { const id = paying.group.id; setPaying(null); setSecretFound([]); setQuery(""); loadGroups().then(() => navigate(`/groups/${id}`)); }}
     onClose={() => { setPaying(null); loadGroups(); }} />;
-  // As publicações de um grupo só são visíveis para os membros.
-  useEffect(() => {
-    setPosts(null);
-    if (groupId && group?.is_member) loadPosts(groupId);
-    if (groupId) window.scrollTo(0, 0);
-  }, [groupId, group?.is_member]);
-
   // Entrar/sair muda logo no ecrã; se o servidor falhar, volta atrás. Num grupo privado
   // "entrar" é só pedir (não conta como membro) e "sair" retira o pedido.
   const setMembership = async (target, joining) => {
@@ -283,94 +437,19 @@ export function Groups() {
     }
   };
 
-  const deleteGroup = async () => {
-    if (!window.confirm(`Apagar o grupo «${group.name}» e todas as publicações dele? Esta ação não pode ser desfeita.`)) return;
-    setBusy(true);
-    try {
-      await api(`/groups/${group.id}`, { method: "DELETE" });
-      setGroups(current => current.filter(item => item.id !== group.id));
-      navigate("/groups");
-    } catch (deleteError) {
-      setError(deleteError.message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
   // ----- Grupo individual -----
-  if (groupId) {
-    if (!groups && !error) return <div className="page narrow"><div className="empty card">A carregar grupo...</div></div>;
-    if (!group) return <div className="page narrow"><div className="empty card">{searchParams.get("pagamento") === "sucesso"
-      ? <>Estamos a confirmar o teu pagamento. Assim que for confirmado, o grupo aparece em <Link to="/groups">Grupos › Participas</Link>.</>
-      : <>Este grupo não existe ou foi apagado. <Link to="/groups">Ver todos os grupos</Link></>}</div></div>;
-    return <div className="pages-view page-detail">
-      <Link className="page-back" to="/groups"><Icon name="previous" size={18} /> Todos os grupos</Link>
-      <section className="page-hero card">
-        <div className={`page-hero-cover tone-page-${pageTone(group.name)}`}><span className="page-hero-mark" aria-hidden="true">{pageMonogram(group.name)}</span></div>
-        <div className="page-hero-body">
-          <GroupLogo group={group} size="large" />
-          <div className="page-hero-text">
-            <h1>{group.name}</h1>
-            <p><GroupTopicChip group={group} />{group.is_secret && <SecretBadge />}{group.requires_approval && <PrivateBadge />}
-              <span>{formatCount(group.member_count)} {group.member_count === 1 ? "membro" : "membros"}</span>
-              <span>{formatCount(group.post_count)} {group.post_count === 1 ? "publicação" : "publicações"}</span>
-              <MemberStack members={group.member_preview} total={group.member_count} /></p>
-          </div>
-          <div className="page-hero-actions">
-            {ownsGroup
-              ? <button className="btn secondary danger-text" type="button" disabled={busy} onClick={deleteGroup}><Icon name="trash" size={15} /> Apagar grupo</button>
-              : <JoinGroupButton group={group} user={user} busy={busy} onJoin={item => setMembership(item, true)} onLeave={item => setMembership(item, false)} />}
-          </div>
-        </div>
-      </section>
-      {error && <p className="error" role="alert">{error}</p>}
-      <div className="page-detail-grid">
-        <aside className="page-about card">
-          <h2>Sobre</h2>
-          <p>{group.description || "Um espaço para a comunidade."}</p>
-          <ul>
-            <li><Icon name="shield" size={16} /><span>Só os membros veem e publicam</span></li>
-            <li><Icon name={groupTopic(group.topic).icon} size={16} /><span>Tema: {groupTopic(group.topic).label}</span></li>
-            {groupPrivacyOf(group) === "private" && <li><Icon name="check" size={16} /><span>Privado: o administrador aprova quem entra</span></li>}
-            {group.is_secret && <>
-              <li><Icon name="lock" size={16} /><span>Secreto: não aparece na lista, só se encontra pelo nome exato</span></li>
-              <li><Icon name="info" size={16} /><span>Só para maiores de 18 · entrada de {formatPrice(group.access_price)}</span></li>
-            </>}
-            <li><Icon name="profile" size={16} /><span>Criado por <Link to={`/u/${group.owner_username}`}>{group.owner_name}</Link></span></li>
-            <li><Icon name="events" size={16} /><span>Desde {new Date(group.created_at).toLocaleDateString("pt-PT", { month: "long", year: "numeric" })}</span></li>
-          </ul>
-        </aside>
-        <section className="page-posts" aria-label="Publicações do grupo">
-          {ownsGroup && group.requires_approval && <GroupRequests group={group} onChanged={loadGroups} />}
-          {group.is_member ? <>
-            <Composer target={{ type: "group", id: group.id }} onPosted={() => { loadPosts(group.id); loadGroups(); }} />
-            {!posts && <div className="empty card">A carregar publicações...</div>}
-            {posts?.map(post => <PostCard key={post.id} post={post} onChanged={() => loadPosts(group.id)} />)}
-            {posts && !posts.length && <div className="empty card page-empty"><GroupLogo group={group} /><p>Ainda não há conversa neste grupo. Começa tu: apresenta-te ou faz uma pergunta.</p></div>}
-          </> : <div className="empty card page-empty group-locked">
-            <span className="group-lock-icon"><Icon name="shield" size={26} /></span>
-            <p>{group.has_requested
-              ? "O teu pedido está à espera do administrador. Quando for aceite, vês as publicações aqui."
-              : group.requires_approval
-                ? "Este grupo é privado: pede para entrar e o administrador decide."
-                : "As publicações deste grupo só são visíveis para os membros."}</p>
-            <JoinGroupButton group={group} user={user} busy={busy} onJoin={item => setMembership(item, true)} onLeave={item => setMembership(item, false)} />
-          </div>}
-        </section>
-      </div>
-    </div>;
-  }
+  if (groupId) return <GroupPage groupId={groupId} user={user} onListChanged={loadGroups} />;
 
   // ----- Lista de grupos -----
   const all = groups || [];
-  const mine = all.filter(item => user && item.owner_username === user.username);
-  const joined = all.filter(item => item.is_member && !(user && item.owner_username === user.username));
-  const tabs = [["discover", "Descobrir", all.length], ...(user ? [["joined", "Participas", joined.length], ["mine", "Criados por ti", mine.length]] : [])];
+  const mine = all.filter(item => user && (item.owner_username === user.username || isTeam(item.my_role)));
+  const joined = all.filter(item => item.is_member && !mine.includes(item));
+  const tabs = [["discover", "Descobrir", all.length], ...(user ? [["joined", "Participas", joined.length], ["mine", "Que geres", mine.length]] : [])];
   const source = tab === "mine" ? mine : tab === "joined" ? joined : all;
   const term = query.trim().toLowerCase();
-  const topicsInUse = GROUP_TOPICS.filter(item => all.some(group => group.topic === item.key));
-  const matches = source.filter(item => (!topic || item.topic === topic)
-    && (!term || `${item.name} ${item.description} ${item.owner_name} ${groupTopic(item.topic).label}`.toLowerCase().includes(term)));
+  const topicsInUse = GROUP_CATEGORIES.filter(item => all.some(group => group.category === item.key));
+  const matches = source.filter(item => (!topic || item.category === topic)
+    && (!term || `${item.name} ${item.description} ${item.owner_name} ${groupCategoryPath(item)} ${groupType(item.group_type).label}`.toLowerCase().includes(term)));
   const pendingTotal = mine.reduce((sum, item) => sum + (item.pending_requests || 0), 0);
   const extraSecret = tab === "discover" ? secretFound.filter(found => !matches.some(item => item.id === found.id)) : [];
   const visible = [...extraSecret, ...matches];
@@ -387,13 +466,13 @@ export function Groups() {
       </div>
       <label className="pages-search"><Icon name="search" size={17} /><input type="search" placeholder="Procurar grupos" aria-label="Procurar grupos" value={query} onChange={event => setQuery(event.target.value)} /></label>
     </div>
-    {topicsInUse.length > 1 && <div className="province-chips pages-categories" role="group" aria-label="Temas">
+    {topicsInUse.length > 1 && <div className="province-chips pages-categories" role="group" aria-label="Categorias">
       <button type="button" className="province-chip" aria-pressed={!topic} onClick={() => setTopic("")}>Todos</button>
       {topicsInUse.map(item => <button key={item.key} type="button" className="province-chip" aria-pressed={topic === item.key} onClick={() => setTopic(topic === item.key ? "" : item.key)}>
         <Icon name={item.icon} size={14} /> {item.label}</button>)}
     </div>}
     {pendingTotal > 0 && tab !== "mine" && <button type="button" className="group-pending-banner" onClick={() => setTab("mine")}>
-      <Icon name="notifications" size={16} /> Tens {pendingTotal} {pendingTotal === 1 ? "pedido" : "pedidos"} para entrar nos teus grupos privados</button>}
+      <Icon name="notifications" size={16} /> Tens {pendingTotal} {pendingTotal === 1 ? "pedido" : "pedidos"} para entrar nos grupos que geres</button>}
     {error && <p className="error" role="alert">{error}</p>}
     {!groups && !error && <div className="empty card">A carregar grupos...</div>}
     {groups && !visible.length && <div className="empty card pages-empty">

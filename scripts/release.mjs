@@ -50,6 +50,11 @@ RewriteEngine On
 RewriteCond %{HTTPS} !=on
 RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
 
+# O iPhone lê este ficheiro sem extensão: tem de ir como JSON.
+<Files "apple-app-site-association">
+  ForceType application/json
+</Files>
+
 # Rotas do React (/u/ana, /admin/painel...): ficheiro inexistente abre o index.html
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
@@ -75,6 +80,16 @@ RewriteRule ^ index.html [L]
   ExpiresByType font/woff2 "access plus 1 year"
 </IfModule>
 `);
+
+// Links que abrem a app: só com os dados do primeiro build (Team ID da Apple, impressão SHA-256 do Android).
+const { createRequire } = await import("node:module");
+const { androidAssetLinks, appleAssociation } = createRequire(import.meta.url)("../server/app-links.js");
+const appleFile = appleAssociation(process.env.APPLE_TEAM_ID);
+const androidFile = androidAssetLinks(process.env.ANDROID_CERT_SHA256);
+if (appleFile || androidFile) mkdirSync(path.join(hosting, ".well-known"), { recursive: true });
+if (appleFile) writeFileSync(path.join(hosting, ".well-known", "apple-app-site-association"), JSON.stringify(appleFile));
+if (androidFile) writeFileSync(path.join(hosting, ".well-known", "assetlinks.json"), JSON.stringify(androidFile));
+if (!appleFile || !androidFile) console.warn("Aviso: sem APPLE_TEAM_ID e/ou ANDROID_CERT_SHA256, os links do site ainda não abrem a app.");
 
 // 2) Servidor: só o que a API precisa para correr (sem testes, sem frontend).
 cpSync(path.join(root, "server"), path.join(server, "server"), {

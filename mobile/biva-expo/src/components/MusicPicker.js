@@ -81,7 +81,7 @@ export function MusicPicker({ visible, onClose, onChoose }) {
         renderItem={({ item }) => item.header ? <Text style={styles.section}>{item.header}</Text>
           : <View style={styles.row}>
             <Pressable style={styles.play} onPress={() => toggle(item)} accessibilityLabel={previewId === item.id ? `Parar ${item.title}` : `Ouvir ${item.title}`}>
-              <Ionicons name={previewId === item.id ? "pause" : "play"} size={18} color="#fff" />
+              <Ionicons name={previewId === item.id ? "pause" : "play"} size={18} color={colors.onPrimary} />
             </Pressable>
             <View style={{ flex: 1 }}>
               <Text style={styles.track} numberOfLines={1}>{item.title}</Text>

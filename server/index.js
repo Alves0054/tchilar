@@ -18,12 +18,13 @@ const Stripe = require("stripe");
 const { runMigrations } = require("./migrate");
 const { optimizeUpload } = require("./images");
 const { activatePaidAd, registerCreatorRoutes } = require("./creator-routes");
-const { registerGrowthRoutes } = require("./growth-routes");
+const { launchMonthlyChallenges, registerGrowthRoutes } = require("./growth-routes");
 const { registerHomeRoutes } = require("./home-routes");
 const { registerPaymentRoutes } = require("./payment-records");
 const { logAdminAction, registerAdminRoutes } = require("./admin-routes");
 const { registerAdminOperations } = require("./admin-operations");
-const { registerLiveRoutes } = require("./live-routes");
+const { registerLiveRoutes, turnServer } = require("./live-routes");
+const { registerGroupCalls } = require("./group-calls");
 const { createPayments } = require("./payments");
 const { createPaybyrd, createProxyPay, normalizeAngolanPhone } = require("./angola-payments");
 
@@ -43,7 +44,11 @@ const { POST_MUSIC_SQL, registerMusicRoutes } = require("./music-routes");
 const { parseBirthDate } = require("./growth");
 const { adultSql, parseAccessPrice, sameGroupName } = require("./groups");
 const { createPush } = require("./push");
-const { parseGroupPrivacy, parseGroupTopic, parsePageType, parseStoryBackground } = require("./community-types");
+const { registerCourseRoutes } = require("./courses");
+const { registerAppLinks } = require("./app-links");
+const { createSession, deviceLabel, registerSessionRoutes, touchSession, validSession } = require("./sessions");
+const { DOCUMENT_TYPES, registerGroupFeatures } = require("./group-features");
+const { parseGroupKind, parseGroupPrivacy, parsePageType, parseStoryBackground } = require("./community-types");
 const QRCode = require("qrcode");
 const { MODERATION_ACTIONS, REPORT_REASONS, blockedBetween, shouldAutoHide } = require("./moderation");
 const {
@@ -269,6 +274,19 @@ const imageUpload = multer({
   }
 });
 
+// Documentos dos grupos (PDF, Word, Excel, PowerPoint, texto, ZIP, imagens), até 25 MB.
+const documentUpload = multer({
+  storage: multer.diskStorage({
+    destination: uploadDir,
+    filename: (_req, file, callback) => callback(null, `${crypto.randomBytes(16).toString("hex")}${DOCUMENT_TYPES[file.mimetype] || ""}`)
+  }),
+  limits: { fileSize: 25 * 1024 * 1024 },
+  fileFilter: (_req, file, callback) => {
+    if (!Object.hasOwn(DOCUMENT_TYPES, file.mimetype)) return callback(new Error("Formato não aceite. Envia PDF, Word, Excel, PowerPoint, texto, ZIP ou imagem."));
+    callback(null, true);
+  }
+});
+
 // Campos da própria conta devolvidos ao cliente (nunca inclui password_hash nem auth_version).
 const OWN_ACCOUNT_FIELDS = "id,username,email,display_name,bio,avatar_url,cover_url,cover_position,location,website,profession,is_creator,subscription_price,email_verified,is_admin,admin_role,phone,created_at";
 
@@ -402,12 +420,20 @@ const requireAdmin = requireRole();
 // Só aceita tokens HS256 assinados por nós (nunca "none" nem outro algoritmo).
 const JWT_VERIFY = { algorithms: ["HS256"] };
 
-function sign(user) {
+// Sessões sem prazo: uma sessão (no site ou na app) dura até a pessoa terminar sessão, usar "Terminar outras
+// sessões", mudar a palavra-passe ou a conta ser suspensa. Esses casos sobem auth_version e cortam todos os tokens
+// antigos de uma vez (ver auth()). O campo "app" fica no token só para se saber de onde veio a sessão.
+function sign(user, { app = false, sid } = {}) {
   return jwt.sign(
-    { id: user.id, username: user.username, version: Number(user.auth_version || 0) },
-    JWT_SECRET,
-    { expiresIn: "12h" });
+    { id: user.id, username: user.username, version: Number(user.auth_version || 0), ...(app && { app: true }), ...(sid && { sid }) },
+    JWT_SECRET);
 }
+// Nova sessão para este aparelho e o token dela.
+async function startSession(req, user, app) {
+  const sid = await createSession(pool, user.id, { client: app ? "app" : "web", device: deviceLabel(req) });
+  return sign(user, { app, sid });
+}
+const isAppClient = body => body?.client === "app";
 
 // Regras para palavras-passe NOVAS (registo, recuperação, mudança). As já existentes continuam a funcionar.
 // O bcrypt só lê os primeiros 72 bytes, por isso recusamos mais do que isso em vez de cortar em silêncio.
@@ -473,6 +499,13 @@ function signMedia(filename) {
   return `/uploads/${encodeURIComponent(filename)}?access=${encodeURIComponent(access)}`;
 }
 
+// Link temporário para um ficheiro protegido (ex.: vídeo de uma aula paga). Só serve para esse ficheiro.
+function signProtectedMedia(purpose, mediaUrl, minutes) {
+  const filename = path.basename(mediaUrl);
+  const access = jwt.sign({ purpose, filename }, JWT_SECRET, { expiresIn: `${minutes}m` });
+  return `/uploads/${encodeURIComponent(filename)}?access=${encodeURIComponent(access)}`;
+}
+
 function signStoryMedia(storyId, filename) {
   const access = jwt.sign({ purpose: "story-media", storyId, filename }, JWT_SECRET, { expiresIn: "15m" });
   return `/uploads/${encodeURIComponent(filename)}?access=${encodeURIComponent(access)}`;
@@ -505,7 +538,11 @@ function serializePost(post) {
   };
 }
 
-const SESSION_SQL = "SELECT auth_version,suspended_at,is_admin,admin_role FROM users WHERE id=$1";
+// Conta + estado da sessão do token (session_ok: a sessão existe e não foi terminada; null se o token não tem sid).
+const SESSION_SQL = `SELECT u.auth_version,u.suspended_at,u.is_admin,u.admin_role,
+  CASE WHEN $2::text IS NULL THEN NULL ELSE EXISTS(SELECT 1 FROM user_sessions s WHERE s.id=$2 AND s.user_id=u.id AND s.revoked_at IS NULL) END AS session_ok
+  FROM users u WHERE u.id=$1`;
+const sessionParams = claims => [claims.id, typeof claims.sid === "string" ? claims.sid : null];
 
 // Presença: guarda "visto agora" no máximo uma vez por minuto por pessoa (em memória, por cópia da API),
 // para não escrever na base de dados a cada pedido. Falhar aqui nunca impede o pedido.
@@ -527,17 +564,18 @@ function auth(req, res, next) {
   try {
     claims = jwt.verify(token, JWT_SECRET, JWT_VERIFY);
   } catch {
-    return res.status(401).json({ error: "Token inválido ou expirado." });
+    return res.status(401).json({ error: "A tua sessão terminou. Entra outra vez.", sessionExpired: true });
   }
-  pool.query(SESSION_SQL, [claims.id]).then(result => {
-    if (!result.rowCount || Number(result.rows[0].auth_version) !== Number(claims.version || 0)) {
-      return res.status(401).json({ error: "Sessão inválida ou expirada." });
+  pool.query(SESSION_SQL, sessionParams(claims)).then(result => {
+    if (!validSession(result.rows[0], claims)) {
+      return res.status(401).json({ error: "A tua sessão terminou. Entra outra vez.", sessionExpired: true });
     }
     if (result.rows[0].suspended_at) {
       return res.status(403).json({ error: "A tua conta está suspensa. Contacta a equipa do Tchilar." });
     }
     req.user = { ...claims, isAdmin: result.rows[0].is_admin === true, adminRole: result.rows[0].is_admin ? result.rows[0].admin_role || "super" : null };
     touchPresence(claims.id);
+    touchSession(pool, claims.sid);
     next();
   }).catch(next);
 }
@@ -552,20 +590,21 @@ function presenceAuth(req, res, next) {
   try {
     claims = jwt.verify(authorization.startsWith("Bearer ") ? authorization.slice(7) : "", JWT_SECRET, JWT_VERIFY);
   } catch {
-    return res.status(401).json({ error: "Token inválido ou expirado." });
+    return res.status(401).json({ error: "A tua sessão terminou. Entra outra vez.", sessionExpired: true });
   }
   const accept = row => {
-    if (!row || Number(row.auth_version) !== Number(claims.version || 0) || row.suspended_at) {
-      return res.status(401).json({ error: "Sessão inválida ou expirada." });
+    if (!validSession(row, claims) || row.suspended_at) {
+      return res.status(401).json({ error: "A tua sessão terminou. Entra outra vez.", sessionExpired: true });
     }
     req.user = { ...claims, isAdmin: row.is_admin === true, adminRole: row.is_admin ? row.admin_role || "super" : null };
     next();
   };
-  const cached = presenceSessions.get(claims.id);
+  const cacheKey = `${claims.id}:${claims.sid || ""}`;
+  const cached = presenceSessions.get(cacheKey);
   if (cached && Date.now() - cached.at < 5000) return accept(cached.row);
-  pool.query(SESSION_SQL, [claims.id]).then(result => {
+  pool.query(SESSION_SQL, sessionParams(claims)).then(result => {
     if (presenceSessions.size > 200_000) presenceSessions.clear();
-    presenceSessions.set(claims.id, { row: result.rows[0] || null, at: Date.now() });
+    presenceSessions.set(cacheKey, { row: result.rows[0] || null, at: Date.now() });
     accept(result.rows[0]);
   }).catch(next);
 }
@@ -579,8 +618,8 @@ function optionalAuth(req, res, next) {
     } catch {
       return next();
     }
-    return pool.query(SESSION_SQL, [claims.id]).then(result => {
-      if (result.rowCount && Number(result.rows[0].auth_version) === Number(claims.version || 0) && !result.rows[0].suspended_at) {
+    return pool.query(SESSION_SQL, sessionParams(claims)).then(result => {
+      if (validSession(result.rows[0], claims) && !result.rows[0].suspended_at) {
         req.user = { ...claims, isAdmin: result.rows[0].is_admin === true, adminRole: result.rows[0].is_admin ? result.rows[0].admin_role || "super" : null };
       }
       next();
@@ -636,8 +675,31 @@ app.get("/uploads/:filename", optionalAuth, async (req, res, next) => {
         [`/uploads/${filename}`]);
       if (!storyResult.rowCount) {
         // Fotos de perfil, capas e imagens de anúncios são públicas.
+        // Vídeos das aulas dos cursos: só com o link assinado que o curso dá a quem tem acesso.
+        const groupFile = await pool.query("SELECT name FROM group_files WHERE url=$1 LIMIT 1", [`/uploads/${filename}`]);
+        if (groupFile.rowCount) {
+          let access;
+          try { access = jwt.verify(String(req.query.access || ""), JWT_SECRET, JWT_VERIFY); } catch { access = null; }
+          if (access?.purpose !== "group-file" || access.filename !== filename) return res.status(403).json({ error: "Não tens acesso a este ficheiro." });
+          res.set("X-Content-Type-Options", "nosniff");
+          res.set("Content-Security-Policy", "default-src 'none'; sandbox");
+          res.set("Cache-Control", "private, max-age=1800");
+          res.set("Content-Disposition", `attachment; filename*=UTF-8''${encodeURIComponent(groupFile.rows[0].name)}`);
+          return res.sendFile(path.join(uploadDir, filename), { dotfiles: "deny" }, error => { if (error) next(error); });
+        }
+        const lessonVideo = await pool.query("SELECT 1 FROM course_lessons WHERE video_url=$1 LIMIT 1", [`/uploads/${filename}`]);
+        if (lessonVideo.rowCount) {
+          let access;
+          try { access = jwt.verify(String(req.query.access || ""), JWT_SECRET, JWT_VERIFY); } catch { access = null; }
+          if (access?.purpose !== "lesson-media" || access.filename !== filename) return res.status(403).json({ error: "Não tens acesso a este ficheiro." });
+          res.set("X-Content-Type-Options", "nosniff");
+          res.set("Content-Security-Policy", "default-src 'none'; sandbox");
+          res.set("Cache-Control", "private, max-age=1800");
+          return res.sendFile(path.join(uploadDir, filename), { dotfiles: "deny" }, error => { if (error) next(error); });
+        }
         const profileImage = await pool.query(
           `SELECT 1 FROM users WHERE avatar_url=$1 OR cover_url=$1
+           UNION ALL SELECT 1 FROM courses WHERE cover_url=$1
            UNION ALL SELECT 1 FROM ads WHERE image_url=$1
            UNION ALL SELECT 1 FROM music_tracks WHERE audio_url=$1 AND hidden_at IS NULL LIMIT 1`,
           [`/uploads/${filename}`]);
@@ -797,7 +859,14 @@ app.post("/api/auth/login", authRateLimit, async (req, res) => {
       "UPDATE users SET totp_last_step=$1 WHERE id=$2 AND (totp_last_step IS NULL OR totp_last_step < $1)", [step, user.id])).rowCount === 1;
     if (!accepted) return res.status(401).json({ error: "Código inválido ou já usado. Espera pelo próximo.", twoFactorRequired: true });
   }
-  res.json({ user, token: sign(user) });
+  // Aviso de novo início de sessão (só se já havia outros aparelhos com sessão aberta).
+  const others = await pool.query("SELECT COUNT(*)::int AS n FROM user_sessions WHERE user_id=$1 AND revoked_at IS NULL", [user.id]);
+  const token = await startSession(req, user, isAppClient(body));
+  if (others.rows[0].n > 0) {
+    await pool.query("INSERT INTO notifications(user_id,type,text) VALUES($1,'privacy',$2)",
+      [user.id, `Novo início de sessão: ${deviceLabel(req) || "aparelho desconhecido"}. Se não foste tu, termina essa sessão em Definições → Segurança e muda a palavra-passe.`]);
+  }
+  res.json({ user, token });
 });
 
 app.post("/api/auth/verify-email", recoveryRateLimit, async (req, res) => {
@@ -929,7 +998,8 @@ app.post("/api/auth/password", accountSecurityRateLimit, auth, async (req, res) 
   const updated = await pool.query(
     "UPDATE users SET password_hash=$1,auth_version=auth_version+1 WHERE id=$2 RETURNING id,username,auth_version",
     [hash, req.user.id]);
-  res.json({ token: sign(updated.rows[0]), message: "Palavra-passe alterada. As outras sessões foram terminadas." });
+  await pool.query("UPDATE user_sessions SET revoked_at=NOW() WHERE user_id=$1 AND revoked_at IS NULL", [req.user.id]);
+  res.json({ token: await startSession(req, updated.rows[0], Boolean(req.user.app)), message: "Palavra-passe alterada. As outras sessões foram terminadas." });
 });
 
 // ----- Verificação em dois passos -----
@@ -977,7 +1047,16 @@ app.post("/api/auth/2fa/disable", accountSecurityRateLimit, auth, async (req, re
 app.post("/api/auth/logout-all", auth, async (req, res) => {
   const updated = await pool.query(
     "UPDATE users SET auth_version=auth_version+1 WHERE id=$1 RETURNING id,username,auth_version", [req.user.id]);
-  res.json({ token: sign(updated.rows[0]), message: "Sessão terminada em todos os outros dispositivos." });
+  await pool.query("UPDATE user_sessions SET revoked_at=NOW() WHERE user_id=$1 AND revoked_at IS NULL", [req.user.id]);
+  res.json({ token: await startSession(req, updated.rows[0], Boolean(req.user.app)), message: "Sessão terminada em todos os outros dispositivos." });
+});
+
+// Trocar o token por um novo (mantido por compatibilidade com versões da app que o pedem; as sessões já não expiram).
+// Só funciona com uma sessão válida; depois de ser terminada, é preciso entrar outra vez.
+app.post("/api/auth/refresh", auth, async (req, res) => {
+  const row = (await pool.query("SELECT id,username,auth_version FROM users WHERE id=$1", [req.user.id])).rows[0];
+  if (!row) return res.status(404).json({ error: "Conta não encontrada." });
+  res.json({ token: sign(row, { app: Boolean(req.user.app), sid: req.user.sid }) });
 });
 
 // Valida um campo de texto opcional do perfil. Devolve undefined (não enviado), o texto limpo, ou um erro.
@@ -1097,27 +1176,29 @@ app.patch("/api/auth/me/cover-position", auth, async (req, res) => {
   res.json({ user: result.rows[0] });
 });
 
-app.get("/api/posts", optionalAuth, async (req, res) => {
+// Lista de publicações (feed, perfil, grupo, página, pesquisa) ou uma só (onlyId: página da publicação).
+async function listPosts(req, res, onlyId = null) {
+  const query = onlyId ? {} : req.query;
   const currentUser = req.user?.id || 0;
-  const rawUsername = req.query.username;
+  const rawUsername = query.username;
   const username = typeof rawUsername === "string" ? rawUsername.trim() : null;
-  const rawGroupId = req.query.groupId;
-  const rawPageId = req.query.pageId;
-  const rawMediaType = req.query.mediaType;
+  const rawGroupId = query.groupId;
+  const rawPageId = query.pageId;
+  const rawMediaType = query.mediaType;
   const groupId = rawGroupId === undefined ? null : parseId(rawGroupId);
   const pageId = rawPageId === undefined ? null : parseId(rawPageId);
   const mediaType = rawMediaType === undefined ? null : rawMediaType;
   // feed=following: só eu, amigos, quem sigo, páginas que sigo e grupos onde estou.
-  const scope = req.query.feed === undefined ? "all" : req.query.feed;
-  const before = req.query.before === undefined ? null : parseId(req.query.before);
+  const scope = query.feed === undefined ? "all" : query.feed;
+  const before = query.before === undefined ? null : parseId(query.before);
   // Pesquisa: q procura no texto; tag procura uma hashtag exata (#luanda encontra "#Luanda", não "#luandense").
-  const text = searchTerm(req.query.q);
-  const tag = req.query.tag === undefined ? null : parseHashtag(req.query.tag);
+  const text = searchTerm(query.q);
+  const tag = query.tag === undefined ? null : parseHashtag(query.tag);
   const limit = 20;
-  if (!["all", "following"].includes(scope) || (req.query.before !== undefined && !before)) {
+  if (!["all", "following"].includes(scope) || (query.before !== undefined && !before)) {
     return res.status(400).json({ error: "Filtro de publicações inválido." });
   }
-  if ((req.query.q !== undefined && text === null) || (req.query.tag !== undefined && !tag)) {
+  if ((query.q !== undefined && text === null) || (query.tag !== undefined && !tag)) {
     return res.status(400).json({ error: "Pesquisa inválida." });
   }
   if (scope === "following" && !req.user) {
@@ -1180,13 +1261,27 @@ app.get("/api/posts", optionalAuth, async (req, res) => {
         OR (NOT EXISTS(SELECT 1 FROM posts c WHERE c.id=$7) AND p.id < $7))
       AND ($8::text IS NULL OR p.body ILIKE $8 ESCAPE '\\')
       AND ($9::text IS NULL OR p.body ~* $9)
+      AND ($10::int IS NULL OR p.id=$10)
+      AND ($11::boolean IS NOT TRUE OR p.pinned_at IS NOT NULL)
     ORDER BY p.created_at DESC, p.id DESC LIMIT ${limit}
   `, [currentUser, username, groupId, pageId, mediaType, scope, before,
-    text ? likePattern(text) : null, tag ? hashtagRegex(tag) : null]);
+    text ? likePattern(text) : null, tag ? hashtagRegex(tag) : null, onlyId, query.pinned === "1" && groupId !== null]);
+  if (onlyId) {
+    // Não existe, foi escondida, é de alguém bloqueado, de um grupo onde não estás ou exclusiva de subscritores.
+    if (!r.rowCount) return res.status(404).json({ error: "Esta publicação já não está disponível ou não tens acesso a ela." });
+    return res.json({ post: serializePost(r.rows[0]) });
+  }
   res.json({
     posts: r.rows.map(serializePost),
     nextCursor: r.rows.length === limit ? r.rows[r.rows.length - 1].id : null
   });
+}
+app.get("/api/posts", optionalAuth, (req, res) => listPosts(req, res));
+// Página de cada publicação (aberta das notificações, de links partilhados e da pesquisa).
+app.get("/api/posts/:id", optionalAuth, (req, res) => {
+  const id = parseId(req.params.id);
+  if (!id) return res.status(400).json({ error: "Publicação inválida." });
+  return listPosts(req, res, id);
 });
 
 app.get("/api/stories", auth, async (req, res) => {
@@ -1320,8 +1415,8 @@ app.post("/api/posts/:id/like", auth, async (req, res) => {
       [req.user.id, id]);
     if (inserted.rowCount && access.post.user_id !== req.user.id) {
       await client.query(`
-        INSERT INTO notifications(user_id,actor_id,type,text)
-        VALUES($1,$2,'like','Gostou da tua publicação.')`, [access.post.user_id, req.user.id]);
+        INSERT INTO notifications(user_id,actor_id,type,text,post_id)
+        VALUES($1,$2,'like','Gostou da tua publicação.',$3)`, [access.post.user_id, req.user.id, id]);
     }
     return true;
   });
@@ -1363,8 +1458,8 @@ app.post("/api/posts/:id/comments", auth, async (req, res) => {
       RETURNING id,body,created_at`, [req.user.id, id, body]);
     if (access.post.user_id !== req.user.id) {
       await client.query(`
-        INSERT INTO notifications(user_id,actor_id,type,text)
-        VALUES($1,$2,'comment','Comentou na tua publicação.')`, [access.post.user_id, req.user.id]);
+        INSERT INTO notifications(user_id,actor_id,type,text,post_id)
+        VALUES($1,$2,'comment','Comentou na tua publicação.',$3)`, [access.post.user_id, req.user.id, id]);
     }
     return result.rows[0];
   });
@@ -1407,14 +1502,14 @@ app.get("/api/search", auth, searchRateLimit, async (req, res) => {
         AND (username ILIKE $2 ESCAPE '\\' OR display_name ILIKE $2 ESCAPE '\\')
       ORDER BY (lower(username)=lower($3)) DESC, display_name LIMIT 20`, [req.user.id, like, term.replace(/^@/, "")]),
     pool.query(`
-      SELECT g.id,g.name,g.description,g.topic,g.requires_approval,
+      SELECT g.id,g.name,g.description,g.group_type,g.category,g.subcategory,g.requires_approval,g.invite_only,
         (SELECT COUNT(*) FROM group_members m WHERE m.group_id=g.id)::int AS member_count,
         EXISTS(SELECT 1 FROM group_members m WHERE m.group_id=g.id AND m.user_id=$1) AS is_member
       FROM social_groups g
       WHERE g.hidden_at IS NULL AND NOT g.is_secret AND (g.name ILIKE $2 ESCAPE '\\' OR g.description ILIKE $2 ESCAPE '\\')
       ORDER BY member_count DESC, g.created_at DESC LIMIT 20`, [req.user.id, like]),
     pool.query(`
-      SELECT p.id,p.name,p.page_type,p.category,p.description,
+      SELECT p.id,p.name,p.page_type,p.category,p.subcategory,p.description,
         (SELECT COUNT(*) FROM page_followers f WHERE f.page_id=p.id)::int AS follower_count
       FROM pages p
       WHERE p.hidden_at IS NULL AND (p.name ILIKE $1 ESCAPE '\\' OR p.description ILIKE $1 ESCAPE '\\' OR p.category ILIKE $1 ESCAPE '\\')
@@ -1789,7 +1884,7 @@ app.delete("/api/subscriptions/:creatorId", auth, async (req, res) => {
 
 // Campos de um grupo vistos por quem não é membro (sem a lista de membros dos grupos secretos).
 const GROUP_FIELDS = `g.id,g.name,g.description,g.created_at,g.is_secret,g.access_price::float AS access_price,
-  g.topic,g.requires_approval,
+  g.group_type,g.category,g.subcategory,g.requires_approval,g.invite_only,g.rules,
   u.username AS owner_username,u.display_name AS owner_name,u.avatar_url AS owner_avatar,
   (SELECT COUNT(*) FROM group_members m WHERE m.group_id=g.id)::int AS member_count,
   (SELECT COUNT(*) FROM posts po WHERE po.group_id=g.id AND po.hidden_at IS NULL)::int AS post_count`;
@@ -1811,7 +1906,10 @@ app.get("/api/groups", optionalAuth, async (req, res) => {
         WHERE m.group_id=g.id ORDER BY m.joined_at LIMIT 5) x) AS member_preview,
       EXISTS(SELECT 1 FROM group_members m WHERE m.group_id=g.id AND m.user_id=$1) AS is_member,
       EXISTS(SELECT 1 FROM group_join_requests r WHERE r.group_id=g.id AND r.user_id=$1) AS has_requested,
-      CASE WHEN g.owner_id=$1 THEN (SELECT COUNT(*) FROM group_join_requests r WHERE r.group_id=g.id)::int ELSE 0 END AS pending_requests
+      (SELECT m.role FROM group_members m WHERE m.group_id=g.id AND m.user_id=$1) AS my_role,
+      CASE WHEN EXISTS(SELECT 1 FROM group_members m WHERE m.group_id=g.id AND m.user_id=$1 AND m.role IN ('owner','admin','moderator'))
+        THEN (SELECT COUNT(*) FROM group_join_requests r WHERE r.group_id=g.id)::int ELSE 0 END AS pending_requests,
+      EXISTS(SELECT 1 FROM group_invites i WHERE i.group_id=g.id AND i.user_id=$1) AS has_invite
     FROM social_groups g JOIN users u ON u.id=g.owner_id
     WHERE g.hidden_at IS NULL AND (NOT g.is_secret OR (
       EXISTS(SELECT 1 FROM group_members m WHERE m.group_id=g.id AND m.user_id=$1)
@@ -1849,10 +1947,13 @@ app.post("/api/groups", auth, async (req, res) => {
   }
   const privacy = parseGroupPrivacy(body);
   if (privacy.error) return res.status(400).json({ error: privacy.error });
-  const topic = parseGroupTopic(body.topic);
-  if (topic.error) return res.status(400).json({ error: topic.error });
+  const kind = parseGroupKind(body.groupType, body.category, body.subcategory);
+  if (kind.error) return res.status(400).json({ error: kind.error });
+  const rules = cleanText(body.rules);
+  if ((body.rules !== undefined && typeof body.rules !== "string") || rules.length > 3000) return res.status(400).json({ error: "As regras devem ter até 3000 caracteres." });
   const isSecret = privacy.value === "secret";
-  const requiresApproval = privacy.value === "private";
+  const requiresApproval = privacy.value === "approval";
+  const inviteOnly = privacy.value === "private";
   let accessPrice = null;
   if (isSecret) {
     if (!(await viewerAge(req.user.id)).adult) {
@@ -1865,11 +1966,12 @@ app.post("/api/groups", auth, async (req, res) => {
   }
   const group = await transaction(async client => {
     const result = await client.query(
-      `INSERT INTO social_groups(owner_id,name,description,is_secret,access_price,topic,requires_approval) VALUES($1,$2,$3,$4,$5,$6,$7)
-       RETURNING id,name,description,created_at,is_secret,access_price::float AS access_price,topic,requires_approval`,
-      [req.user.id, name, description, isSecret, accessPrice, topic.value, requiresApproval]);
+      `INSERT INTO social_groups(owner_id,name,description,is_secret,access_price,requires_approval,invite_only,group_type,category,subcategory,rules)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+       RETURNING id,name,description,created_at,is_secret,access_price::float AS access_price,requires_approval,invite_only,group_type,category,subcategory,rules`,
+      [req.user.id, name, description, isSecret, accessPrice, requiresApproval, inviteOnly, kind.type, kind.category, kind.subcategory, rules]);
     await client.query(
-      "INSERT INTO group_members(group_id,user_id) VALUES($1,$2)",
+      "INSERT INTO group_members(group_id,user_id,role) VALUES($1,$2,'owner')",
       [result.rows[0].id, req.user.id]);
     return result.rows[0];
   });
@@ -1879,9 +1981,18 @@ app.post("/api/groups", auth, async (req, res) => {
 app.post("/api/groups/:groupId/join", auth, async (req, res) => {
   const groupId = parseId(req.params.groupId);
   if (!groupId) return res.status(400).json({ error: "Grupo inválido." });
-  const group = await pool.query("SELECT owner_id,is_secret,requires_approval FROM social_groups WHERE id=$1 AND hidden_at IS NULL", [groupId]);
+  const group = await pool.query("SELECT owner_id,is_secret,requires_approval,invite_only FROM social_groups WHERE id=$1 AND hidden_at IS NULL", [groupId]);
   // Num grupo secreto só se entra pagando (POST /access); a resposta não revela que o grupo existe.
   if (!group.rowCount || group.rows[0].is_secret) return res.status(404).json({ error: "Grupo não encontrado." });
+  // Grupo privado: só entra quem tem convite (o convite é usado ao entrar).
+  if (group.rows[0].invite_only && group.rows[0].owner_id !== req.user.id) {
+    const invited = await pool.query("DELETE FROM group_invites WHERE group_id=$1 AND user_id=$2 RETURNING group_id", [groupId, req.user.id]);
+    if (!invited.rowCount) {
+      const member = await pool.query("SELECT 1 FROM group_members WHERE group_id=$1 AND user_id=$2", [groupId, req.user.id]);
+      if (member.rowCount) return res.json({ joined: true });
+      return res.status(403).json({ error: "Este grupo é privado: só entra quem um administrador convidar." });
+    }
+  }
   // Num grupo privado fica um pedido à espera do dono (quem já é membro não pede outra vez).
   if (group.rows[0].requires_approval && group.rows[0].owner_id !== req.user.id) {
     const member = await pool.query("SELECT 1 FROM group_members WHERE group_id=$1 AND user_id=$2", [groupId, req.user.id]);
@@ -1892,7 +2003,8 @@ app.post("/api/groups/:groupId/join", auth, async (req, res) => {
     if (request.rowCount) {
       await pool.query(`
         INSERT INTO notifications(user_id,actor_id,type,text)
-        VALUES($1,$2,'group_join','Pediu para entrar no teu grupo privado.')`, [group.rows[0].owner_id, req.user.id]);
+        SELECT m.user_id,$2,'group_join','Pediu para entrar num grupo que administras.' FROM group_members m
+        WHERE m.group_id=$1 AND m.role IN ('owner','admin','moderator')`, [groupId, req.user.id]);
     }
     return res.status(202).json({ requested: true });
   }
@@ -1954,7 +2066,7 @@ payments.register("group_access", async (purchaseId, details) => {
 
 app.get("/api/pages", optionalAuth, async (req, res) => {
   const result = await pool.query(`
-    SELECT p.id,p.name,p.page_type,p.category,p.description,p.created_at,u.username AS owner_username,
+    SELECT p.id,p.name,p.page_type,p.category,p.subcategory,p.description,p.created_at,u.username AS owner_username,
       u.display_name AS owner_name,u.avatar_url AS owner_avatar,
       (SELECT COUNT(*) FROM page_followers f WHERE f.page_id=p.id)::int AS follower_count,
       (SELECT COUNT(*) FROM posts po WHERE po.page_id=p.id AND po.hidden_at IS NULL)::int AS post_count,
@@ -1968,7 +2080,7 @@ app.get("/api/pages", optionalAuth, async (req, res) => {
 app.post("/api/pages", auth, async (req, res) => {
   const body = isRecord(req.body) ? req.body : {};
   const name = cleanText(body.name);
-  const kind = parsePageType(body.pageType, body.category);
+  const kind = parsePageType(body.pageType, body.category, body.subcategory);
   const description = cleanText(body.description);
   if (!name || name.length > 100) return res.status(400).json({ error: "O nome da página é obrigatório e deve ter até 100 caracteres." });
   if (kind.error) return res.status(400).json({ error: kind.error });
@@ -1977,9 +2089,9 @@ app.post("/api/pages", auth, async (req, res) => {
   }
   const page = await transaction(async client => {
     const result = await client.query(`
-      INSERT INTO pages(owner_id,name,page_type,category,description) VALUES($1,$2,$3,$4,$5)
-      RETURNING id,name,page_type,category,description,created_at`,
-    [req.user.id, name, kind.type, kind.category, description]);
+      INSERT INTO pages(owner_id,name,page_type,category,subcategory,description) VALUES($1,$2,$3,$4,$5,$6)
+      RETURNING id,name,page_type,category,subcategory,description,created_at`,
+    [req.user.id, name, kind.type, kind.category, kind.subcategory, description]);
     await client.query("INSERT INTO page_followers(page_id,user_id) VALUES($1,$2)", [result.rows[0].id, req.user.id]);
     return result.rows[0];
   });
@@ -2010,7 +2122,7 @@ app.get("/api/events", optionalAuth, async (req, res) => {
       (SELECT COUNT(*) FROM event_attendees a WHERE a.event_id=e.id)::int AS attendee_count,
       EXISTS(SELECT 1 FROM event_attendees a WHERE a.event_id=e.id AND a.user_id=$1) AS is_attending
     FROM events e JOIN users u ON u.id=e.creator_id
-    WHERE e.starts_at >= NOW() - INTERVAL '1 day'
+    WHERE e.starts_at >= NOW() - INTERVAL '1 day' AND e.group_id IS NULL
     ORDER BY e.starts_at ASC LIMIT 100`, [req.user?.id || 0]);
   res.json({ events: result.rows });
 });
@@ -2043,7 +2155,9 @@ app.post("/api/events", auth, async (req, res) => {
 app.post("/api/events/:eventId/rsvp", auth, async (req, res) => {
   const eventId = parseId(req.params.eventId);
   if (!eventId) return res.status(400).json({ error: "Evento inválido." });
-  const event = await pool.query("SELECT creator_id FROM events WHERE id=$1", [eventId]);
+  // Eventos de um grupo: só os membros do grupo confirmam presença.
+  const event = await pool.query(`SELECT creator_id FROM events e WHERE id=$1
+    AND (e.group_id IS NULL OR EXISTS(SELECT 1 FROM group_members gm WHERE gm.group_id=e.group_id AND gm.user_id=$2))`, [eventId, req.user.id]);
   if (!event.rowCount) return res.status(404).json({ error: "Evento não encontrado." });
   const attending = await transaction(async client => {
     const existing = await client.query(
@@ -2066,7 +2180,7 @@ app.post("/api/events/:eventId/rsvp", auth, async (req, res) => {
 app.get("/api/notifications", auth, async (req, res) => {
   const [notifications, unread] = await Promise.all([
     pool.query(`
-      SELECT n.id,n.type,n.text,n.read,n.created_at,n.actor_id,
+      SELECT n.id,n.type,n.text,n.read,n.created_at,n.actor_id,n.post_id,n.group_id,n.call_id,
         u.username AS actor_username,u.display_name AS actor_name,u.avatar_url AS actor_avatar
       FROM notifications n LEFT JOIN users u ON u.id=n.actor_id
       WHERE n.user_id=$1 ORDER BY n.created_at DESC LIMIT 50`, [req.user.id]),
@@ -2224,13 +2338,15 @@ app.post("/api/reports", reportRateLimit, auth, async (req, res) => {
   const targetId = parseId(body.targetId);
   const reason = body.reason;
   const details = typeof body.details === "string" ? body.details.trim() : "";
-  if (!["post", "comment", "user"].includes(targetType) || !targetId) return res.status(400).json({ error: "Denúncia inválida." });
+  if (!["post", "comment", "user", "course", "group"].includes(targetType) || !targetId) return res.status(400).json({ error: "Denúncia inválida." });
   if (!Object.hasOwn(REPORT_REASONS, reason)) return res.status(400).json({ error: "Escolhe um motivo." });
   if (details.length > 1000) return res.status(400).json({ error: "Os detalhes devem ter até 1000 caracteres." });
   const ownerSql = {
     post: "SELECT user_id FROM posts WHERE id=$1",
     comment: "SELECT user_id FROM comments WHERE id=$1",
-    user: "SELECT id AS user_id FROM users WHERE id=$1"
+    user: "SELECT id AS user_id FROM users WHERE id=$1",
+    course: "SELECT owner_id AS user_id FROM courses WHERE id=$1 AND status='published'",
+    group: "SELECT owner_id AS user_id FROM social_groups WHERE id=$1 AND hidden_at IS NULL"
   }[targetType];
   const target = await pool.query(ownerSql, [targetId]);
   if (!target.rowCount) return res.status(404).json({ error: "Conteúdo não encontrado." });
@@ -2270,8 +2386,12 @@ app.get("/api/admin/reports", auth, requireRole("moderation"), async (req, res) 
       CASE r.target_type
         WHEN 'post' THEN (SELECT p.body FROM posts p WHERE p.id=r.target_id)
         WHEN 'comment' THEN (SELECT c.body FROM comments c WHERE c.id=r.target_id)
+        WHEN 'course' THEN (SELECT co.title || ' — ' || co.summary FROM courses co WHERE co.id=r.target_id)
+        WHEN 'group' THEN (SELECT sg.name || ' — ' || sg.description FROM social_groups sg WHERE sg.id=r.target_id)
         ELSE tu.bio END AS target_excerpt,
-      CASE WHEN r.target_type='post' THEN (SELECT p.hidden_at IS NOT NULL FROM posts p WHERE p.id=r.target_id) END AS target_hidden,
+      CASE WHEN r.target_type='post' THEN (SELECT p.hidden_at IS NOT NULL FROM posts p WHERE p.id=r.target_id)
+        WHEN r.target_type='course' THEN (SELECT co.status='hidden' FROM courses co WHERE co.id=r.target_id)
+        WHEN r.target_type='group' THEN (SELECT sg.hidden_at IS NOT NULL FROM social_groups sg WHERE sg.id=r.target_id) END AS target_hidden,
       (SELECT COUNT(*)::int FROM reports o WHERE o.target_type=r.target_type AND o.target_id=r.target_id AND o.status='open') AS open_reports_on_target
     FROM reports r
     LEFT JOIN users rep ON rep.id=r.reporter_id
@@ -2290,6 +2410,8 @@ app.post("/api/admin/reports/:id/resolve", auth, requireRole("moderation"), asyn
   const { target_type: type, target_id: targetId, target_user_id: targetUserId } = report.rows[0];
   if (["hide_post", "restore_post"].includes(action) && type !== "post") return res.status(400).json({ error: "Esta ação só se aplica a publicações." });
   if (action === "delete_comment" && type !== "comment") return res.status(400).json({ error: "Esta ação só se aplica a comentários." });
+  if (["hide_course", "restore_course"].includes(action) && type !== "course") return res.status(400).json({ error: "Esta ação só se aplica a cursos." });
+  if (["hide_group", "restore_group"].includes(action) && type !== "group") return res.status(400).json({ error: "Esta ação só se aplica a grupos." });
   if (["suspend_user", "unsuspend_user"].includes(action) && targetUserId === req.user.id) {
     return res.status(400).json({ error: "Não podes suspender a tua própria conta." });
   }
@@ -2297,6 +2419,11 @@ app.post("/api/admin/reports/:id/resolve", auth, requireRole("moderation"), asyn
     if (action === "hide_post") await client.query("UPDATE posts SET hidden_at=NOW(),hidden_reason='moderation' WHERE id=$1", [targetId]);
     if (action === "restore_post") await client.query("UPDATE posts SET hidden_at=NULL,hidden_reason=NULL WHERE id=$1", [targetId]);
     if (action === "delete_comment") await client.query("DELETE FROM comments WHERE id=$1", [targetId]);
+    // Curso escondido: sai da Academia; quem já comprou continua a ter acesso.
+    if (action === "hide_course") await client.query("UPDATE courses SET status='hidden' WHERE id=$1 AND status='published'", [targetId]);
+    if (action === "restore_course") await client.query("UPDATE courses SET status='published' WHERE id=$1 AND status='hidden'", [targetId]);
+    if (action === "hide_group") await client.query("UPDATE social_groups SET hidden_at=NOW() WHERE id=$1 AND hidden_at IS NULL", [targetId]);
+    if (action === "restore_group") await client.query("UPDATE social_groups SET hidden_at=NULL WHERE id=$1", [targetId]);
     if (action === "suspend_user") {
       // auth_version+1 termina as sessões abertas da conta suspensa.
       await client.query("UPDATE users SET suspended_at=NOW(),suspended_reason='Denúncia #' || $2::text,auth_version=auth_version+1 WHERE id=$1 AND is_admin=FALSE", [targetUserId, id]);
@@ -2363,8 +2490,10 @@ app.post("/api/groups/:groupId/leave", auth, async (req, res) => {
 });
 
 // Pedidos de entrada num grupo privado: só o dono os vê e decide.
+// Grupo que esta pessoa gere: dono, administrador ou moderador (aprovam pedidos de entrada).
 async function ownedGroup(groupId, userId) {
-  const result = await pool.query("SELECT id,name FROM social_groups WHERE id=$1 AND owner_id=$2", [groupId, userId]);
+  const result = await pool.query(`SELECT g.id,g.name FROM social_groups g JOIN group_members m ON m.group_id=g.id
+    WHERE g.id=$1 AND m.user_id=$2 AND m.role IN ('owner','admin','moderator')`, [groupId, userId]);
   return result.rows[0] || null;
 }
 
@@ -2436,6 +2565,31 @@ app.delete("/api/pages/:pageId", auth, async (req, res) => {
   if (!result.rowCount) return res.status(404).json({ error: "Página não encontrada." });
   await Promise.all(media.rows.map(row => removeUpload(row.media_url)));
   res.json({ deleted: true });
+});
+
+// Um evento: dados, quem criou e quem vai (amigos e quem segues primeiro). Quem tem bloqueio não aparece.
+app.get("/api/events/:eventId", optionalAuth, async (req, res) => {
+  const eventId = parseId(req.params.eventId);
+  if (!eventId) return res.status(400).json({ error: "Evento inválido." });
+  const viewer = req.user?.id || 0;
+  const event = await pool.query(`
+    SELECT e.id,e.name,e.description,e.location,e.starts_at,e.created_at,
+      u.id AS creator_id,u.username AS creator_username,u.display_name AS creator_name,u.avatar_url AS creator_avatar,
+      (SELECT COUNT(*) FROM event_attendees a WHERE a.event_id=e.id)::int AS attendee_count,
+      EXISTS(SELECT 1 FROM event_attendees a WHERE a.event_id=e.id AND a.user_id=$2) AS is_attending,
+      (e.creator_id=$2) AS is_creator
+    FROM events e JOIN users u ON u.id=e.creator_id
+    WHERE e.id=$1 AND NOT ${blockedBetween("$2", "e.creator_id")}
+      AND (e.group_id IS NULL OR EXISTS(SELECT 1 FROM group_members gm WHERE gm.group_id=e.group_id AND gm.user_id=$2))`, [eventId, viewer]);
+  if (!event.rowCount) return res.status(404).json({ error: "Evento não encontrado." });
+  const attendees = await pool.query(`
+    SELECT u.id,u.username,u.display_name,u.avatar_url,
+      EXISTS(SELECT 1 FROM friendships f WHERE (f.user_a_id=$2 AND f.user_b_id=u.id) OR (f.user_b_id=$2 AND f.user_a_id=u.id)) AS is_friend
+    FROM event_attendees a JOIN users u ON u.id=a.user_id
+    WHERE a.event_id=$1 AND u.suspended_at IS NULL AND NOT ${blockedBetween("$2", "u.id")}
+    ORDER BY is_friend DESC, (EXISTS(SELECT 1 FROM follows fo WHERE fo.follower_id=$2 AND fo.following_id=u.id)) DESC, u.display_name
+    LIMIT 60`, [eventId, viewer]);
+  res.json({ event: event.rows[0], attendees: attendees.rows });
 });
 
 app.delete("/api/events/:eventId", auth, async (req, res) => {
@@ -2551,6 +2705,9 @@ app.delete("/api/auth/me", accountSecurityRateLimit, auth, async (req, res) => {
   res.json({ deleted: true });
 });
 
+// Ficheiros que fazem os links do site abrir a app (quando o domínio do site é servido por esta API).
+registerAppLinks(app);
+
 // O servidor entrega também o site, a menos que o site esteja numa hospedagem à parte (SERVE_CLIENT=false).
 if ((process.env.NODE_ENV === "production" && process.env.SERVE_CLIENT !== "false") || process.env.SERVE_CLIENT === "true") {
   const clientBuild = path.join(__dirname, "..", "dist");
@@ -2588,6 +2745,28 @@ const growth = registerGrowthRoutes(app, {
 // Chave para cifrar os IBAN dos criadores (obrigatória em produção; ver README).
 const payoutKey = loadKey({ payoutKey: process.env.PAYOUT_ENCRYPTION_KEY, jwtSecret: JWT_SECRET, isProduction: !isDevelopment });
 registerLiveRoutes(app, { pool, auth, presenceAuth, optionalAuth, parseId, isRecord, cleanText, transaction, blockedBetween, rateLimit: accountSecurityRateLimit });
+// Aparelhos com sessão aberta (Definições → Segurança) e sair a sério.
+registerSessionRoutes(app, { pool, auth, parseId });
+
+// Grupos por dentro: regras, equipa, convites, fixadas, sondagens, chat, ficheiros, eventos e estatísticas.
+const groupActionRateLimit = makeRateLimit("groupAction", {
+  windowMs: 60 * 1000, limit: 40, standardHeaders: "draft-8", legacyHeaders: false,
+  message: { error: "Estás a fazer isto demasiado depressa. Espera um minuto." }
+});
+registerGroupFeatures(app, {
+  pool, auth, optionalAuth, parseId, isRecord, cleanText, transaction, blockedBetween, GROUP_FIELDS, documentUpload,
+  signProtectedMedia, removeUpload, parseGroupKind, rateLimit: groupActionRateLimit
+});
+
+// Chamadas de voz e vídeo nos grupos (até 8 pessoas, ligações diretas; TURN dos diretos se houver).
+registerGroupCalls(app, { pool, auth, parseId, isRecord, transaction, turnServer, reachAllowed, blockedBetween, rateLimit: groupActionRateLimit });
+
+// Academia: cursos à venda (criadores 85%, equipa revê).
+registerCourseRoutes(app, {
+  pool, auth, optionalAuth, requireRole, parseId, isRecord, cleanText, transaction, payments,
+  upload, imageUpload, optimizeUpload, removeUpload, signMedia: signProtectedMedia
+});
+
 // Notificações push para a app (via Expo). O envio só arranca em startServer (os testes não enviam nada).
 const push = createPush({ pool, accessToken: process.env.EXPO_ACCESS_TOKEN || "" });
 push.registerRoutes(app, { auth, isRecord });
@@ -2685,6 +2864,14 @@ async function startServer() {
   }
   await initDb();
   if (process.env.PUSH_NOTIFICATIONS !== "false") push.start();
+  // Desafios do mês automáticos (CHALLENGES_AUTO=false desliga: a equipa lança à mão).
+  if (process.env.CHALLENGES_AUTO !== "false") {
+    const monthly = () => launchMonthlyChallenges({ pool, transaction })
+      .then(created => { if (created.length) console.log(`Desafios do mês lançados: ${created.length}`); })
+      .catch(error => console.error("Desafios do mês:", error.message));
+    monthly();
+    setInterval(monthly, 60 * 60 * 1000).unref();
+  }
   if (proxypay) {
     const timer = setInterval(() => payments.pollProxyPay().catch(error => console.error("ProxyPay poll:", error.message)), 60_000);
     timer.unref();
@@ -2699,4 +2886,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { app, initDb, payments, pool, startServer };
+module.exports = { app, initDb, launchMonthlyChallenges: () => launchMonthlyChallenges({ pool, transaction }), payments, pool, startServer };

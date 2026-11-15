@@ -93,8 +93,8 @@ function registerCreatorRoutes(app, deps) {
       }
       if (source.user_id !== req.user.id) {
         await client.query(`
-          INSERT INTO notifications(user_id,actor_id,type,text)
-          VALUES($1,$2,'share','Partilhou a tua publicação.')`, [source.user_id, req.user.id]);
+          INSERT INTO notifications(user_id,actor_id,type,text,post_id)
+          VALUES($1,$2,'share','Partilhou a tua publicação.',$3)`, [source.user_id, req.user.id, source.id]);
       }
     });
     res.status(201).json({ shared: targets.length });

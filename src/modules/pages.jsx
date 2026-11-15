@@ -4,13 +4,13 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { Avatar, Icon, UserContext, api, formatCount } from "./core.jsx";
 import { Composer, PostCard } from "./feed.jsx";
 import { pageMonogram, pageTone } from "./shared.jsx";
-import { PAGE_TYPES, pageCategoryLabel, pageType } from "./community-types.js";
+import { PAGE_CATEGORIES, PAGE_TYPES, pageCategory, pageCategoryLabel, pageCategoryPath, pageType } from "./community-types.js";
 
 // ---------------------------------------------------------------------------------------------
 // Páginas: descobrir, seguir, criar e ver páginas
 // ---------------------------------------------------------------------------------------------
 export function PageKind({ page }) {
-  return <span className="page-category"><Icon name={pageType(page.page_type).icon} size={13} /> {pageCategoryLabel(page)}</span>;
+  return <span className="page-category"><Icon name={pageType(page.page_type).icon} size={13} /> {pageType(page.page_type).label} · {pageCategoryLabel(page)}</span>;
 }
 export function PageLogo({ page, size = "" }) {
   return <span className={`page-logo tone-page-${pageTone(page.category)} ${size}`} aria-hidden="true">{pageMonogram(page.name)}</span>;
@@ -42,11 +42,14 @@ export function PageCard({ page, user, busy, onFollow, onUnfollow }) {
     </div>
   </article>;
 }
+// Grupos da caixa "Tipo de página" (pela ordem do catálogo).
+const TYPE_GROUPS = [...new Set(PAGE_TYPES.map(type => type.group))];
 export function CreatePageDialog({ onClose, onCreated }) {
-  const [form, setForm] = useState({ name: "", pageType: "", category: "", description: "" });
+  const [form, setForm] = useState({ name: "", pageType: "", category: "", subcategory: "", description: "" });
   const chosenType = PAGE_TYPES.find(type => type.key === form.pageType);
-  // Mudar de tipo escolhe logo a primeira categoria desse tipo (a pessoa pode trocar a seguir).
-  const chooseType = type => setForm({ ...form, pageType: type.key, category: type.categories[0].key });
+  const chosenArea = pageCategory(form.category);
+  // Escolher o tipo sugere logo a categoria mais provável (uma banda → Música e áudio); a pessoa pode trocar.
+  const chooseType = type => setForm({ ...form, pageType: type.key, category: type.category, subcategory: "" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   useEffect(() => {
@@ -66,7 +69,7 @@ export function CreatePageDialog({ onClose, onCreated }) {
       setBusy(false);
     }
   };
-  const preview = { ...form, page_type: form.pageType || "comunidade", category: form.category || "comunidade", name: form.name || "Nome da página" };
+  const preview = { ...form, page_type: form.pageType || "comunidade", category: form.category || "sociedade", name: form.name || "Nome da página" };
   return createPortal(<div className="modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget && !busy) onClose(); }}>
     <form className="modal card create-page-dialog" role="dialog" aria-modal="true" aria-labelledby="create-page-title" onSubmit={submit}>
       <div className="share-dialog-head">
@@ -76,18 +79,24 @@ export function CreatePageDialog({ onClose, onCreated }) {
       <div className="create-page-grid">
         <div className="create-page-fields">
           <label>Nome<input required autoFocus maxLength={100} value={form.name} onChange={event => setForm({ ...form, name: event.target.value })} placeholder="Ex.: Loja da Rita" /></label>
-          <fieldset className="kind-choice">
-            <legend>Tipo de página</legend>
-            <div className="kind-choice-grid">
-              {PAGE_TYPES.map(type => <label key={type.key} className={form.pageType === type.key ? "is-selected" : ""}>
-                <input type="radio" name="page-type" required checked={form.pageType === type.key} onChange={() => chooseType(type)} />
-                <Icon name={type.icon} size={18} /><span>{type.label}</span>
-              </label>)}
-            </div>
-          </fieldset>
-          {chosenType && <label>Categoria<select value={form.category} onChange={event => setForm({ ...form, category: event.target.value })}>
-            {chosenType.categories.map(item => <option key={item.key} value={item.key}>{item.label}</option>)}
-          </select></label>}
+          <label>Tipo de página<span className="select-with-icon">
+            <Icon name={chosenType?.icon || "pages"} size={17} />
+            <select required value={form.pageType} onChange={event => chooseType(PAGE_TYPES.find(type => type.key === event.target.value))}>
+              <option value="" disabled>Escolhe o tipo</option>
+              {TYPE_GROUPS.map(group => <optgroup key={group} label={group}>
+                {PAGE_TYPES.filter(type => type.group === group).map(type => <option key={type.key} value={type.key}>{type.label}</option>)}
+              </optgroup>)}
+            </select>
+          </span></label>
+          {chosenType && <div className="create-page-areas">
+            <label>Categoria<select value={form.category} onChange={event => setForm({ ...form, category: event.target.value, subcategory: "" })}>
+              {PAGE_CATEGORIES.map(item => <option key={item.key} value={item.key}>{item.label}</option>)}
+            </select></label>
+            {chosenArea?.subcategories.length > 0 && <label>Subcategoria (opcional)<select value={form.subcategory} onChange={event => setForm({ ...form, subcategory: event.target.value })}>
+              <option value="">Sem subcategoria</option>
+              {chosenArea.subcategories.map(item => <option key={item.key} value={item.key}>{item.label}</option>)}
+            </select></label>}
+          </div>}
           <label>Descrição <small>{form.description.length}/2000</small><textarea rows={4} maxLength={2000} value={form.description}
             onChange={event => setForm({ ...form, description: event.target.value })} placeholder="Conta às pessoas o que vão encontrar nesta página." /></label>
           <p className="muted create-page-note">És tu quem publica na página. As pessoas que a seguem veem as publicações no feed.</p>
@@ -124,8 +133,8 @@ export function Pages() {
   const [creating, setCreating] = useState(false);
   const [tab, setTab] = useState("discover");
   const [query, setQuery] = useState("");
-  const [typeFilter, setTypeFilter] = useState("");
-  const [category, setCategory] = useState("");
+  const [typeFilter, setTypeFilter] = useState("");   // categoria (área de atividade)
+  const [category, setCategory] = useState("");       // subcategoria
   const page = pages?.find(item => String(item.id) === pageId);
   const ownsPage = Boolean(page && user && page.owner_username === user.username);
 
@@ -205,7 +214,8 @@ export function Pages() {
           <h2>Sobre</h2>
           <p>{page.description || "Esta página ainda não tem descrição."}</p>
           <ul>
-            <li><Icon name={pageType(page.page_type).icon} size={16} /><span>{pageType(page.page_type).label} · {pageCategoryLabel(page)}</span></li>
+            <li><Icon name={pageType(page.page_type).icon} size={16} /><span>{pageType(page.page_type).label}</span></li>
+            {pageCategoryPath(page) && <li><Icon name={pageCategory(page.category)?.icon || "grid"} size={16} /><span>{pageCategoryPath(page)}</span></li>}
             <li><Icon name="profile" size={16} /><span>Criada por <Link to={`/u/${page.owner_username}`}>{page.owner_name}</Link></span></li>
             <li><Icon name="events" size={16} /><span>Desde {new Date(page.created_at).toLocaleDateString("pt-PT", { month: "long", year: "numeric" })}</span></li>
           </ul>
@@ -229,14 +239,14 @@ export function Pages() {
   const followed = all.filter(item => item.is_following && !(user && item.owner_username === user.username));
   const tabs = [["discover", "Descobrir", all.length], ...(user ? [["mine", "As tuas páginas", mine.length], ["following", "A seguir", followed.length]] : [])];
   const source = tab === "mine" ? mine : tab === "following" ? followed : all;
-  // Só aparecem os tipos (e as categorias do tipo escolhido) que têm pelo menos uma página.
-  const typesInUse = PAGE_TYPES.filter(type => all.some(item => item.page_type === type.key));
+  // Filtro por categoria e, dentro dela, por subcategoria. Só aparecem as que têm pelo menos uma página.
+  const typesInUse = PAGE_CATEGORIES.filter(area => all.some(item => item.category === area.key));
   const categoriesInUse = typeFilter
-    ? pageType(typeFilter).categories.filter(item => all.some(p => p.page_type === typeFilter && p.category === item.key)) : [];
+    ? pageCategory(typeFilter).subcategories.filter(sub => all.some(p => p.category === typeFilter && p.subcategory === sub.key)) : [];
   const chooseTypeFilter = key => { setTypeFilter(typeFilter === key ? "" : key); setCategory(""); };
   const term = query.trim().toLowerCase();
-  const visible = source.filter(item => (!typeFilter || item.page_type === typeFilter) && (!category || item.category === category)
-    && (!term || `${item.name} ${item.description} ${pageCategoryLabel(item)} ${pageType(item.page_type).label} ${item.owner_name}`.toLowerCase().includes(term)));
+  const visible = source.filter(item => (!typeFilter || item.category === typeFilter) && (!category || item.subcategory === category)
+    && (!term || `${item.name} ${item.description} ${pageCategoryPath(item)} ${pageType(item.page_type).label} ${item.owner_name}`.toLowerCase().includes(term)));
 
   return <div className="pages-view">
     <header className="pages-head">
@@ -250,12 +260,12 @@ export function Pages() {
       </div>
       <label className="pages-search"><Icon name="search" size={17} /><input type="search" placeholder="Procurar páginas" aria-label="Procurar páginas" value={query} onChange={event => setQuery(event.target.value)} /></label>
     </div>
-    {typesInUse.length > 1 && <div className="province-chips pages-categories" role="group" aria-label="Tipos de página">
+    {typesInUse.length > 1 && <div className="province-chips pages-categories" role="group" aria-label="Categorias">
       <button type="button" className="province-chip" aria-pressed={!typeFilter} onClick={() => chooseTypeFilter("")}>Todas</button>
       {typesInUse.map(type => <button key={type.key} type="button" className="province-chip" aria-pressed={typeFilter === type.key} onClick={() => chooseTypeFilter(type.key)}>
         <Icon name={type.icon} size={14} /> {type.label}</button>)}
     </div>}
-    {categoriesInUse.length > 1 && <div className="province-chips pages-categories pages-subcategories" role="group" aria-label="Categorias">
+    {categoriesInUse.length > 1 && <div className="province-chips pages-categories pages-subcategories" role="group" aria-label="Subcategorias">
       {categoriesInUse.map(item => <button key={item.key} type="button" className="province-chip" aria-pressed={category === item.key} onClick={() => setCategory(category === item.key ? "" : item.key)}>{item.label}</button>)}
     </div>}
     {error && <p className="error" role="alert">{error}</p>}

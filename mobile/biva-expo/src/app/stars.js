@@ -50,7 +50,7 @@ export default function Stars() {
           const [label, icon, tone] = KIND_LABELS[item.kind] || [item.kind, "ellipse", colors.muted];
           return <Row key={item.id} icon={icon} tone={tone} title={`${label}${item.display_name ? ` ${item.display_name}` : ""}`}
             subtitle={dateTime(item.created_at)}
-            right={<Text style={{ fontWeight: "800", color: item.amount > 0 ? "#1E7A4B" : colors.text }}>{item.amount > 0 ? "+" : ""}{item.amount} ★</Text>} />;
+            right={<Text style={{ fontWeight: "800", color: item.amount > 0 ? colors.good : colors.text }}>{item.amount > 0 ? "+" : ""}{item.amount} ★</Text>} />;
         })}
     </Card>
     <PaymentSheet visible={Boolean(pack)} title={pack ? `${pack.stars}${pack.bonus ? ` + ${pack.bonus}` : ""} estrelas` : ""} amount={pack?.price}
@@ -67,6 +67,6 @@ const styles = StyleSheet.create({
   packs: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   pack: { flexGrow: 1, flexBasis: "45%", alignItems: "center", padding: 14, borderRadius: 14, borderWidth: 1, borderColor: colors.line, gap: 2 },
   packStars: { color: colors.text, fontSize: 22, fontWeight: "800" },
-  bonus: { color: "#1E7A4B", fontWeight: "800", fontSize: 12 },
+  bonus: { color: colors.good, fontWeight: "800", fontSize: 12 },
   price: { color: colors.primary, fontWeight: "800", marginTop: 4 }
 });

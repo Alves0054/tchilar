@@ -1,5 +1,5 @@
 import { createContext, useEffect, useRef, useState } from "react";
-import { Maximize, Minimize, Scissors, Gauge, Wand2, Type, Music2, RotateCcw, SlidersHorizontal, Lock, Mail, MonitorSmartphone, Ban, ChevronDown, Globe, Image as ImageIcon, LayoutGrid, Search, ThumbsUp, BarChart3, Bell, CircleHelp, Flag, Info, MapPin, MoreHorizontal, Mic, MicOff, Radio, Send, Square, VideoOff, Volume2, VolumeX, CreditCard, Hash, Smartphone, BadgeCheck, BriefcaseBusiness, Copy, Gift, GraduationCap, Star, Trophy, ArrowDown, ArrowUp, Eye, Pause, Play, Move, ShieldCheck, CalendarDays, Camera, Check, ChevronLeft, ChevronRight, Clapperboard, ExternalLink, FileText, Heart, House, Layers3, LogOut, Megaphone, MessageCircle, Moon, PenLine, Plus, Settings as SettingsIcon, Share2, Sparkles, Sun, Trash2, UserRound, UserRoundPlus, UsersRound, Video, X, Zap, Pin, PinOff, MicOff as MuteIcon } from "lucide-react";
+import { Maximize, Minimize, Scissors, Gauge, Wand2, Type, Music2, RotateCcw, SlidersHorizontal, Lock, Mail, MonitorSmartphone, Ban, ChevronDown, Globe, Image as ImageIcon, LayoutGrid, Search, ThumbsUp, BarChart3, Bell, CircleHelp, Flag, Info, MapPin, MoreHorizontal, Mic, MicOff, Radio, Send, Square, VideoOff, Volume2, VolumeX, CreditCard, Hash, Smartphone, BadgeCheck, BriefcaseBusiness, Copy, Gift, GraduationCap, Star, Trophy, ArrowDown, ArrowUp, Eye, Pause, Play, Move, ShieldCheck, CalendarDays, Camera, Check, ChevronLeft, ChevronRight, Clapperboard, ExternalLink, FileText, Heart, House, Layers3, LogOut, Megaphone, MessageCircle, Moon, PenLine, Plus, Settings as SettingsIcon, Share2, Sparkles, Sun, Trash2, UserRound, UserRoundPlus, UsersRound, Video, X, Zap, Pin, PinOff, MicOff as MuteIcon, PhoneOff } from "lucide-react";
 
 export const API_BASE = (import.meta.env.DEV ? "" : import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
 export const API = `${API_BASE}/api`;
@@ -348,6 +348,7 @@ export const ICONS = {
   volumeOn: Volume2,
   card: CreditCard,
   phone: Smartphone,
+  hangup: PhoneOff,
   reference: Hash,
   academy: GraduationCap,
   brand: BriefcaseBusiness,

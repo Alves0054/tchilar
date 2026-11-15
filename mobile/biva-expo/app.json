@@ -14,7 +14,11 @@
         "NSMicrophoneUsageDescription": "O Tchilar usa o microfone para vídeos e diretos.",
         "NSPhotoLibraryUsageDescription": "O Tchilar acede às tuas fotos para as publicares."
       },
-      "icon": "./assets/icon-ios.png"
+      "icon": "./assets/icon-ios.png",
+      "associatedDomains": [
+        "applinks:tchilar.ao",
+        "applinks:www.tchilar.ao"
+      ]
     },
     "android": {
       "package": "ao.tchilar.app",
@@ -27,6 +31,168 @@
         "CAMERA",
         "RECORD_AUDIO",
         "MODIFY_AUDIO_SETTINGS"
+      ],
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ],
+          "data": [
+            {
+              "scheme": "https",
+              "host": "tchilar.ao",
+              "pathPrefix": "/u"
+            },
+            {
+              "scheme": "https",
+              "host": "tchilar.ao",
+              "pathPrefix": "/groups"
+            },
+            {
+              "scheme": "https",
+              "host": "tchilar.ao",
+              "pathPrefix": "/pages"
+            },
+            {
+              "scheme": "https",
+              "host": "tchilar.ao",
+              "pathPrefix": "/live"
+            },
+            {
+              "scheme": "https",
+              "host": "tchilar.ao",
+              "pathPrefix": "/reels"
+            },
+            {
+              "scheme": "https",
+              "host": "tchilar.ao",
+              "pathPrefix": "/search"
+            },
+            {
+              "scheme": "https",
+              "host": "tchilar.ao",
+              "pathPrefix": "/messages"
+            },
+            {
+              "scheme": "https",
+              "host": "tchilar.ao",
+              "pathPrefix": "/notifications"
+            },
+            {
+              "scheme": "https",
+              "host": "tchilar.ao",
+              "pathPrefix": "/events"
+            },
+            {
+              "scheme": "https",
+              "host": "tchilar.ao",
+              "pathPrefix": "/estrelas"
+            },
+            {
+              "scheme": "https",
+              "host": "tchilar.ao",
+              "pathPrefix": "/marcas"
+            },
+            {
+              "scheme": "https",
+              "host": "tchilar.ao",
+              "pathPrefix": "/desafios"
+            },
+            {
+              "scheme": "https",
+              "host": "tchilar.ao",
+              "pathPrefix": "/convidar"
+            },
+            {
+              "scheme": "https",
+              "host": "tchilar.ao",
+              "pathPrefix": "/academia"
+            },
+            {
+              "scheme": "https",
+              "host": "tchilar.ao",
+              "pathPrefix": "/friends"
+            },
+            {
+              "scheme": "https",
+              "host": "www.tchilar.ao",
+              "pathPrefix": "/u"
+            },
+            {
+              "scheme": "https",
+              "host": "www.tchilar.ao",
+              "pathPrefix": "/groups"
+            },
+            {
+              "scheme": "https",
+              "host": "www.tchilar.ao",
+              "pathPrefix": "/pages"
+            },
+            {
+              "scheme": "https",
+              "host": "www.tchilar.ao",
+              "pathPrefix": "/live"
+            },
+            {
+              "scheme": "https",
+              "host": "www.tchilar.ao",
+              "pathPrefix": "/reels"
+            },
+            {
+              "scheme": "https",
+              "host": "www.tchilar.ao",
+              "pathPrefix": "/search"
+            },
+            {
+              "scheme": "https",
+              "host": "www.tchilar.ao",
+              "pathPrefix": "/messages"
+            },
+            {
+              "scheme": "https",
+              "host": "www.tchilar.ao",
+              "pathPrefix": "/notifications"
+            },
+            {
+              "scheme": "https",
+              "host": "www.tchilar.ao",
+              "pathPrefix": "/events"
+            },
+            {
+              "scheme": "https",
+              "host": "www.tchilar.ao",
+              "pathPrefix": "/estrelas"
+            },
+            {
+              "scheme": "https",
+              "host": "www.tchilar.ao",
+              "pathPrefix": "/marcas"
+            },
+            {
+              "scheme": "https",
+              "host": "www.tchilar.ao",
+              "pathPrefix": "/desafios"
+            },
+            {
+              "scheme": "https",
+              "host": "www.tchilar.ao",
+              "pathPrefix": "/convidar"
+            },
+            {
+              "scheme": "https",
+              "host": "www.tchilar.ao",
+              "pathPrefix": "/academia"
+            },
+            {
+              "scheme": "https",
+              "host": "www.tchilar.ao",
+              "pathPrefix": "/friends"
+            }
+          ]
+        }
       ]
     },
     "web": {
@@ -59,6 +225,12 @@
         {
           "icon": "./assets/notification-icon.png",
           "color": "#E30613"
+        }
+      ],
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "O Tchilar usa o Face ID para desbloquear a app, se ligares o bloqueio nas definições."
         }
       ]
     ],

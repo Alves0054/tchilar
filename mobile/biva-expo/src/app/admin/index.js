@@ -27,6 +27,10 @@ export const ADMIN_SECTIONS = [
     ["denuncias", "flag", "Denúncias", "O que as pessoas denunciaram", ["moderation"]],
     ["promocoes", "rocket", "Promoções", "Aprovar ou recusar anúncios", ["finance", "moderation"]],
     ["musicas", "musical-notes", "Músicas", "Biblioteca com licença", ["moderation"]]
+  ]],
+  ["Comunidade", [
+    ["desafios", "trophy", "Desafios", "Catálogo, prémios, lançar o mês", ["moderation", "finance"]],
+    ["cursos", "school", "Cursos", "Rever cursos dos criadores", ["moderation"]]
   ]]
 ];
 export const canSee = (role, roles) => !roles.length || role === "super" || roles.includes(role);

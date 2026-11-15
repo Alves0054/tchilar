@@ -30,7 +30,7 @@ export function CommunityList({ path, field, empty, renderRow, filters }) {
     keyExtractor={item => String(item.id)}
     contentContainerStyle={styles.list}
     refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={colors.primary} />}
-    ListHeaderComponent={filters ? <View style={styles.filters}>{filters.map(entry =>
+    ListHeaderComponent={filters ? <View style={styles.filters}>{filters.filter(entry => !entry.onlyIfUsed || (items || []).some(entry.test)).map(entry =>
       <Pressable key={entry.key} onPress={() => setFilter(entry.key)} style={[styles.chip, filter === entry.key && styles.chipActive]}>
         <Text style={[styles.chipText, filter === entry.key && styles.chipTextActive]}>{entry.label}</Text>
       </Pressable>)}</View> : null}
@@ -41,15 +41,16 @@ export function CommunityList({ path, field, empty, renderRow, filters }) {
 }
 
 // Cartão de uma linha: ícone, título, detalhes e um botão à direita.
-export function CommunityCard({ icon, tone = colors.primary, title, lines, action }) {
-  return <View style={styles.card}>
+export function CommunityCard({ icon, tone = colors.primary, title, lines, action, onPress }) {
+  const Wrapper = onPress ? Pressable : View;
+  return <Wrapper style={styles.card} onPress={onPress}>
     <View style={[styles.icon, { backgroundColor: `${tone}1F` }]}><Ionicons name={icon} size={24} color={tone} /></View>
     <View style={styles.text}>
       <Text style={styles.title} numberOfLines={2}>{title}</Text>
       {lines.filter(Boolean).map((line, index) => <Text key={index} style={styles.line} numberOfLines={2}>{line}</Text>)}
     </View>
     {action}
-  </View>;
+  </Wrapper>;
 }
 
 export function ActionButton({ label, active, onPress, disabled }) {
@@ -64,7 +65,7 @@ const styles = StyleSheet.create({
   chip: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 999, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line },
   chipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
   chipText: { color: colors.text, fontWeight: "700" },
-  chipTextActive: { color: "#fff" },
+  chipTextActive: { color: colors.onPrimary },
   card: { flexDirection: "row", alignItems: "center", gap: 12, padding: 12, borderRadius: 16, backgroundColor: colors.surface },
   icon: { width: 48, height: 48, borderRadius: 14, alignItems: "center", justifyContent: "center" },
   text: { flex: 1, gap: 2 },
@@ -72,7 +73,7 @@ const styles = StyleSheet.create({
   line: { color: colors.muted, fontSize: 13 },
   button: { paddingHorizontal: 14, height: 36, borderRadius: 18, backgroundColor: colors.primary, justifyContent: "center" },
   buttonActive: { backgroundColor: colors.primarySoft },
-  buttonText: { color: "#fff", fontWeight: "800", fontSize: 13 },
+  buttonText: { color: colors.onPrimary, fontWeight: "800", fontSize: 13 },
   buttonTextActive: { color: colors.primary },
   empty: { color: colors.muted, textAlign: "center", padding: 32 }
 });

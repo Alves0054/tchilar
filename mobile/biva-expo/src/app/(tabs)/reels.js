@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
+import { setStatusBarStyle } from "expo-status-bar";
 import { router, useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from "react-native";
@@ -8,12 +9,17 @@ import { Avatar } from "../../components/Avatar";
 import { VideoPost } from "../../components/VideoPost";
 import { api, mediaUri } from "../../lib/api";
 import { remember } from "../../lib/store";
-import { colors } from "../../lib/theme";
+import { colors, isDark } from "../../lib/theme";
 
 // Reels: vídeos em ecrã inteiro, um de cada vez. Só toca o que está no ecrã (e nada quando se sai do separador).
 export default function Reels() {
   const [focused, setFocused] = useState(false);
-  useFocusEffect(useCallback(() => { setFocused(true); return () => setFocused(false); }, []));
+  // Fundo preto: enquanto os Reels estão abertos, a barra de estado fica branca; ao sair volta à do tema.
+  useFocusEffect(useCallback(() => {
+    setFocused(true);
+    setStatusBarStyle("light");
+    return () => { setFocused(false); setStatusBarStyle(isDark ? "light" : "dark"); };
+  }, []));
   const insets = useSafeAreaInsets();
   const [reels, setReels] = useState(null);
   const [height, setHeight] = useState(0);

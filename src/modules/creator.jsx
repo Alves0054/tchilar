@@ -1028,7 +1028,9 @@ export function CreatorEarnings() {
     ["Programa de Parceiros", data.sources.partnerKz, "spark", data.accruing.partnerKz > 0 ? `+${formatPrice(data.accruing.partnerKz)} a acumular este mês` : "Meses já fechados"],
     ["Estrelas recebidas", data.sources.starsKz, "star", "70% do valor das estrelas"],
     ["Campanhas com marcas", data.sources.campaignsKz, "brand", "85% das campanhas concluídas"],
-    ["Grupos secretos", data.sources.groupsKz || 0, "lock", "70% das entradas pagas"]
+    ["Grupos secretos", data.sources.groupsKz || 0, "lock", "70% das entradas pagas"],
+    ["Prémios de desafios", data.sources.prizesKz || 0, "trophy", "Prémios em dinheiro dos desafios do mês"],
+    ["Cursos vendidos", data.sources.coursesKz || 0, "academy", "85% das vendas na Academia"]
   ];
   const hasPending = data.requests.some(request => request.status === "requested");
   return <>

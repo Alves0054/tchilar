@@ -288,6 +288,51 @@ export function TwoFactorSettings() {
 }
 // Segurança da conta: mudar a palavra-passe e terminar sessões abertas noutros dispositivos.
 // O servidor devolve um token novo; guardamo-lo para este dispositivo continuar com sessão iniciada.
+// Aparelhos com sessão aberta: cada um pode ser terminado à parte (o telemóvel perdido, o computador do trabalho...).
+function DeviceSessions({ busy, onEndOthers }) {
+  const [sessions, setSessions] = useState(null);
+  const [error, setError] = useState("");
+  const load = () => api("/auth/sessions").then(result => setSessions(result.sessions)).catch(loadError => setError(loadError.message));
+  useEffect(() => { load(); }, []);
+  const end = async session => {
+    if (!window.confirm(`Terminar a sessão em "${session.device || "aparelho desconhecido"}"?`)) return;
+    try {
+      await api(`/auth/sessions/${session.id}`, { method: "DELETE" });
+      setSessions(list => list.filter(item => item.id !== session.id));
+    } catch (endError) { setError(endError.message); }
+  };
+  const seen = value => {
+    const minutes = Math.round((Date.now() - new Date(value).getTime()) / 60000);
+    if (minutes < 10) return "Ativo agora";
+    if (minutes < 60) return `Ativo há ${minutes} min`;
+    if (minutes < 60 * 24) return `Ativo há ${Math.round(minutes / 60)} h`;
+    return `Ativo a ${new Date(value).toLocaleDateString("pt-PT", { day: "numeric", month: "short" })}`;
+  };
+  const others = (sessions || []).filter(session => !session.current).length;
+  return <div className="device-sessions">
+    <div className="prefs-row">
+      <span className="prefs-row-icon"><Icon name="devices" /></span>
+      <span><strong>Onde tens sessão iniciada</strong><small>Se não reconheces um aparelho, termina essa sessão e muda a palavra-passe.</small></span>
+      {others > 1 && <button className="prefs-link" type="button" disabled={busy} onClick={async () => { await onEndOthers(); load(); }}>
+        {busy ? "A terminar..." : "Terminar todas as outras"} <Icon name="logout" size={14} />
+      </button>}
+    </div>
+    {sessions === null && !error && <p className="device-empty">A carregar...</p>}
+    {sessions && <ul className="device-list">
+      {sessions.map(session => <li key={session.id} className={session.current ? "is-current" : ""}>
+        <span className="device-icon"><Icon name={session.client === "app" ? "phone" : "devices"} size={20} /></span>
+        <span className="device-text">
+          <strong>{session.device || (session.client === "app" ? "App Tchilar" : "Browser")}</strong>
+          <small>{session.client === "app" ? "App" : "Site"} · {session.current ? "Este aparelho" : seen(session.last_seen_at)}</small>
+        </span>
+        {session.current ? <span className="device-badge">Aqui</span>
+          : <button type="button" className="device-end" onClick={() => end(session)}>Terminar</button>}
+      </li>)}
+    </ul>}
+    {error && <p className="error" role="alert">{error}</p>}
+  </div>;
+}
+
 export function SecuritySettings() {
   const [form, setForm] = useState({ currentPassword: "", newPassword: "", confirm: "" });
   const [open, setOpen] = useState(false);
@@ -350,13 +395,7 @@ export function SecuritySettings() {
       <div className="prefs-form-foot"><button className="btn" type="submit" disabled={busy === "password"}>{busy === "password" ? "A guardar..." : "Mudar palavra-passe"}</button></div>
     </form>}
     <TwoFactorSettings />
-    <div className="prefs-row">
-      <span className="prefs-row-icon"><Icon name="devices" /></span>
-      <span><strong>Sessões abertas</strong><small>Perdeste o telemóvel ou entraste num computador de outra pessoa? Termina todas as outras sessões.</small></span>
-      <button className="prefs-link" type="button" disabled={busy === "logout"} onClick={logoutEverywhere}>
-        {busy === "logout" ? "A terminar..." : "Terminar outras sessões"} <Icon name="logout" size={14} />
-      </button>
-    </div>
+    <DeviceSessions busy={busy === "logout"} onEndOthers={logoutEverywhere} />
     <div className="prefs-row">
       <span className="prefs-row-icon"><Icon name="mail" /></span>
       <span><strong>Esqueceste a palavra-passe?</strong><small>Recebe uma ligação segura no teu email.</small></span>

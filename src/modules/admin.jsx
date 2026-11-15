@@ -5,6 +5,7 @@ import { relativeTime } from "./feed.jsx";
 import { MUSIC_GENRE_LABELS, audioDuration } from "./shared.jsx";
 import { AdminPayments } from "./payments.jsx";
 import { AdminActions, AdminOverview, AdminUserDetail, AdminUsers } from "./admin-panel.jsx";
+import { AdminChallenges, AdminCourses } from "./admin-academy.jsx";
 import { AdminBroadcasts, AdminContent, AdminDataRequests, PaymentAttempts, ROLE_LABELS, canSee, downloadWithSession } from "./admin-ops.jsx";
 
 // Áreas do painel, por grupo, e quem as vê. "super" vê todas; sem lista de funções, qualquer pessoa da equipa.
@@ -28,6 +29,10 @@ const ADMIN_SECTIONS = [
     { slug: "moderacao", label: "Moderação", icon: "shield", hint: "Procura e esconde conteúdo sem esperar por denúncias.", roles: ["moderation"] },
     { slug: "promocoes", label: "Promoções", icon: "ad", hint: "Aprova ou recusa anúncios pagos.", roles: ["finance", "moderation"] },
     { slug: "musicas", label: "Músicas", icon: "sound", hint: "Biblioteca de músicas com licença.", roles: ["moderation"] }
+  ] },
+  { label: "Comunidade", items: [
+    { slug: "desafios", label: "Desafios", icon: "trophy", hint: "Catálogo de 40 desafios, prémios em estrelas e dinheiro, lançar o mês e premiar.", roles: ["moderation", "finance"] },
+    { slug: "cursos", label: "Cursos", icon: "academy", hint: "Rever os cursos dos criadores antes de irem para a venda.", roles: ["moderation"] }
   ] }
 ];
 
@@ -79,6 +84,8 @@ export function AdminPage() {
       {tab === "levantamentos" && <AdminPayouts />}
       {tab === "financas" && <AdminFinance />}
       {tab === "musicas" && <AdminMusic />}
+      {tab === "desafios" && <AdminChallenges />}
+      {tab === "cursos" && <AdminCourses />}
     </>}
     </div>
   </div>;
@@ -323,6 +330,8 @@ export const MODERATION_ACTION_LABELS = {
   hide_post: "Esconder publicação",
   restore_post: "Repor publicação",
   delete_comment: "Apagar comentário",
+  hide_course: "Esconder curso",
+  restore_course: "Repor curso",
   suspend_user: "Suspender conta",
   unsuspend_user: "Reativar conta"
 };
@@ -372,6 +381,7 @@ export function Moderation() {
     const list = ["dismiss"];
     if (report.target_type === "post") list.push(report.target_hidden ? "restore_post" : "hide_post");
     if (report.target_type === "comment" && report.target_excerpt !== null) list.push("delete_comment");
+    if (report.target_type === "course") list.push(report.target_hidden ? "restore_course" : "hide_course");
     if (report.target_user_id) list.push(report.target_suspended ? "unsuspend_user" : "suspend_user");
     return list;
   };
@@ -387,7 +397,7 @@ export function Moderation() {
     {reports?.length === 0 && <div className="empty card">Não há denúncias {status === "open" ? "por analisar" : "neste estado"}.</div>}
     {reports?.map(report => <article className="report-card card" key={report.id}>
       <header>
-        <strong>{{ post: "Publicação", comment: "Comentário", user: "Conta" }[report.target_type]} de {report.target_username ? <Link to={`/u/${report.target_username}`}>@{report.target_username}</Link> : "conta apagada"}</strong>
+        <strong>{{ post: "Publicação", comment: "Comentário", user: "Conta", course: "Curso" }[report.target_type]} de {report.target_username ? <Link to={`/u/${report.target_username}`}>@{report.target_username}</Link> : "conta apagada"}</strong>
         <span className="meta">{new Date(report.created_at).toLocaleString("pt-PT")}</span>
       </header>
       <div className="meta">

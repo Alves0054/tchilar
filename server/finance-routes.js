@@ -3,6 +3,7 @@
 const { logAdminAction } = require("./admin-routes");
 const { campaignSplit, starsValueKz } = require("./growth");
 const { groupAccessValueKz } = require("./groups");
+const { courseShareKz } = require("./courses");
 const { MIN_PAYOUT_KZ, partnerEarnings } = require("./promotions");
 const {
   MIN_WITHDRAWAL_KZ, decrypt, encrypt, isValidAngolanIban, maskIban, normalizeIban, parseWithdrawal, payoutBalance
@@ -19,6 +20,8 @@ const EARNINGS_SQL = `
     (SELECT COALESCE(SUM(amount),0) FROM star_ledger WHERE user_id=u.id AND kind='gift_received')::int AS stars_received,
     (SELECT COALESCE(SUM(budget),0) FROM brand_campaigns WHERE creator_id=u.id AND status='completed')::float AS campaigns_gross,
     (SELECT COALESCE(SUM(amount_kz),0) FROM group_access_purchases WHERE owner_id=u.id AND status='paid' AND refund_status IS NULL)::float AS groups_gross,
+    (SELECT COALESCE(SUM(cash_kz),0) FROM challenge_awards WHERE user_id=u.id)::float AS prizes_kz,
+    (SELECT COALESCE(SUM(amount_kz),0) FROM course_purchases WHERE owner_id=u.id AND NOT by_team AND status='paid' AND refund_status IS NULL)::float AS courses_gross,
     (SELECT COALESCE(SUM(amount),0) FROM payout_requests WHERE user_id=u.id AND status IN ('requested','paid'))::float AS withdrawn
   FROM users u WHERE u.id=$1`;
 
@@ -27,11 +30,13 @@ function earningsFrom(row) {
   const starsKz = starsValueKz(row.stars_received);
   const campaignsKz = campaignSplit(row.campaigns_gross).net;
   const groupsKz = groupAccessValueKz(row.groups_gross);
+  const prizesKz = Math.round(Number(row.prizes_kz || 0) * 100) / 100;
+  const coursesKz = courseShareKz(row.courses_gross);
   return {
-    sources: { partnerKz, starsKz, campaignsKz, groupsKz },
+    sources: { partnerKz, starsKz, campaignsKz, groupsKz, prizesKz, coursesKz },
     accruing: { partnerKz: partnerEarnings(row.partner_views_this_month) },
     withdrawn: row.withdrawn,
-    ...payoutBalance({ partnerKz, starsKz, campaignsKz, groupsKz, withdrawnKz: row.withdrawn })
+    ...payoutBalance({ partnerKz, starsKz, campaignsKz, groupsKz, prizesKz, coursesKz, withdrawnKz: row.withdrawn })
   };
 }
 

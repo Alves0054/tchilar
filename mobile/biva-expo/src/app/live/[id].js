@@ -1,25 +1,34 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, router, useLocalSearchParams } from "expo-router";
 import { useEffect, useRef, useState } from "react";
-import { FlatList, KeyboardAvoidingView, Linking, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { FlatList, Linking, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Avatar } from "../../components/Avatar";
+import { GiftIcon, GiftSheet, GiftShow, useGiftShow } from "../../components/LiveGifts";
 import { VideoPost } from "../../components/VideoPost";
 import { WEB_URL, api } from "../../lib/api";
 import { useGlassHeaderPadding } from "../../lib/headers";
 import { colors } from "../../lib/theme";
+import { useKeyboardOverlap } from "../../lib/keyboard";
 
 const REACTIONS = [["heart", "❤️"], ["like", "👍"], ["spark", "✨"]];
-const GIFTS = [1, 5, 10, 50, 100];
 
 // Ver um direto: vídeo (quando o direto passa pelo servidor de vídeo), chat, reações e estrelas.
 // Também conta como espectador (sinal de vida) enquanto o ecrã está aberto.
 export default function LiveViewer() {
+  const [keyboardRef, keyboardOverlap] = useKeyboardOverlap();
   const { id } = useLocalSearchParams();
   const [live, setLive] = useState(null);
   const [feed, setFeed] = useState(null);
   const [text, setText] = useState("");
   const [showGifts, setShowGifts] = useState(false);
+  const [gifts, setGifts] = useState([]);
+  const [balance, setBalance] = useState(null);
+  const giftNow = useGiftShow(feed?.comments, gifts);
+  useEffect(() => {
+    api("/lives/config").then(result => setGifts(result.gifts || [])).catch(() => {});
+    api("/stars").then(result => setBalance(result.balance ?? null)).catch(() => {});
+  }, []);
   const [error, setError] = useState("");
   const list = useRef(null);
   const top = useGlassHeaderPadding();
@@ -63,9 +72,12 @@ export default function LiveViewer() {
     try { await api(`/lives/${id}/comments`, { method: "POST", body: { body } }); } catch (sendError) { setError(sendError.message); setText(body); }
   };
   const react = kind => api(`/lives/${id}/react`, { method: "POST", body: { kind } }).catch(() => {});
-  const gift = async amount => {
+  const gift = async item => {
     setShowGifts(false); setError("");
-    try { await api(`/lives/${id}/stars`, { method: "POST", body: { amount } }); } catch (giftError) { setError(giftError.message); }
+    try {
+      const result = await api(`/lives/${id}/stars`, { method: "POST", body: { gift: item.key } });
+      setBalance(result.balance ?? null);
+    } catch (giftError) { setError(giftError.message); }
   };
 
   const ended = feed?.status && feed.status !== "live";
@@ -79,6 +91,7 @@ export default function LiveViewer() {
           <Text style={styles.noVideoText}>{ended ? "Este direto terminou." : "O vídeo deste direto ainda só se vê no site."}</Text>
           {!ended && <Pressable onPress={() => Linking.openURL(`${WEB_URL}/live/${id}`)}><Text style={styles.link}>Ver no site ›</Text></Pressable>}
         </View>}
+      <GiftShow gift={giftNow} />
       <View style={styles.overlay}>
         {!ended && <View style={styles.tag}><Text style={styles.tagText}>AO VIVO</Text></View>}
         <Text style={styles.stat}>👁 {feed?.viewers ?? 0}</Text>
@@ -90,24 +103,25 @@ export default function LiveViewer() {
       <View style={{ flex: 1 }}><Text style={styles.hostName}>{live.display_name}</Text><Text style={styles.muted} numberOfLines={1}>{live.description || live.category}</Text></View>
     </Pressable>}
     {feed?.pinned && <View style={styles.pinned}><Ionicons name="pin" size={14} color={colors.primary} /><Text style={styles.pinnedText}><Text style={{ fontWeight: "800" }}>{feed.pinned.display_name}: </Text>{feed.pinned.body}</Text></View>}
-    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined} keyboardVerticalOffset={90}>
+    {/* A caixa de escrever fica sempre por cima do teclado (mede quanto o teclado tapa). */}
+    <View ref={keyboardRef} style={{ flex: 1, paddingBottom: keyboardOverlap }}>
       <FlatList ref={list} data={feed?.comments || []} keyExtractor={item => String(item.id)} contentContainerStyle={styles.chat}
         onContentSizeChange={() => list.current?.scrollToEnd({ animated: true })}
         renderItem={({ item }) => <View style={styles.comment}>
           <Avatar user={item} size={26} />
-          <Text style={styles.commentText}><Text style={{ fontWeight: "800" }}>{item.display_name}{item.stars ? ` ★${item.stars}` : ""} </Text>{item.body}</Text>
+          {item.gift ? <GiftIcon gift={item.gift} size={20} /> : null}
+          <Text style={styles.commentText}><Text style={{ fontWeight: "800" }}>{item.display_name}{item.stars && !item.gift ? ` ★${item.stars}` : ""} </Text>{item.body}</Text>
         </View>}
         ListEmptyComponent={<Text style={styles.muted}>Ainda não há comentários. Diz olá!</Text>} />
-      {showGifts && <View style={styles.gifts}>{GIFTS.map(amount => <Pressable key={amount} style={styles.gift} onPress={() => gift(amount)}>
-        <Text style={styles.giftText}>★ {amount}</Text></Pressable>)}</View>}
+      <GiftSheet visible={showGifts} gifts={gifts} balance={balance} onClose={() => setShowGifts(false)} onSend={gift} />
       {Boolean(error) && <Text style={styles.error}>{error}</Text>}
       {!ended && <View style={styles.composer}>
         <TextInput style={styles.input} value={text} onChangeText={setText} placeholder="Comenta…" placeholderTextColor={colors.muted} maxLength={300} onSubmitEditing={send} />
         {REACTIONS.map(([kind, emoji]) => <Pressable key={kind} onPress={() => react(kind)} hitSlop={6}><Text style={{ fontSize: 22 }}>{emoji}</Text></Pressable>)}
-        <Pressable onPress={() => setShowGifts(!showGifts)} hitSlop={6} accessibilityLabel="Oferecer estrelas"><Ionicons name="star" size={24} color="#F5B700" /></Pressable>
+        <Pressable onPress={() => setShowGifts(true)} hitSlop={6} accessibilityLabel="Oferecer um presente"><Ionicons name="gift" size={24} color="#E30613" /></Pressable>
         <Pressable onPress={send} hitSlop={6} accessibilityLabel="Enviar"><Ionicons name="send" size={22} color={colors.primary} /></Pressable>
       </View>}
-    </KeyboardAvoidingView>
+    </View>
   </SafeAreaView>;
 }
 
@@ -129,9 +143,6 @@ const styles = StyleSheet.create({
   chat: { padding: 10, gap: 8 },
   comment: { flexDirection: "row", gap: 8, alignItems: "flex-start" },
   commentText: { flex: 1, color: colors.text, lineHeight: 19 },
-  gifts: { flexDirection: "row", gap: 8, padding: 8, justifyContent: "center" },
-  gift: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 16, backgroundColor: "#FFF4D1" },
-  giftText: { fontWeight: "800", color: "#9A6A00" },
   error: { color: colors.danger, paddingHorizontal: 12 },
   composer: { flexDirection: "row", alignItems: "center", gap: 10, padding: 10, borderTopWidth: StyleSheet.hairlineWidth, borderColor: colors.line },
   input: { flex: 1, height: 40, borderRadius: 20, paddingHorizontal: 14, backgroundColor: colors.background, color: colors.text }

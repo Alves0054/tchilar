@@ -17,5 +17,5 @@ export function Avatar({ user, size = 44 }) {
 const styles = StyleSheet.create({
   base: { backgroundColor: colors.primarySoft },
   fallback: { alignItems: "center", justifyContent: "center", backgroundColor: colors.primary },
-  initial: { color: "#fff", fontWeight: "800" }
+  initial: { color: colors.onPrimary, fontWeight: "800" }
 });

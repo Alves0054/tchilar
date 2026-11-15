@@ -1,14 +1,17 @@
+import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
 import { Stack, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
-import { Alert, Linking, Switch, Text, View } from "react-native";
+import { Alert, DevSettings, Linking, Switch, Text, View } from "react-native";
 import { Avatar } from "../../components/Avatar";
 import { Badge, Button, Card, Chips, Empty, Field, Loading, Notice, Page, Row, dateOnly, dateTime, kz } from "../../components/ui";
 import { WEB_URL, api, downloadAndShare, saveToken, upload } from "../../lib/api";
+import { lockEnabled, lockMethod, setLockEnabled } from "../../lib/applock";
+import { AUTOPLAY_OPTIONS, TEXT_SIZES, autoplay, saveAutoplay, saveTextSize, textSize } from "../../lib/display";
 import { registerForPush } from "../../lib/push";
 import { useSession } from "../../lib/session";
-import { colors } from "../../lib/theme";
+import { THEME_OPTIONS, colors, saveThemePreference, themePreference } from "../../lib/theme";
 import { SETTINGS_SECTIONS } from "./index";
 
 function useNotice() {
@@ -23,7 +26,14 @@ function useNotice() {
 // ---------------------------------------------------------------------------------------------
 function Profile() {
   const { user, refresh } = useSession();
-  const [form, setForm] = useState({ displayName: user.display_name || "", bio: user.bio || "", location: user.location || "", profession: user.profession || "", website: user.website || "" });
+  const [form, setForm] = useState({ displayName: user.display_name || "", bio: user.bio || "", location: user.location || "", profession: user.profession || "", website: user.website || "",
+    subscriptionPrice: Number(user.subscription_price) > 0 ? String(Number(user.subscription_price)) : "" });
+  // O preço só vai quando é um criador e escreveu um valor (entre 500 Kz e 500 000 Kz, validado no servidor).
+  const saveProfile = () => {
+    const { subscriptionPrice, ...rest } = form;
+    const body = { ...rest, ...(user.is_creator && subscriptionPrice.trim() && { subscriptionPrice: Number(subscriptionPrice.replace(",", ".")) }) };
+    return run(() => api("/auth/me", { method: "PATCH", body }).then(refresh), "Perfil guardado.");
+  };
   const [notice, run] = useNotice();
   const [busy, setBusy] = useState("");
   const set = key => value => setForm({ ...form, [key]: value });
@@ -52,9 +62,13 @@ function Profile() {
       <Field label="Localidade" value={form.location} onChangeText={set("location")} maxLength={100} placeholder="Luanda" />
       <Field label="Profissão" value={form.profession} onChangeText={set("profession")} maxLength={100} />
       <Field label="Site" value={form.website} onChangeText={set("website")} autoCapitalize="none" keyboardType="url" placeholder="https://" />
-      <Button label="Guardar" onPress={() => run(() => api("/auth/me", { method: "PATCH", body: form }).then(refresh), "Perfil guardado.")} disabled={!form.displayName.trim()} />
+      <Button label="Guardar" onPress={saveProfile} disabled={!form.displayName.trim()} />
       <Notice {...notice} />
     </Card>
+    {user.is_creator && <Card title="Subscrição" subtitle="O valor mensal que os teus subscritores pagam pelas publicações exclusivas.">
+      <Field label="Preço por mês (Kz)" hint="Entre 500 Kz e 500 000 Kz." value={form.subscriptionPrice} onChangeText={set("subscriptionPrice")} keyboardType="decimal-pad" placeholder="Ex.: 2500" />
+      <Button label="Guardar preço" variant="secondary" onPress={saveProfile} disabled={!form.subscriptionPrice.trim()} />
+    </Card>}
   </>;
 }
 
@@ -151,10 +165,51 @@ function Security() {
         }} />
       </View>}
     </Card>
-    <Card title="Sessões abertas" subtitle="Perdeste o telemóvel ou entraste noutro computador? Termina as outras sessões.">
-      <Button variant="secondary" label="Terminar outras sessões" icon="log-out" onPress={logoutAll} />
-    </Card>
+    <AppLockSetting run={run} />
+    <DeviceSessions run={run} onEndOthers={logoutAll} />
   </>;
+}
+
+// Bloqueio com Face ID / impressão digital (só neste telemóvel).
+function AppLockSetting({ run }) {
+  const [on, setOn] = useState(false);
+  const [method, setMethod] = useState(undefined);
+  useEffect(() => { lockEnabled().then(setOn); lockMethod().then(setMethod); }, []);
+  const toggle = value => run(async () => { await setLockEnabled(value); setOn(value); }, value ? "Bloqueio ligado." : "Bloqueio desligado.");
+  return <Card title="Bloquear a app" subtitle={method === null
+    ? "Configura Face ID, impressão digital ou um código no telemóvel para usar o bloqueio."
+    : `Pede ${method || "Face ID ou impressão digital"} ao abrir a app e ao voltar depois de 1 minuto fora. Quem pegar no telemóvel desbloqueado não entra no teu Tchilar.`}
+    right={<Switch value={on} onValueChange={toggle} disabled={method === null} />} />;
+}
+
+// Onde tens sessão iniciada: cada aparelho pode ser terminado à parte.
+function DeviceSessions({ run, onEndOthers }) {
+  const [sessions, setSessions] = useState(null);
+  const load = useCallback(() => api("/auth/sessions").then(result => setSessions(result.sessions)).catch(() => setSessions([])), []);
+  useEffect(() => { load(); }, [load]);
+  const seen = value => {
+    const minutes = Math.round((Date.now() - new Date(value).getTime()) / 60000);
+    if (minutes < 10) return "Ativo agora";
+    if (minutes < 60) return `Ativo há ${minutes} min`;
+    if (minutes < 1440) return `Ativo há ${Math.round(minutes / 60)} h`;
+    return `Ativo a ${dateOnly(value)}`;
+  };
+  const end = session => Alert.alert("Terminar sessão", `Terminar a sessão em "${session.device || "aparelho desconhecido"}"?`, [
+    { text: "Cancelar", style: "cancel" },
+    { text: "Terminar", style: "destructive", onPress: () => run(async () => {
+      await api(`/auth/sessions/${session.id}`, { method: "DELETE" });
+      setSessions(list => list.filter(item => item.id !== session.id));
+    }, "Sessão terminada nesse aparelho.") }
+  ]);
+  const others = (sessions || []).filter(session => !session.current).length;
+  return <Card title="Onde tens sessão iniciada" subtitle="Não reconheces um aparelho? Termina essa sessão e muda a palavra-passe.">
+    {sessions === null ? <Loading /> : sessions.map(session => <Row key={session.id}
+      icon={session.client === "app" ? "phone-portrait-outline" : "desktop-outline"}
+      title={session.device || (session.client === "app" ? "App Tchilar" : "Browser")}
+      subtitle={`${session.client === "app" ? "App" : "Site"} · ${session.current ? "Este telemóvel" : seen(session.last_seen_at)}`}
+      right={session.current ? <Badge label="Aqui" tone="good" /> : <Button small variant="secondary" label="Terminar" onPress={() => end(session)} />} />)}
+    {others > 1 && <Button variant="secondary" label="Terminar todas as outras" icon="log-out" onPress={async () => { await onEndOthers(); load(); }} />}
+  </Card>;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -262,7 +317,54 @@ function DataRequests() {
   </>;
 }
 
-const SECTIONS = { perfil: Profile, conta: Account, seguranca: Security, privacidade: Privacy, notificacoes: Notifications, pagamentos: Payments, dados: DataRequests };
+// ---------------------------------------------------------------------------------------------
+// Aparência: tema Automático (segue o telemóvel), Claro ou Escuro. As cores aplicam-se ao abrir a app,
+// por isso mudar de tema recarrega a app (em produção, pede para a fechar e voltar a abrir).
+const THEME_ICONS = { auto: "phone-portrait", light: "sunny", dark: "moon" };
+function Appearance() {
+  const [choice, setChoice] = useState(themePreference);
+  const [notice, setNotice] = useState({});
+  const [size, setSize] = useState(textSize);
+  const [play, setPlay] = useState(autoplay);
+  // Tal como o tema, o tamanho do texto e os vídeos aplicam-se ao abrir a app.
+  const applyLater = changed => {
+    if (!changed) { setNotice({}); return; }
+    if (__DEV__) Alert.alert("Aparência", "A app vai recarregar para aplicar.", [{ text: "OK", onPress: () => DevSettings.reload() }]);
+    else setNotice({ message: "Guardado. Fecha a app e volta a abri-la para veres a mudança." });
+  };
+  const choose = async value => {
+    setChoice(value);
+    const changed = await saveThemePreference(value);
+    if (!changed) { setNotice({}); return; }
+    if (__DEV__) {
+      Alert.alert("Tema", "A app vai recarregar para aplicar o tema.", [{ text: "OK", onPress: () => DevSettings.reload() }]);
+    } else {
+      setNotice({ message: "Guardado. Fecha a app e volta a abri-la para veres o tema novo." });
+    }
+  };
+  return <>
+    <Card title="Tema" subtitle="Fica guardado neste telemóvel. «Automático» segue o modo claro ou escuro do sistema.">
+      {THEME_OPTIONS.map(([value, label]) => <Row key={value} icon={THEME_ICONS[value]} tone={choice === value ? "#5E5CE6" : undefined} title={label}
+        subtitle={value === "auto" ? "Igual ao telemóvel" : value === "dark" ? "Fundo escuro, melhor à noite" : "Fundo claro"}
+        onPress={() => choose(value)}
+        right={<Ionicons name={choice === value ? "radio-button-on" : "radio-button-off"} size={22} color={choice === value ? colors.text : colors.muted} />} />)}
+    </Card>
+    <Card title="Tamanho do texto" subtitle="Publicações e comentários. Soma-se ao tamanho de letra do telemóvel.">
+      {TEXT_SIZES.map(([value, label, scale]) => <Row key={value} title={label} onPress={async () => { setSize(value); applyLater(await saveTextSize(value)); }}
+        icon="text" tone={size === value ? "#5E5CE6" : undefined}
+        subtitle={<Text style={{ fontSize: Math.round(15 * scale), color: colors.muted }}>Olá Tchilar</Text>}
+        right={<Ionicons name={size === value ? "radio-button-on" : "radio-button-off"} size={22} color={size === value ? colors.text : colors.muted} />} />)}
+    </Card>
+    <Card title="Vídeos no Início" subtitle="Os Reels tocam sempre; isto é para os vídeos do feed.">
+      {AUTOPLAY_OPTIONS.map(([value, label, hint]) => <Row key={value} title={label} subtitle={hint} icon={value === "always" ? "play-circle" : "cellular"}
+        tone={play === value ? "#5E5CE6" : undefined} onPress={async () => { setPlay(value); applyLater(await saveAutoplay(value)); }}
+        right={<Ionicons name={play === value ? "radio-button-on" : "radio-button-off"} size={22} color={play === value ? colors.text : colors.muted} />} />)}
+    </Card>
+    <Notice {...notice} />
+  </>;
+}
+
+const SECTIONS = { aparencia: Appearance, perfil: Profile, conta: Account, seguranca: Security, privacidade: Privacy, notificacoes: Notifications, pagamentos: Payments, dados: DataRequests };
 
 export default function SettingsSection() {
   const { section } = useLocalSearchParams();

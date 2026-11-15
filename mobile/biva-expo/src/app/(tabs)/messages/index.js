@@ -1,9 +1,10 @@
 import { router, useFocusEffect } from "expo-router";
 import { useCallback, useState } from "react";
-import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
+import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { Avatar } from "../../../components/Avatar";
 import { api } from "../../../lib/api";
 import { colors, relativeTime } from "../../../lib/theme";
+import { RowsSkeleton } from "../../../components/Loaders";
 
 export default function Messages() {
   const [conversations, setConversations] = useState(null);
@@ -36,7 +37,7 @@ export default function Messages() {
       </View>
       {item.unread > 0 && <View style={styles.count}><Text style={styles.countText}>{item.unread > 9 ? "9+" : item.unread}</Text></View>}
     </Pressable>}
-    ListEmptyComponent={conversations === null && !error ? <ActivityIndicator style={styles.state} color={colors.primary} />
+    ListEmptyComponent={conversations === null && !error ? <RowsSkeleton />
       : <Text style={styles.state}>{error || "Ainda não tens conversas."}</Text>}
   />;
 }

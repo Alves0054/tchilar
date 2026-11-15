@@ -4,7 +4,8 @@ import { router, useLocalSearchParams } from "expo-router";
 import { useVideoPlayer, VideoView } from "expo-video";
 import { useEffect, useRef, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { StatusBar } from "expo-status-bar";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Avatar } from "../../components/Avatar";
 import { StoryBackground } from "../../components/StoryBackground";
 import { api, mediaUri } from "../../lib/api";
@@ -22,6 +23,7 @@ function StoryVideo({ uri }) {
 // Leitor de stories em ecrã inteiro: avança sozinho a cada 5 segundos; toque à esquerda volta,
 // à direita avança; carregar e manter pausa (como no site).
 export default function StoryViewer() {
+  const insets = useSafeAreaInsets();
   const { index } = useLocalSearchParams();
   const { user } = useSession();
   const groups = recall("stories") || [];
@@ -67,7 +69,11 @@ export default function StoryViewer() {
     router.back();
   };
 
-  return <View style={styles.screen}>
+  // O story fica num cartão dentro da zona segura: não passa por baixo da hora, da bateria nem da câmara,
+  // nem da barra de gestos em baixo. A barra de estado fica branca (fundo preto).
+  return <View style={[styles.screen, { paddingTop: insets.top + 4, paddingBottom: Math.max(insets.bottom, 8) }]}>
+    <StatusBar style="light" />
+    <View style={styles.card}>
     {story.media_type === "image" && media ? <Image source={{ uri: media }} style={StyleSheet.absoluteFill} contentFit="contain" />
       : story.media_type === "video" && media ? <StoryVideo key={story.id} uri={media} />
         : <StoryBackground backgroundKey={story.background} style={[StyleSheet.absoluteFill, styles.textWrap]}>
@@ -78,7 +84,7 @@ export default function StoryViewer() {
     <Pressable style={styles.tapLeft} onPress={previous} onLongPress={() => { paused.current = true; }} onPressOut={() => { paused.current = false; }} />
     <Pressable style={styles.tapRight} onPress={next} onLongPress={() => { paused.current = true; }} onPressOut={() => { paused.current = false; }} />
 
-    <SafeAreaView style={styles.top} pointerEvents="box-none">
+    <View style={styles.top} pointerEvents="box-none">
       <View style={styles.bars}>{group.items.map((item, position) => <View key={item.id} style={styles.bar}>
         <View style={[styles.barFill, { width: `${position < itemIndex ? 100 : position === itemIndex ? progress * 100 : 0}%` }]} />
       </View>)}</View>
@@ -90,19 +96,21 @@ export default function StoryViewer() {
         {mine && <Pressable onPress={remove} hitSlop={12} accessibilityLabel="Apagar story"><Ionicons name="trash-outline" size={24} color="#fff" /></Pressable>}
         <Pressable onPress={() => router.back()} hitSlop={12} accessibilityLabel="Fechar"><Ionicons name="close" size={30} color="#fff" /></Pressable>
       </View>
-    </SafeAreaView>
+    </View>
+    </View>
   </View>;
 }
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: "#000" },
+  card: { flex: 1, borderRadius: 14, overflow: "hidden", backgroundColor: "#111" },
   empty: { color: "#fff", marginTop: 120, textAlign: "center" },
   textWrap: { alignItems: "center", justifyContent: "center", padding: 32 },
   text: { color: "#fff", fontSize: 30, fontWeight: "800", textAlign: "center", textShadowColor: "rgba(0,0,0,0.35)", textShadowRadius: 8 },
-  caption: { position: "absolute", left: 16, right: 16, bottom: 48, color: "#fff", fontSize: 17, fontWeight: "700", textAlign: "center", textShadowColor: "rgba(0,0,0,0.7)", textShadowRadius: 6 },
+  caption: { position: "absolute", left: 16, right: 16, bottom: 28, color: "#fff", fontSize: 17, fontWeight: "700", textAlign: "center", textShadowColor: "rgba(0,0,0,0.7)", textShadowRadius: 6 },
   tapLeft: { position: "absolute", left: 0, top: 0, bottom: 0, width: "33%" },
   tapRight: { position: "absolute", right: 0, top: 0, bottom: 0, width: "67%" },
-  top: { position: "absolute", left: 0, right: 0, top: 0, paddingHorizontal: 10 },
+  top: { position: "absolute", left: 0, right: 0, top: 0, paddingHorizontal: 10, paddingTop: 4 },
   bars: { flexDirection: "row", gap: 4, marginTop: 6 },
   bar: { flex: 1, height: 3, borderRadius: 2, backgroundColor: "rgba(255,255,255,0.35)", overflow: "hidden" },
   barFill: { height: 3, backgroundColor: "#fff" },

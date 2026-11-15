@@ -1,9 +1,10 @@
 import { router, useFocusEffect } from "expo-router";
 import { useCallback, useState } from "react";
-import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
+import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { Avatar } from "../components/Avatar";
 import { api } from "../lib/api";
 import { colors, relativeTime } from "../lib/theme";
+import { RowsSkeleton } from "../components/Loaders";
 
 // Para onde vai cada notificação (igual ao que o servidor manda nos avisos push).
 export function notificationRoute(item) {
@@ -12,7 +13,10 @@ export function notificationRoute(item) {
   if (["campaign", "payout", "ad"].includes(item.type)) return "/creator";
   if (["stars", "referral", "challenge"].includes(item.type)) return "/stars";
   if (item.type === "payment") return "/settings/pagamentos";
-  if (item.type === "privacy") return "/settings/conta";
+  if (item.type === "privacy") return /^Novo início de sessão/.test(item.text || "") ? "/settings/seguranca" : "/settings/conta";
+  if (item.call_id) return `/call/direct/${item.call_id}`;
+  if (item.post_id) return `/post/${item.post_id}`;
+  if (item.group_id) return `/group/${item.group_id}`;
   if (item.actor_username) return `/u/${item.actor_username}`;
   return null;
 }
@@ -63,7 +67,7 @@ export default function Notifications() {
       </View>
       {!item.read && <View style={styles.dot} />}
     </Pressable>}
-    ListEmptyComponent={items === null && !error ? <ActivityIndicator style={styles.state} color={colors.primary} />
+    ListEmptyComponent={items === null && !error ? <RowsSkeleton />
       : <Text style={styles.state}>{error || "Ainda não tens notificações."}</Text>}
   />;
 }

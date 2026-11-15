@@ -1,10 +1,10 @@
 import { Fragment, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { downscaleImage } from "../PhotoEditors.jsx";
 import { Auth } from "./auth.jsx";
 import { API_BASE, Avatar, Icon, UserContext, VideoPlayer, api, formatCount, formatPrice, token } from "./core.jsx";
-import { InfoLinks, LiveBadge, SponsoredSlot, StarGiftButton, TextWithTags, VerifiedBadge, pageTone } from "./shared.jsx";
+import { InfoLinks, LiveBadge, StoreButtons, SponsoredSlot, StarGiftButton, TextWithTags, VerifiedBadge, pageTone } from "./shared.jsx";
 import { HomeDiscover, HomeNow, PresenceAvatar } from "./home.jsx";
 import { DEFAULT_STORY_BACKGROUND, STORY_COLORS, STORY_THEMES, storyBackgroundStyle } from "./community-types.js";
 
@@ -161,7 +161,7 @@ export function ReportDialog({ targetType, targetId, onClose }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [done, setDone] = useState("");
-  const what = { post: "publicação", comment: "comentário", user: "conta" }[targetType];
+  const what = { post: "publicação", comment: "comentário", user: "conta", course: "curso" }[targetType];
 
   useEffect(() => {
     const onKey = event => { if (event.key === "Escape") onClose(); };
@@ -387,7 +387,8 @@ export function SharedPostPreview({ post, compact = false }) {
 // "A ter sucesso": publicação pública com pelo menos 3 interações nas primeiras 72 horas.
 export const isTrending = (post, interactions) => !post.is_exclusive && !post.group_id && !post.shared_post_id && !post.hidden_at
   && interactions >= 3 && Date.now() - new Date(post.created_at).getTime() < 72 * 3600 * 1000;
-export function PostCard({ post, onChanged }) {
+// extraActions: ações a mais no menu "..." (ex.: a equipa de um grupo fixa ou esconde a publicação).
+export function PostCard({ post, onChanged, startWithComments = false, extraActions = [] }) {
   const { user } = useContext(UserContext);
   const navigate = useNavigate();
   const [comments, setComments] = useState([]);
@@ -490,6 +491,9 @@ export function PostCard({ post, onChanged }) {
     }
   };
 
+  // Na página da publicação, os comentários abrem logo.
+  useEffect(() => { if (startWithComments) toggleComments(); }, []);
+
   const toggleComments = async () => {
     const opening = !showComments;
     setShowComments(opening);
@@ -551,14 +555,16 @@ export function PostCard({ post, onChanged }) {
   return <article className={`post card${post.sponsored ? " is-sponsored" : ""}`} ref={cardRef} onClickCapture={onSponsoredClick}>
     <div className="post-head">
       <Link to={`/u/${post.username}`} aria-label={`Perfil de ${post.display_name}`}><Avatar user={post} /></Link>
-      <div className="post-byline"><span className="post-author-line"><Link className="post-author" to={`/u/${post.username}`}>{post.display_name}</Link><VerifiedBadge show={post.is_verified} /></span><span className="post-meta">{post.sponsored && <><span className="sponsored-label"><Icon name="spark" size={12} /> Patrocinado</span><span aria-hidden="true">·</span></>}<span>@{post.username}</span><span aria-hidden="true">·</span><time dateTime={post.created_at} title={new Date(post.created_at).toLocaleString("pt-PT")}>{relativeTime(post.created_at)}</time><span aria-hidden="true">·</span><span className="post-audience" title={post.is_exclusive ? "Só subscritores" : post.group_name ? `Grupo: ${post.group_name}` : "Público"}><Icon name={post.is_exclusive ? "spark" : post.group_name ? "groups" : "globe"} size={12} /></span>{editedAt && <span title={new Date(editedAt).toLocaleString("pt-PT")}>· editado</span>}</span></div>
+      <div className="post-byline"><span className="post-author-line"><Link className="post-author" to={`/u/${post.username}`}>{post.display_name}</Link><VerifiedBadge show={post.is_verified} /></span><span className="post-meta">{post.sponsored && <><span className="sponsored-label"><Icon name="spark" size={12} /> Patrocinado</span><span aria-hidden="true">·</span></>}<span>@{post.username}</span><span aria-hidden="true">·</span><Link className="post-permalink" to={`/posts/${post.id}`}><time dateTime={post.created_at} title={new Date(post.created_at).toLocaleString("pt-PT")}>{relativeTime(post.created_at)}</time></Link><span aria-hidden="true">·</span><span className="post-audience" title={post.is_exclusive ? "Só subscritores" : post.group_name ? `Grupo: ${post.group_name}` : "Público"}><Icon name={post.is_exclusive ? "spark" : post.group_name ? "groups" : "globe"} size={12} /></span>{editedAt && <span title={new Date(editedAt).toLocaleString("pt-PT")}>· editado</span>}</span></div>
       {(post.is_creator || post.is_exclusive || user) && <div className="post-head-tools">
         {post.is_creator && <span className="creator-badge">Criador</span>}
         {post.is_exclusive && <span className="exclusive-badge">Exclusivo</span>}
         {post.hidden_at && ownsPost && <span className="hidden-badge" title="Escondida pela moderação: só tu a vês.">Escondida</span>}
+        {post.pinned_at && post.group_id && !post.hidden_at && <span className="pinned-badge" title="Fixada pela equipa do grupo"><Icon name="pin" size={12} /> Fixada</span>}
         {user && !ownsPost && <div className="post-menu">
           <button className="post-delete-button" type="button" aria-haspopup="menu" aria-expanded={menuOpen} aria-label="Opções da publicação" title="Opções" onClick={() => setMenuOpen(open => !open)}><Icon name="more" size={20} /></button>
           {menuOpen && <div className="post-menu-list" role="menu">
+            {extraActions.map(action => <button key={action.label} type="button" role="menuitem" className={action.danger ? "danger" : ""} onClick={() => { setMenuOpen(false); action.onClick(); }}><Icon name={action.icon} size={15} /> {action.label}</button>)}
             <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); setReporting({ targetType: "post", targetId: post.id }); }}><Icon name="report" size={15} /> Denunciar publicação</button>
             <button type="button" role="menuitem" className="danger" onClick={() => { setMenuOpen(false); blockAuthor(); }}><Icon name="block" size={15} /> Bloquear @{post.username}</button>
           </div>}
@@ -572,6 +578,7 @@ export function PostCard({ post, onChanged }) {
           : <div className="post-menu">
             <button className="post-delete-button" type="button" aria-haspopup="menu" aria-expanded={menuOpen} aria-label="Opções da publicação" title="Opções" onClick={() => setMenuOpen(open => !open)}><Icon name="more" size={20} /></button>
             {menuOpen && <div className="post-menu-list" role="menu">
+              {extraActions.map(action => <button key={action.label} type="button" role="menuitem" className={action.danger ? "danger" : ""} onClick={() => { setMenuOpen(false); action.onClick(); }}><Icon name={action.icon} size={15} /> {action.label}</button>)}
               {!post.is_exclusive && !post.group_id && !post.shared_post_id && !post.hidden_at && <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); navigate(`/creator/anuncios?impulsionar=${post.id}`); }}><Icon name="bolt" size={15} /> Impulsionar publicação</button>}
               <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); setDraft(body); setEditing(true); }}><Icon name="create" size={15} /> Editar</button>
               <button type="button" role="menuitem" className="danger" onClick={() => { setMenuOpen(false); setError(""); setConfirmDelete(true); }}><Icon name="trash" size={15} /> Apagar</button>
@@ -937,6 +944,7 @@ export function HomeLeft({ user, data }) {
         <span className={`home-shortcut tone-${item.kind}`}>{item.name.charAt(0).toUpperCase()}</span><span>{item.name}</span>
       </Link>)
       : <p className="home-empty">Os grupos e páginas que segues aparecem aqui. <Link to="/groups">Descobrir grupos</Link></p>}
+    <StoreButtons />
     <InfoLinks />
   </aside>;
 }
@@ -989,6 +997,31 @@ export function HomeRight({ data, reload }) {
     </section>
   </aside>;
 }
+// Página de uma publicação (/posts/:postId): aberta das notificações, de links partilhados e da hora da publicação.
+export function PostPage() {
+  const { postId } = useParams();
+  const navigate = useNavigate();
+  const [post, setPost] = useState(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    setPost(null); setError("");
+    api(`/posts/${postId}`).then(result => setPost(result.post)).catch(loadError => setError(loadError.message));
+  }, [postId]);
+  return <div className="post-page">
+    <button type="button" className="post-page-back" onClick={() => (window.history.length > 1 ? navigate(-1) : navigate("/"))}>
+      <Icon name="previous" size={18} /> Voltar
+    </button>
+    {!post && !error && <div className="post-page-loading" aria-busy="true"><span /><span /><span /></div>}
+    {error && <div className="post-page-missing">
+      <Icon name="info" size={28} />
+      <strong>Publicação indisponível</strong>
+      <p>{error}</p>
+      <Link className="btn" to="/">Ir para o Início</Link>
+    </div>}
+    {post && <PostCard key={post.id} post={post} startWithComments onChanged={() => navigate("/")} />}
+  </div>;
+}
+
 export function Feed() {
   const { user } = useContext(UserContext);
   const [posts, setPosts] = useState([]);

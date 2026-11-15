@@ -1,20 +1,29 @@
-// Temas dos grupos, privacidade dos grupos e tipos de página. A lista vive em community-types.json,
-// que o frontend também importa, para os dois lados nunca mostrarem opções diferentes.
-const { groupTopics, groupPrivacy, pageTypes } = require("./community-types.json");
+// Grupos (entrada, tipo, categoria) e páginas (tipo, categoria). A lista vive em community-types.json,
+// que o site e a app também importam, para os três lados nunca mostrarem opções diferentes.
+const { groupPrivacy, groupTypes, groupCategories, pageTypes, pageCategories } = require("./community-types.json");
 
-const DEFAULT_GROUP_TOPIC = "geral";
+const DEFAULT_GROUP_TYPE = "comunitario";
+const DEFAULT_GROUP_CATEGORY = "comunidade";
 const DEFAULT_PAGE_TYPE = "comunidade";
-const DEFAULT_PAGE_CATEGORY = "comunidade";
+const DEFAULT_PAGE_CATEGORY = "sociedade";
 
-const groupTopicKeys = new Set(groupTopics.map(topic => topic.key));
 const privacyKeys = new Set(groupPrivacy.map(option => option.key));
 
-function parseGroupTopic(value) {
-  if (value === undefined) return { value: DEFAULT_GROUP_TOPIC };
-  return groupTopicKeys.has(value) ? { value } : { error: "Escolhe um tema da lista." };
+// Grupo: tipo (16, ex.: "compra-venda"), categoria (32) e subcategoria opcional, que tem de pertencer à categoria.
+// Sem categoria, usa a sugerida para o tipo. Sem nada, fica "Comunitário · Comunidade e sociedade".
+function parseGroupKind(type, category, subcategory) {
+  if (type === undefined && category === undefined) return { type: DEFAULT_GROUP_TYPE, category: DEFAULT_GROUP_CATEGORY, subcategory: null };
+  const kind = groupTypes.find(item => item.key === (type ?? DEFAULT_GROUP_TYPE));
+  if (!kind) return { error: "Escolhe o tipo de grupo." };
+  const area = groupCategories.find(item => item.key === (category ?? kind.category));
+  if (!area) return { error: "Escolhe a categoria do grupo." };
+  if (subcategory === undefined || subcategory === null || subcategory === "") return { type: kind.key, category: area.key, subcategory: null };
+  if (!area.subcategories.some(item => item.key === subcategory)) return { error: "Escolhe uma subcategoria desta categoria." };
+  return { type: kind.key, category: area.key, subcategory };
 }
 
-// Aceita `privacy` ("public" | "private" | "secret") ou, para clientes antigos, `isSecret`.
+// Quem pode entrar: "public" | "approval" | "private" (só por convite) | "secret".
+// Aceita ainda `isSecret` dos clientes antigos.
 function parseGroupPrivacy(body) {
   if (body.privacy !== undefined) {
     return privacyKeys.has(body.privacy) ? { value: body.privacy } : { error: "Tipo de grupo inválido." };
@@ -23,13 +32,18 @@ function parseGroupPrivacy(body) {
   return { value: body.isSecret === true ? "secret" : "public" };
 }
 
-// A subcategoria tem de pertencer ao tipo escolhido (ex.: "restaurante" só existe em "negocio").
-function parsePageType(type, category) {
-  if (type === undefined && category === undefined) return { type: DEFAULT_PAGE_TYPE, category: DEFAULT_PAGE_CATEGORY };
-  const found = pageTypes.find(item => item.key === type);
-  if (!found) return { error: "Escolhe o tipo de página." };
-  if (!found.categories.some(item => item.key === category)) return { error: "Escolhe uma categoria deste tipo de página." };
-  return { type, category };
+// Página: tipo (30, ex.: "loja", "banda"), categoria de atividade (19, ex.: "musica") e, opcional,
+// uma subcategoria que tem de pertencer à categoria (ex.: "djs" só existe em "musica").
+// Sem categoria, usa a sugerida para o tipo (uma "banda" fica em "Música e áudio").
+function parsePageType(type, category, subcategory) {
+  if (type === undefined && category === undefined) return { type: DEFAULT_PAGE_TYPE, category: DEFAULT_PAGE_CATEGORY, subcategory: null };
+  const kind = pageTypes.find(item => item.key === type);
+  if (!kind) return { error: "Escolhe o tipo de página." };
+  const area = pageCategories.find(item => item.key === (category ?? kind.category));
+  if (!area) return { error: "Escolhe a categoria da página." };
+  if (subcategory === undefined || subcategory === null || subcategory === "") return { type, category: area.key, subcategory: null };
+  if (!area.subcategories.some(item => item.key === subcategory)) return { error: "Escolhe uma subcategoria desta categoria." };
+  return { type, category: area.key, subcategory };
 }
 
 // Fundos dos stories de texto: cores e temas ilustrados (story-backgrounds.json, também usado pelo frontend).
@@ -40,4 +54,4 @@ function parseStoryBackground(value) {
   return storyBackgroundKeys.has(value) ? { value } : { error: "Escolhe um fundo da lista." };
 }
 
-module.exports = { parseStoryBackground, DEFAULT_GROUP_TOPIC, groupPrivacy, groupTopics, pageTypes, parseGroupPrivacy, parseGroupTopic, parsePageType };
+module.exports = { parseStoryBackground, groupCategories, groupPrivacy, groupTypes, pageCategories, pageTypes, parseGroupKind, parseGroupPrivacy, parsePageType };

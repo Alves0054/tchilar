@@ -12,9 +12,9 @@ const notifyUser = (db, userId, text, type = "payment") =>
 const kz = value => `${Number(value).toLocaleString("pt-PT")} Kz`;
 
 // Onde vive cada produto pago, para marcar o reembolso.
-const REFUND_TABLES = { ad: "ads", stars: "star_purchases", campaign: "brand_campaigns", group_access: "group_access_purchases" };
+const REFUND_TABLES = { ad: "ads", stars: "star_purchases", campaign: "brand_campaigns", group_access: "group_access_purchases", course: "course_purchases" };
 
-const PURPOSE_LABELS = { ad: "Promoção", stars: "Estrelas", campaign: "Campanha", group_access: "Entrada em grupo" };
+const PURPOSE_LABELS = { ad: "Promoção", stars: "Estrelas", campaign: "Campanha", group_access: "Entrada em grupo", course: "Curso" };
 const ATTEMPT_FILTERS = {
   pending: "lp.status='pending' AND (lp.expires_at IS NULL OR lp.expires_at > NOW())",
   expired: "(lp.status='expired' OR (lp.status='pending' AND lp.expires_at <= NOW()))",
@@ -26,6 +26,7 @@ const PRODUCT_PAID_SQL = `CASE lp.purpose
   WHEN 'ad' THEN EXISTS(SELECT 1 FROM ads x WHERE x.id=lp.ref_id AND x.paid_at IS NOT NULL)
   WHEN 'campaign' THEN EXISTS(SELECT 1 FROM brand_campaigns x WHERE x.id=lp.ref_id AND x.paid_at IS NOT NULL)
   WHEN 'group_access' THEN EXISTS(SELECT 1 FROM group_access_purchases x WHERE x.id=lp.ref_id AND x.status='paid')
+  WHEN 'course' THEN EXISTS(SELECT 1 FROM course_purchases x WHERE x.id=lp.ref_id AND x.status='paid')
   ELSE FALSE END`;
 
 const DATA_REQUEST_KINDS = {
@@ -325,7 +326,7 @@ function registerAdminOperations(app, deps) {
         FROM social_groups g JOIN users u ON u.id=g.owner_id
         WHERE ($1='' OR g.name ILIKE $2 OR g.description ILIKE $2 OR u.username ILIKE $2) ${onlyHidden ? "AND g.hidden_at IS NOT NULL" : ""}
         ORDER BY g.created_at DESC LIMIT 50`,
-      page: `SELECT p.id, p.name AS title, LEFT(p.description,300) AS text, p.page_type, p.category, p.hidden_at, p.created_at,
+      page: `SELECT p.id, p.name AS title, LEFT(p.description,300) AS text, p.page_type, p.category, p.subcategory, p.hidden_at, p.created_at,
           u.id AS owner_id, u.username, u.display_name,
           (SELECT COUNT(*) FROM page_followers f WHERE f.page_id=p.id)::int AS followers
         FROM pages p JOIN users u ON u.id=p.owner_id

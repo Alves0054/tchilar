@@ -11,7 +11,7 @@ test("blocking check covers both directions", () => {
 test("report reasons and moderation actions are stable identifiers", () => {
   for (const key of Object.keys(REPORT_REASONS)) assert.match(key, /^[a-z_]+$/);
   assert.ok(REPORT_REASONS.other);
-  assert.deepEqual(MODERATION_ACTIONS.sort(), ["delete_comment", "dismiss", "hide_post", "restore_post", "suspend_user", "unsuspend_user"]);
+  assert.deepEqual(MODERATION_ACTIONS.sort(), ["delete_comment", "dismiss", "hide_course", "hide_group", "hide_post", "restore_course", "restore_group", "restore_post", "suspend_user", "unsuspend_user"]);
 });
 
 test("a single report never hides a post on its own", () => {

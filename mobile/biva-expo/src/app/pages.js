@@ -3,15 +3,15 @@ import { Stack, router } from "expo-router";
 import { Alert, Pressable } from "react-native";
 import { ActionButton, CommunityCard, CommunityList } from "../components/CommunityList";
 import { api } from "../lib/api";
-import catalog from "../lib/community-types.json";
+import { PAGE_CATEGORIES, pageCategoryLabel, pageType } from "../lib/pages";
 import { colors } from "../lib/theme";
 
-const typeOf = key => catalog.pageTypes.find(type => type.key === key);
-const categoryLabel = page => typeOf(page.page_type)?.categories.find(item => item.key === page.category)?.label || page.category;
+
 const FILTERS = [
   { key: "all", label: "Todas", test: () => true },
   { key: "following", label: "A seguir", test: page => page.is_following },
-  ...catalog.pageTypes.map(type => ({ key: type.key, label: type.label, test: page => page.page_type === type.key }))
+  // Uma por categoria de atividade; só aparecem as que têm páginas.
+  ...PAGE_CATEGORIES.map(area => ({ key: area.key, label: area.label, onlyIfUsed: true, test: page => page.category === area.key }))
 ];
 
 export default function Pages() {
@@ -20,10 +20,10 @@ export default function Pages() {
       <Ionicons name="add-circle" size={28} color={colors.primary} /></Pressable> }} />
     <CommunityList path="/pages" field="pages" filters={FILTERS} empty="Ainda não há páginas."
     renderRow={(page, update) => <Pressable onPress={() => router.push(`/page/${page.id}`)}><CommunityCard
-      icon="flag"
+      icon={pageType(page.page_type).ion}
       tone="#E8890C"
       title={page.name}
-      lines={[`${categoryLabel(page)} · ${page.follower_count} ${page.follower_count === 1 ? "seguidor" : "seguidores"}`, page.description]}
+      lines={[`${pageType(page.page_type).label} · ${pageCategoryLabel(page)} · ${page.follower_count} ${page.follower_count === 1 ? "seguidor" : "seguidores"}`, page.description]}
       action={page.is_following
         ? <ActionButton label="A seguir" active disabled />
         : <ActionButton label="Seguir" onPress={async () => {

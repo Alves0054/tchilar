@@ -359,6 +359,27 @@ export function LiveBadge({ small }) {
 // ---------------------------------------------------------------------------------------------
 
 export const INFO_LINKS = [["/about", "Sobre"], ["/help", "Ajuda"], ["/terms", "Termos"], ["/privacy", "Privacidade"], ["/publicidade", "Publicidade"]];
+// Botões para descarregar a app, lado a lado. Os endereços vêm do build (ver "Links das lojas" em NOTA-DEPLOY.md):
+//   VITE_APP_STORE_URL   → página da app na App Store
+//   VITE_PLAY_STORE_URL  → página da app na Google Play
+// Sem endereço, o botão aparece como "Em breve" (sem link).
+const APP_STORE_URL = import.meta.env.VITE_APP_STORE_URL || "";
+const PLAY_STORE_URL = import.meta.env.VITE_PLAY_STORE_URL || "";
+const AppleMark = () => <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M16.37 12.6c-.03-2.7 2.2-4 2.3-4.07-1.26-1.83-3.2-2.08-3.9-2.1-1.65-.17-3.23.98-4.07.98-.85 0-2.14-.96-3.52-.93-1.8.03-3.47 1.05-4.4 2.67-1.89 3.27-.48 8.1 1.35 10.76.9 1.3 1.96 2.75 3.35 2.7 1.35-.06 1.86-.87 3.49-.87 1.62 0 2.08.87 3.5.84 1.45-.02 2.37-1.32 3.25-2.63 1.03-1.5 1.45-2.97 1.47-3.04-.03-.01-2.82-1.08-2.82-4.31zM13.7 4.67c.74-.9 1.24-2.14 1.1-3.38-1.07.04-2.36.71-3.12 1.6-.68.79-1.28 2.06-1.12 3.28 1.19.09 2.4-.6 3.14-1.5z"/></svg>;
+const PlayMark = () => <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+  <path fill="#34A853" d="M3.6 2.2 13.4 12l-9.8 9.8c-.36-.2-.6-.6-.6-1.07V3.27c0-.47.24-.87.6-1.07z"/>
+  <path fill="#FBBC04" d="m16.8 8.6-3.4 3.4 3.4 3.4 3.85-2.2c.75-.43.75-1.97 0-2.4L16.8 8.6z"/>
+  <path fill="#4285F4" d="M3.6 21.8 13.4 12l3.4 3.4-11.7 6.68c-.5.29-1.08.2-1.5-.28z"/>
+  <path fill="#EA4335" d="M3.6 2.2c.42-.48 1-.57 1.5-.28L16.8 8.6 13.4 12 3.6 2.2z"/></svg>;
+export function StoreButtons() {
+  const stores = [["App Store", "Descarregar na", APP_STORE_URL, <AppleMark key="a" />], ["Google Play", "Disponível no", PLAY_STORE_URL, <PlayMark key="p" />]];
+  return <div className="store-buttons" aria-label="Descarregar a app Tchilar">
+    {stores.map(([store, kicker, url, mark]) => url
+      ? <a key={store} className="store-button" href={url} target="_blank" rel="noopener noreferrer">{mark}<span><small>{kicker}</small><strong>{store}</strong></span></a>
+      : <span key={store} className="store-button is-soon" title="A app chega em breve">{mark}<span><small>Em breve</small><strong>{store}</strong></span></span>)}
+  </div>;
+}
+
 export function InfoLinks() {
   return <nav className="info-links" aria-label="Informação">
     {INFO_LINKS.map(([to, label]) => <Link key={to} to={to}>{label}</Link>)}

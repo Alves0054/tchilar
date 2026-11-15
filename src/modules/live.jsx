@@ -3,6 +3,20 @@ import { createPortal } from "react-dom";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { Avatar, Icon, UserContext, api, formatCount } from "./core.jsx";
 import { CharCount, LiveBadge, VerifiedBadge, pageTone, usePolling } from "./shared.jsx";
+import GIFT_ART from "../data/live-gifts-art.json";
+
+// Ícone desenhado de um presente (SVG do próprio Tchilar, em src/data/live-gifts-art.json).
+export function GiftIcon({ gift, size = 40 }) {
+  const svg = GIFT_ART[gift];
+  if (!svg) return <Icon name="star" size={size} />;
+  return <img className="gift-icon" src={`data:image/svg+xml;utf8,${encodeURIComponent(svg)}`} width={size} height={size} alt="" aria-hidden="true" />;
+}
+// Som de aviso dos presentes caros (1 a 8, cada um mais rico do que o anterior). Os browsers só tocam
+// depois de a pessoa ter interagido com a página; se não deixarem, segue sem som.
+const playGiftSound = level => {
+  if (!level) return;
+  try { const audio = new Audio(`/sounds/gift-${level}.wav`); audio.volume = 0.8; audio.play().catch(() => {}); } catch { /* sem áudio */ }
+};
 
 // ---------------------------------------------------------------------------------------------
 // Diretos (lives). Com servidor de vídeo (modo "cdn"): quem emite envia uma vez (WHIP ou OBS) e
@@ -678,6 +692,10 @@ export function LiveRoom({ liveId }) {
   const [pinned, setPinned] = useState(null);
   const [roles, setRoles] = useState({ host: "", moderators: [] });
   const [floats, setFloats] = useState([]);
+  const [giftShow, setGiftShow] = useState(null);      // presente a aparecer em grande por cima do vídeo
+  const [giftsOpen, setGiftsOpen] = useState(false);
+  const lastGiftSeen = useRef(null);                   // null = ainda não carregou o feed (não anima o histórico)
+  const giftQueue = useRef([]);
   const reactionTotals = useRef(null);
   const ownReactions = useRef({ heart: 0, like: 0, spark: 0 });
   const [beatMs, setBeatMs] = useState(30000);
@@ -712,7 +730,7 @@ export function LiveRoom({ liveId }) {
 
   useEffect(() => {
     loadLive();
-    api("/lives/config").then(setConfig).catch(() => setConfig({ mode: "p2p", iceServers: [{ urls: "stun:stun.cloudflare.com:3478" }], giftAmounts: [1, 5, 10, 50, 100] }));
+    api("/lives/config").then(setConfig).catch(() => setConfig({ mode: "p2p", iceServers: [{ urls: "stun:stun.cloudflare.com:3478" }], giftAmounts: [1, 5, 10, 50, 100], gifts: [] }));
     const timer = window.setInterval(() => tick(value => value + 1), 1000);
     return () => window.clearInterval(timer);
   }, [liveId]);
@@ -883,7 +901,29 @@ export function LiveRoom({ liveId }) {
     window.setTimeout(() => setFloats(current => current.filter(item => !fresh.includes(item))), 2600);
   };
 
+  // Presentes novos: aparecem um de cada vez, em grande, com o som do presente.
+  const showNextGift = () => {
+    const next = giftQueue.current.shift();
+    if (!next) { setGiftShow(null); return; }
+    setGiftShow(next);
+    playGiftSound(next.sound);
+    window.setTimeout(showNextGift, next.sound >= 6 ? 4200 : next.sound ? 3400 : 2600);
+  };
+  const queueGifts = list => {
+    const catalog = Object.fromEntries((config?.gifts || []).map(item => [item.key, item]));
+    const fresh = list.filter(comment => comment.gift && catalog[comment.gift]);
+    if (!fresh.length) return;
+    const wasIdle = !giftQueue.current.length && !giftShow;
+    giftQueue.current.push(...fresh.slice(-6).map(comment => ({ ...catalog[comment.gift], id: comment.id, from: comment.display_name || "Alguém" })));
+    if (wasIdle) showNextGift();
+  };
   const applyFeed = feed => {
+    const newestGift = feed.comments.reduce((max, comment) => comment.gift ? Math.max(max, comment.id) : max, 0);
+    if (lastGiftSeen.current === null) lastGiftSeen.current = newestGift;
+    else if (newestGift > lastGiftSeen.current) {
+      queueGifts(feed.comments.filter(comment => comment.gift && comment.id > lastGiftSeen.current));
+      lastGiftSeen.current = newestGift;
+    }
     setComments(current => {
       // O feed traz as últimas mensagens visíveis: as apagadas pela moderação desaparecem também aqui.
       const ids = new Set(feed.comments.map(comment => comment.id));
@@ -963,10 +1003,11 @@ export function LiveRoom({ liveId }) {
     }
   };
 
-  const gift = async amount => {
+  const gift = async key => {
     setGiftMessage("");
     try {
-      const result = await api(`/lives/${liveId}/stars`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ amount }) });
+      const result = await api(`/lives/${liveId}/stars`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ gift: key }) });
+      setGiftsOpen(false);
       setBalance(result.balance);
       loadFeed().catch(() => {});
     } catch (giftError) {
@@ -1024,6 +1065,12 @@ export function LiveRoom({ liveId }) {
       <section className="live-stage">
         <div className={`live-video${ended ? " is-ended" : ""}`}>
           <video ref={videoRef} autoPlay playsInline muted={(isHost && !fromObs) || muted} />
+          {/* Presente a aparecer em grande, ao centro do vídeo (por cima de tudo). */}
+          {giftShow && <div key={giftShow.id} className={`live-gift-show level-${giftShow.sound}`} role="status">
+            <GiftIcon gift={giftShow.key} size={giftShow.sound >= 5 ? 150 : 120} />
+            <strong>{giftShow.from}</strong>
+            <span>ofereceu {giftShow.name} · {formatCount(giftShow.kz)} Kz</span>
+          </div>}
           {ended ? <div className="live-overlay is-ended">
             <Avatar user={live} size="large" />
             <strong>O direto terminou</strong>
@@ -1124,7 +1171,7 @@ export function LiveRoom({ liveId }) {
                 <Avatar user={comment} size="tiny" />
                 <span><strong>{comment.display_name || "Alguém"}</strong>
                   {role && <span className={`live-role is-${role}`}>{role === "host" ? "Anfitrião" : "Moderador"}</span>}{" "}
-                  {comment.stars ? <span className="live-gift-text"><Icon name="star" size={13} /> {comment.body}</span> : comment.body}</span>
+                  {comment.stars ? <span className="live-gift-text">{comment.gift ? <GiftIcon gift={comment.gift} size={18} /> : <Icon name="star" size={13} />} {comment.body}</span> : comment.body}</span>
                 {canAct && <span className="live-chat-actions">
                   <button type="button" className="live-chat-action" aria-label={`Fixar mensagem de ${comment.display_name}`} title="Fixar" onClick={() => moderate("pin", comment)}><Icon name="pin" size={14} /></button>
                   <button type="button" className="live-chat-action" aria-label={`Apagar mensagem de ${comment.display_name}`} title="Apagar" onClick={() => moderate("delete", comment)}><Icon name="trash" size={14} /></button>
@@ -1136,8 +1183,17 @@ export function LiveRoom({ liveId }) {
           {!user && !ended && <p className="live-chat-login"><Link to="/login">Entra</Link> para conversar e oferecer estrelas.</p>}
           {user && !ended && <>
             {!isHost && <div className="live-gifts">
-              {(config.giftAmounts || []).map(amount => <button key={amount} type="button" onClick={() => gift(amount)} disabled={balance !== null && balance < amount}><Icon name="star" size={13} /> {amount}</button>)}
-              <Link to="/estrelas" className="live-balance">{balance === null ? "" : `Saldo: ${formatCount(balance)}`}</Link>
+              <button type="button" className="live-gift-open" aria-expanded={giftsOpen} onClick={() => setGiftsOpen(open => !open)}><Icon name="gift" size={15} /> Oferecer presente</button>
+              <Link to="/estrelas" className="live-balance">{balance === null ? "" : `Saldo: ${formatCount(balance)} estrelas`}</Link>
+            </div>}
+            {!isHost && giftsOpen && <div className="live-gift-grid" role="list" aria-label="Presentes">
+              {(config.gifts || []).map(item => <button key={item.key} type="button" role="listitem" className={`live-gift-option${item.sound ? " has-sound" : ""}`}
+                onClick={() => gift(item.key)} disabled={balance !== null && balance < item.stars} title={`${item.name} · ${item.stars} estrelas`}>
+                <GiftIcon gift={item.key} size={40} />
+                <strong>{item.name}</strong>
+                <small>{formatCount(item.kz)} Kz</small>
+              </button>)}
+              {balance !== null && <p className="live-gift-hint">Pagas com estrelas (1 estrela = 10 Kz). <Link to="/estrelas">Comprar estrelas</Link></p>}
             </div>}
             {giftMessage && <p className="live-gift-message" role="status">{giftMessage}</p>}
             <form className="live-chat-form" onSubmit={sendComment}>

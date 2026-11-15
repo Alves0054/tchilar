@@ -13,9 +13,34 @@
   <link rel="icon" type="image/png" href="/tchilar-logo.png">
   <link rel="apple-touch-icon" href="/tchilar-logo.png">
   <title>Tchilar</title>
+  <style>
+    /* Arranque: o logótipo desfoca e foca enquanto o site carrega (o React substitui isto ao abrir). */
+    .boot { position: fixed; inset: 0; display: grid; place-items: center; background: #FFFFFF; }
+    .boot img { width: min(220px, 56vw); height: auto; animation: boot-focus 1.6s ease-in-out infinite alternate; will-change: filter, transform, opacity; }
+    .boot .boot-dark { display: none; }
+    html.boot-is-dark .boot { background: #0B0B0C; }
+    html.boot-is-dark .boot .boot-light { display: none; }
+    html.boot-is-dark .boot .boot-dark { display: block; }
+    @keyframes boot-focus {
+      from { filter: blur(12px); transform: scale(1.06); opacity: .35; }
+      to { filter: blur(0); transform: scale(1); opacity: 1; }
+    }
+    @media (prefers-reduced-motion: reduce) { .boot img { animation: none; } }
+  </style>
+  <script>
+    // Mesmo tema que o site vai usar (escolha guardada ou a do sistema), para o ecrã de arranque não piscar.
+    try {
+      var saved = localStorage.getItem("biva-theme");
+      var dark = saved === "dark" || (saved !== "light" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+      if (dark) document.documentElement.classList.add("boot-is-dark");
+    } catch (e) { /* sem armazenamento: tema claro */ }
+  </script>
 </head>
 <body>
-  <div id="root"></div>
+  <div id="root"><div class="boot" role="status" aria-label="A carregar o Tchilar">
+    <img class="boot-light" src="/tchilar-logo-full.png" alt="Tchilar">
+    <img class="boot-dark" src="/tchilar-logo-full-dark.png" alt="Tchilar">
+  </div></div>
   <script type="module" src="/src/main.jsx"></script>
 </body>
 </html>

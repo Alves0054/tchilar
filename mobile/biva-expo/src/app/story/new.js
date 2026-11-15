@@ -4,6 +4,7 @@ import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
 import { useState } from "react";
 import { ActivityIndicator, FlatList, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { StatusBar } from "expo-status-bar";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { StoryBackground } from "../../components/StoryBackground";
 import { upload } from "../../lib/api";
@@ -43,7 +44,9 @@ export default function NewStory() {
   };
   const ready = Boolean(file || text.trim());
 
+  // Fundo escuro: a barra de estado (hora, bateria) fica branca para se ver.
   return <SafeAreaView style={styles.screen}>
+    <StatusBar style="light" />
     <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === "ios" ? "padding" : undefined}>
       <View style={styles.head}>
         <Pressable onPress={() => router.back()} hitSlop={12}><Ionicons name="close" size={28} color="#fff" /></Pressable>

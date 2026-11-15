@@ -1,9 +1,9 @@
 import { useContext, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { Avatar, Icon, UserContext, api, formatCount, formatPrice, PUBLIC_URL } from "./core.jsx";
 import { relativeTime } from "./feed.jsx";
-import { ContentThumb, PaymentDialog, PersonLine, VerifiedBadge, canBoost, postKind } from "./shared.jsx";
+import { PaymentDialog, PersonLine, VerifiedBadge } from "./shared.jsx";
 
 export function StarsPage() {
   const { user, authReady } = useContext(UserContext);
@@ -157,118 +157,6 @@ export function ProposalDialog({ creator, onClose, onSent }) {
     </form>
   </div>, document.body);
 }
-export function ChallengesPage() {
-  const { challengeId } = useParams();
-  const { user } = useContext(UserContext);
-  const navigate = useNavigate();
-  const [list, setList] = useState(null);
-  const [detail, setDetail] = useState(null);
-  const [myPosts, setMyPosts] = useState([]);
-  const [picking, setPicking] = useState(false);
-  const [creating, setCreating] = useState(false);
-  const [form, setForm] = useState({ title: "", description: "", prize: "", prizeStars: "0", sponsor: "Tchilar", days: "30" });
-  const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
-  const loadList = () => api("/challenges").then(result => setList(result.challenges)).catch(loadError => setError(loadError.message));
-  const loadDetail = id => api(`/challenges/${id}`).then(setDetail).catch(loadError => setError(loadError.message));
-  useEffect(() => { loadList(); }, [user?.id]);
-  useEffect(() => { setDetail(null); if (challengeId) loadDetail(challengeId); }, [challengeId]);
-  useEffect(() => { if (user) api("/creator/content").then(result => setMyPosts(result.posts.filter(canBoost))).catch(() => {}); }, [user?.id]);
-  const current = list?.find(item => String(item.id) === String(challengeId));
-
-  const join = async postId => {
-    setError("");
-    try {
-      await api(`/challenges/${challengeId}/entries`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ postId }) });
-      setPicking(false);
-      setNotice("Estás a participar! Partilha a tua publicação para recolher gostos.");
-      await Promise.all([loadList(), loadDetail(challengeId)]);
-    } catch (joinError) {
-      setError(joinError.message);
-    }
-  };
-  const create = async event => {
-    event.preventDefault();
-    setError("");
-    try {
-      const result = await api("/challenges", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...form, prizeStars: Number(form.prizeStars), days: Number(form.days) }) });
-      setCreating(false);
-      await loadList();
-      navigate(`/desafios/${result.id}`);
-    } catch (createError) {
-      setError(createError.message);
-    }
-  };
-  const close = async () => {
-    if (!window.confirm("Encerrar o desafio? Ganha a participação com mais gostos e o prémio em estrelas é entregue automaticamente.")) return;
-    try {
-      const result = await api(`/challenges/${challengeId}/close`, { method: "POST" });
-      setNotice(result.winner ? `Vencedor: ${result.winner.display_name}.` : "Desafio encerrado sem participações.");
-      await Promise.all([loadList(), loadDetail(challengeId)]);
-    } catch (closeError) {
-      setError(closeError.message);
-    }
-  };
-  const deadline = item => item.is_open ? `Termina ${new Date(item.ends_at).toLocaleDateString("pt-PT", { day: "numeric", month: "long" })}` : "Terminado";
-
-  return <div className="page growth-page challenges-page">
-    <header className="growth-hero card">
-      <span className="growth-hero-icon tone-trophy"><Icon name="trophy" size={28} /></span>
-      <div><p className="feed-section-kicker">Desafios do mês</p><h1>Participa e ganha prémios</h1>
-        <p>Escolhe uma das tuas publicações para entrar no desafio. Ganha quem tiver mais gostos quando o desafio terminar.</p></div>
-      {user?.is_admin && !creating && <button className="btn" type="button" onClick={() => setCreating(true)}><Icon name="plus" size={16} /> Novo desafio</button>}
-    </header>
-    {notice && <p className="success" role="status">{notice}</p>}
-    {error && <p className="error" role="alert">{error}</p>}
-    {creating && <form className="creator-card challenge-form" onSubmit={create}>
-      <h2>Novo desafio</h2>
-      <label>Título<input required maxLength={100} value={form.title} onChange={event => setForm({ ...form, title: event.target.value })} placeholder="Ex.: O melhor vídeo sobre a tua cidade" /></label>
-      <label>Regras<textarea rows={3} maxLength={1000} value={form.description} onChange={event => setForm({ ...form, description: event.target.value })} /></label>
-      <div className="ad-budget">
-        <label>Prémio (texto)<input maxLength={120} value={form.prize} onChange={event => setForm({ ...form, prize: event.target.value })} placeholder="Ex.: 50 000 Kz + destaque" /></label>
-        <label>Prémio em estrelas<input type="number" min="0" value={form.prizeStars} onChange={event => setForm({ ...form, prizeStars: event.target.value })} /></label>
-        <label>Patrocinador<input maxLength={80} value={form.sponsor} onChange={event => setForm({ ...form, sponsor: event.target.value })} /></label>
-        <label>Duração (dias)<input type="number" min="1" max="62" value={form.days} onChange={event => setForm({ ...form, days: event.target.value })} /></label>
-      </div>
-      <div className="modal-actions"><button className="btn secondary" type="button" onClick={() => setCreating(false)}>Cancelar</button><button className="btn" type="submit">Criar desafio</button></div>
-    </form>}
-    <div className="challenges-layout">
-      <section className="challenge-list" aria-label="Desafios">
-        {!list && <div className="empty card">A carregar...</div>}
-        {list && !list.length && <div className="empty card">Ainda não há desafios. Volta em breve!</div>}
-        {list?.map(item => <Link key={item.id} to={`/desafios/${item.id}`} className={`challenge-card card${String(item.id) === String(challengeId) ? " is-active" : ""}`}>
-          <span className={`status-pill ${item.is_open ? "is-ok" : "is-off"}`}>{deadline(item)}</span>
-          <strong>{item.title}</strong>
-          {item.prize && <span className="challenge-prize"><Icon name="gift" size={14} /> {item.prize}{item.prize_stars ? ` · ${formatCount(item.prize_stars)} estrelas` : ""}</span>}
-          <small>{item.sponsor !== "Tchilar" ? `Patrocinado por ${item.sponsor} · ` : ""}{formatCount(item.entries)} {item.entries === 1 ? "participação" : "participações"}{item.my_post_id ? " · estás a participar" : ""}</small>
-        </Link>)}
-      </section>
-      <section className="challenge-detail" aria-label="Detalhe do desafio">
-        {!challengeId && <div className="empty card">Escolhe um desafio para veres a classificação.</div>}
-        {challengeId && !detail && <div className="empty card">A carregar...</div>}
-        {detail && <div className="creator-card">
-          <div className="creator-card-head">
-            <div><h2>{detail.challenge.title}</h2><p>{detail.challenge.description}</p></div>
-            {user?.is_admin && detail.challenge.closed_at === null && <button className="btn secondary" type="button" onClick={close}>Encerrar e premiar</button>}
-          </div>
-          {detail.challenge.is_open && user && !current?.my_post_id && (picking
-            ? <div className="boost-picker"><p className="muted">Escolhe a publicação com que queres participar:</p>
-              {myPosts.length ? <div className="boost-posts">{myPosts.slice(0, 12).map(post => <button key={post.id} type="button" className="boost-post" onClick={() => join(post.id)}><ContentThumb post={post} /><small>{post.excerpt || postKind(post)}</small></button>)}</div>
-                : <p className="muted">Ainda não tens publicações públicas. <Link to="/create">Publica primeiro</Link>.</p>}</div>
-            : <button className="btn" type="button" onClick={() => setPicking(true)}><Icon name="trophy" size={16} /> Participar</button>)}
-          <h3 className="campaign-heading">Classificação</h3>
-          {detail.ranking.length ? <ol className="challenge-ranking">{detail.ranking.map((entry, index) => <li key={entry.post_id} className={detail.challenge.winner_post_id === entry.post_id ? "is-winner" : ""}>
-            <span className={`supporter-rank rank-${index + 1}`}>{index + 1}</span>
-            <ContentThumb post={{ ...entry, views: entry.likes }} />
-            <span className="challenge-entry-text"><Link className="post-author" to={`/u/${entry.username}`}>{entry.display_name}</Link><small>{entry.excerpt || postKind(entry)}</small></span>
-            <span className="challenge-likes"><Icon name="like" size={14} /> {formatCount(entry.likes)}</span>
-            {detail.challenge.winner_post_id === entry.post_id && <span className="status-pill is-ok"><Icon name="trophy" size={12} /> Vencedor</span>}
-          </li>)}</ol> : <p className="muted">Ainda ninguém participou. Sê a primeira pessoa!</p>}
-        </div>}
-      </section>
-    </div>
-  </div>;
-}
 export function InvitePage() {
   const { user, authReady } = useContext(UserContext);
   const [data, setData] = useState(null);
@@ -308,22 +196,3 @@ export const ACADEMY_GUIDES = [
   ["Lê os teus Insights", "stats", ["No Painel do criador, vê que publicações tiveram mais visualizações.", "Repete os formatos que funcionam.", "Compara cada mês com o anterior."]],
   ["Rumo aos 10 mil", "spark", ["O Programa de Parceiros paga a partir de 10 000 seguidores e 10 000 visualizações em 28 dias.", "Impulsiona as publicações que já estão a ter sucesso.", "Com o selo verificado, as marcas confiam mais em ti."]]
 ];
-export function AcademyPage() {
-  return <div className="page narrow growth-page">
-    <header className="growth-hero card">
-      <span className="growth-hero-icon tone-academy"><Icon name="academy" size={28} /></span>
-      <div><p className="feed-section-kicker">Academia Tchilar</p><h1>Cresce como criador</h1>
-        <p>Guias curtos para chegares aos 10 mil seguidores e entrares no Programa de Parceiros.</p></div>
-    </header>
-    <div className="academy-grid">{ACADEMY_GUIDES.map(([title, icon, tips], index) => <article className="creator-card academy-card" key={title}>
-      <span className="academy-step">{index + 1}</span>
-      <h2><Icon name={icon} size={18} /> {title}</h2>
-      <ul>{tips.map(tip => <li key={tip}>{tip}</li>)}</ul>
-    </article>)}</div>
-    <section className="creator-card academy-links">
-      <Link className="btn" to="/creator">Abrir o Painel do criador</Link>
-      <Link className="btn secondary" to="/desafios">Ver desafios</Link>
-      <Link className="btn secondary" to="/convidar">Convidar amigos</Link>
-    </section>
-  </div>;
-}

@@ -14,6 +14,8 @@ export function Messages() {
   const { userId } = useParams();
   const { user } = useContext(UserContext);
   const navigate = useNavigate();
+  // Ligar a esta pessoa: a chamada abre em /calls/:id (lá dá para adicionar mais pessoas, até 8).
+  const startCall = kind => navigate(`/calls/new?to=${selected.id}&kind=${kind}&name=${encodeURIComponent(selected.display_name)}`);
   const [conversations, setConversations] = useState([]);
   const [contacts, setContacts] = useState([]);
   const [messages, setMessages] = useState([]);
@@ -123,7 +125,12 @@ export function Messages() {
     </aside>
     <section className="chat-panel">
       {selected ? <>
-        <header className="chat-header"><Avatar user={selected} /><div><strong>{selected.display_name}</strong><small>@{selected.username}</small></div></header>
+        <header className="chat-header"><Avatar user={selected} /><div><strong>{selected.display_name}</strong><small>@{selected.username}</small></div>
+          <span className="chat-call-buttons">
+            <button type="button" className="round-button" aria-label={`Chamada de voz com ${selected.display_name}`} title="Chamada de voz" onClick={() => startCall("voice")}><Icon name="mic" size={18} /></button>
+            <button type="button" className="round-button" aria-label={`Chamada de vídeo com ${selected.display_name}`} title="Chamada de vídeo" onClick={() => startCall("video")}><Icon name="video" size={18} /></button>
+          </span>
+        </header>
         <div className="chat-messages" aria-live="polite">
           {messages.map(message => {
             const mine = String(message.sender_id) === String(user.id);

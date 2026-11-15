@@ -3,6 +3,7 @@ import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { Avatar, Icon, ThemeContext, UserContext, api, token } from "./core.jsx";
 import { InfoLinks, usePolling } from "./shared.jsx";
 import { MessagesPanel, NotificationsPanel } from "./topbar-panels.jsx";
+import { IncomingCall } from "./group-call.jsx";
 
 export function Layout({ children }) {
   // Preferência guardada: "light", "dark" ou "system" (segue o telemóvel/computador).
@@ -25,6 +26,7 @@ export function Layout({ children }) {
   const [unreadMessages, setUnreadMessages] = useState(0);
   const [authReady, setAuthReady] = useState(!token());
   const location = useLocation();
+  const navigateTo = useNavigate();
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -74,8 +76,13 @@ export function Layout({ children }) {
   return <ThemeContext.Provider value={{ theme, themePreference, setTheme }}><UserContext.Provider value={{ user, refreshUser, authReady }}>
     <div className={`app ${authPage ? "app-public" : "app-community"}`}>
       {!authPage && <TopBar user={user} unreadCount={unreadCount} unreadMessages={unreadMessages} onBadgesChange={refreshBadges}
-        onLogout={() => { localStorage.removeItem("token"); setUser(null); setUnreadCount(0); setUnreadMessages(0); }} />}
+        onLogout={() => {
+          // Termina a sessão no servidor (o token deixa de valer) e depois limpa este browser.
+          api("/auth/logout", { method: "POST" }).catch(() => {});
+          localStorage.removeItem("token"); setUser(null); setUnreadCount(0); setUnreadMessages(0);
+        }} />}
       {authError && !authPage && <p className="global-error">{authError}</p>}
+      {user && !location.pathname.startsWith("/calls/") && <IncomingCall user={user} onAnswer={call => navigateTo(`/calls/${call.id}`)} />}
       <main className={authPage ? "auth-page-main" : ""}>{children}</main>
     </div>
   </UserContext.Provider></ThemeContext.Provider>;

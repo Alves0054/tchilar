@@ -15,16 +15,39 @@ export function storyBackgroundStyle(key) {
   return null;
 }
 
-export const GROUP_TOPICS = catalog.groupTopics;
-export const GROUP_PRIVACY = catalog.groupPrivacy;
-export const PAGE_TYPES = catalog.pageTypes;
+export const GROUP_PRIVACY = catalog.groupPrivacy;       // público, com aprovação, privado (convite), secreto
+export const GROUP_TYPES = catalog.groupTypes;           // 16 tipos (para que serve o grupo)
+export const GROUP_CATEGORIES = catalog.groupCategories; // 32 categorias, 18 com subcategorias
+export const PAGE_TYPES = catalog.pageTypes;          // 30 tipos (página pessoal, loja, banda...)
+export const PAGE_CATEGORIES = catalog.pageCategories; // 19 áreas de atividade, 12 com subcategorias
 
-export const groupTopic = key => GROUP_TOPICS.find(topic => topic.key === key) || GROUP_TOPICS[0];
-export const groupPrivacyOf = group => group.is_secret ? "secret" : group.requires_approval ? "private" : "public";
+export const groupType = key => GROUP_TYPES.find(type => type.key === key) || GROUP_TYPES[0];
+export const groupCategory = key => GROUP_CATEGORIES.find(area => area.key === key) || GROUP_CATEGORIES[0];
+export const groupPrivacyOf = group => group.is_secret ? "secret" : group.invite_only ? "private" : group.requires_approval ? "approval" : "public";
+export const groupPrivacy = group => GROUP_PRIVACY.find(option => option.key === groupPrivacyOf(group));
+// "Free Fire" se houver subcategoria, senão "Jogos e gaming".
+export function groupCategoryLabel(group) {
+  const area = groupCategory(group.category);
+  return area.subcategories.find(item => item.key === group.subcategory)?.label || area.label;
+}
+export function groupCategoryPath(group) {
+  const area = groupCategory(group.category);
+  const sub = area.subcategories.find(item => item.key === group.subcategory);
+  return sub ? `${area.label} › ${sub.label}` : area.label;
+}
 
-export const pageType = key => PAGE_TYPES.find(type => type.key === key) || PAGE_TYPES[PAGE_TYPES.length - 1];
-// Nome da categoria de uma página (ex.: "Restaurante e café"); páginas antigas sem chave mostram o texto guardado.
+export const pageType = key => PAGE_TYPES.find(type => type.key === key) || PAGE_TYPES.find(type => type.key === "comunidade");
+export const pageCategory = key => PAGE_CATEGORIES.find(area => area.key === key) || null;
+// Atividade de uma página: a subcategoria se houver ("DJs"), senão a categoria ("Música e áudio").
 export function pageCategoryLabel(page) {
-  const type = pageType(page.page_type);
-  return type.categories.find(item => item.key === page.category)?.label || page.category || type.label;
+  const area = pageCategory(page.category);
+  if (!area) return pageType(page.page_type).label;
+  return area.subcategories.find(item => item.key === page.subcategory)?.label || area.label;
+}
+// Caminho completo: "Música e áudio › DJs".
+export function pageCategoryPath(page) {
+  const area = pageCategory(page.category);
+  if (!area) return "";
+  const sub = area.subcategories.find(item => item.key === page.subcategory);
+  return sub ? `${area.label} › ${sub.label}` : area.label;
 }

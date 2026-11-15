@@ -243,7 +243,7 @@ function Moderation({ ask }) {
   </>;
 }
 
-const REPORT_ACTIONS = [["dismiss", "Arquivar"], ["hide_post", "Esconder publicação", "post"], ["delete_comment", "Apagar comentário", "comment"], ["suspend_user", "Suspender conta"]];
+const REPORT_ACTIONS = [["dismiss", "Arquivar"], ["hide_post", "Esconder publicação", "post"], ["delete_comment", "Apagar comentário", "comment"], ["hide_course", "Esconder curso", "course"], ["suspend_user", "Suspender conta"]];
 function Reports() {
   const [status, setStatus] = useState("open");
   const { data, error, load } = useAdmin(`/admin/reports?status=${status}`);
@@ -255,7 +255,7 @@ function Reports() {
     <Chips value={status} onChange={setStatus} options={[["open", "Abertas"], ["resolved", "Resolvidas"], ["dismissed", "Arquivadas"]]} />
     <Notice {...notice} />
     {!data ? error ? <AdminError error={error} /> : <Loading /> : data.reports.length === 0 ? <Empty text="Nenhuma denúncia." icon="flag-outline" /> : data.reports.map(report => <Card key={report.id}
-      title={data.reasons[report.reason] || report.reason} subtitle={`${report.target_type === "post" ? "Publicação" : report.target_type === "comment" ? "Comentário" : "Perfil"} de @${report.target_username || "?"} · ${relativeTime(report.created_at)}`}
+      title={data.reasons[report.reason] || report.reason} subtitle={`${{ post: "Publicação", comment: "Comentário", course: "Curso" }[report.target_type] || "Perfil"} de @${report.target_username || "?"} · ${relativeTime(report.created_at)}`}
       right={report.open_reports_on_target > 1 ? <Badge label={`${report.open_reports_on_target} denúncias`} tone="warning" /> : null}>
       {report.target_excerpt ? <Text style={{ color: colors.text }} numberOfLines={6}>{report.target_excerpt}</Text> : null}
       {report.details ? <Text style={{ color: colors.muted }}>Detalhes: {report.details}</Text> : null}
@@ -397,8 +397,133 @@ function Log() {
   </Card>;
 }
 
+
+// ---------------------------------------------------------------------------------------------
+// Desafios: catálogo (40 modelos), editar prémios, lançar o mês e encerrar/premiar.
+const LEVEL_NAMES = { 1: "Bronze", 2: "Prata", 3: "Ouro", 4: "Diamante", 5: "Lenda" };
+const prizeText = prizes => (prizes || []).filter(prize => prize.stars || Number(prize.cashKz))
+  .map(prize => `${prize.place}.º ${[prize.stars ? `${prize.stars}⭐` : "", Number(prize.cashKz) ? kz(prize.cashKz) : ""].filter(Boolean).join(" + ")}`).join(" · ");
+
+function TemplateEditor({ template, canGiveCash, onSave, onCancel }) {
+  const [form, setForm] = useState(() => ({
+    title: template?.title || "", description: template?.description || "", category: template?.category || "geral", level: String(template?.level || 1),
+    active: template?.active ?? true,
+    prizes: (template?.prizes?.length ? template.prizes : [{ stars: 50, cashKz: 0 }, { stars: 30, cashKz: 0 }, { stars: 20, cashKz: 0 }])
+      .map(prize => ({ stars: String(prize.stars || 0), cashKz: String(Number(prize.cashKz) || 0) }))
+  }));
+  const setPrize = (index, key, value) => setForm({ ...form, prizes: form.prizes.map((prize, i) => i === index ? { ...prize, [key]: value } : prize) });
+  return <View style={{ gap: 10, paddingVertical: 8 }}>
+    <Field label="Título" value={form.title} onChangeText={title => setForm({ ...form, title })} maxLength={100} />
+    <Field label="Regras" value={form.description} onChangeText={description => setForm({ ...form, description })} multiline maxLength={1000} />
+    <Field label="Categoria" value={form.category} onChangeText={category => setForm({ ...form, category })} maxLength={40} />
+    <Chips options={Object.entries(LEVEL_NAMES)} value={form.level} onChange={level => setForm({ ...form, level })} />
+    <Text style={{ color: colors.text, fontWeight: "800" }}>Prémios por lugar{canGiveCash ? "" : " (dinheiro: só finanças)"}</Text>
+    {form.prizes.map((prize, index) => <View key={index} style={{ flexDirection: "row", gap: 8, alignItems: "flex-end" }}>
+      <Text style={{ width: 28, fontWeight: "800", color: colors.text, paddingBottom: 14 }}>{index + 1}.º</Text>
+      <View style={{ flex: 1 }}><Field label="Estrelas" value={prize.stars} onChangeText={value => setPrize(index, "stars", value)} keyboardType="number-pad" /></View>
+      <View style={{ flex: 1 }}><Field label="Kz" value={prize.cashKz} onChangeText={value => setPrize(index, "cashKz", value)} keyboardType="decimal-pad" editable={canGiveCash} /></View>
+    </View>)}
+    <View style={{ flexDirection: "row", gap: 8 }}>
+      {form.prizes.length < 10 && <Button small variant="secondary" label="+ Lugar" onPress={() => setForm({ ...form, prizes: [...form.prizes, { stars: "0", cashKz: "0" }] })} />}
+      {form.prizes.length > 1 && <Button small variant="secondary" label="− Lugar" onPress={() => setForm({ ...form, prizes: form.prizes.slice(0, -1) })} />}
+    </View>
+    {template && <Row icon={form.active ? "eye" : "eye-off"} title="Ligado" subtitle="Aparece para lançar" right={<Switch value={form.active} onValueChange={active => setForm({ ...form, active })} />} />}
+    <Button label="Guardar" onPress={() => onSave({ ...form, level: Number(form.level), prizes: form.prizes.map(prize => ({ stars: Number(prize.stars) || 0, cashKz: Number(String(prize.cashKz).replace(",", ".")) || 0 })) })} disabled={!form.title.trim()} />
+    <Button variant="ghost" label="Cancelar" onPress={onCancel} />
+  </View>;
+}
+
+function Challenges() {
+  const catalog = useAdmin("/admin/challenge-templates");
+  const [open, setOpen] = useState(null);
+  const [selected, setSelected] = useState([]);
+  const [days, setDays] = useState("");
+  const [editing, setEditing] = useState(null);
+  const [level, setLevel] = useState("1");
+  const reload = useCallback(async () => { await catalog.load(); setOpen((await api("/challenges")).challenges.filter(item => item.closed_at === null)); }, [catalog.load]);
+  const [notice, run] = useAction(reload);
+  useEffect(() => { api("/challenges").then(result => setOpen(result.challenges.filter(item => item.closed_at === null))).catch(() => setOpen([])); }, []);
+  if (!catalog.data) return catalog.error ? <AdminError error={catalog.error} /> : <Loading />;
+  const { templates, canGiveCash } = catalog.data;
+  const chosen = templates.filter(t => selected.includes(t.id));
+  const chosenCash = chosen.some(t => t.prizes.some(prize => Number(prize.cashKz) > 0));
+  const toggle = id => setSelected(current => current.includes(id) ? current.filter(item => item !== id) : [...current, id]);
+  const launch = () => Alert.alert("Lançar desafios", `Lançar ${chosen.length} ${days ? `por ${days} dias` : "até ao fim do mês"} e avisar todas as pessoas?`, [
+    { text: "Cancelar", style: "cancel" },
+    { text: "Lançar", onPress: () => run(async () => { await api("/admin/challenges/launch", { method: "POST", body: { templateIds: selected, ...(days && { days: Number(days) }) } }); setSelected([]); }, "Lançados. Toda a gente recebeu um aviso.") }
+  ]);
+  const close = challenge => Alert.alert("Encerrar e premiar", `${challenge.title}\n${prizeText(challenge.prizes) || "Sem prémio"}`, [
+    { text: "Cancelar", style: "cancel" },
+    { text: "Encerrar", onPress: () => run(() => api(`/challenges/${challenge.id}/close`, { method: "POST" }), "Encerrado. Os vencedores receberam os prémios.") }
+  ]);
+  const save = (id, body) => run(async () => {
+    await api(id === "new" ? "/admin/challenge-templates" : `/admin/challenge-templates/${id}`, { method: id === "new" ? "POST" : "PATCH", body });
+    setEditing(null);
+  }, "Modelo guardado.");
+
+  return <>
+    <Notice {...notice} />
+    <Card title="Lançar os desafios do mês" subtitle="Escolhe no catálogo (até 20). Toda a gente recebe um aviso. Só contam publicações feitas durante o desafio.">
+      <Chips options={[["", "Até ao fim do mês"], ["7", "7 dias"], ["14", "14 dias"], ["30", "30 dias"]]} value={days} onChange={setDays} />
+      <Text style={{ color: colors.muted }}>{chosen.length} escolhidos{chosenCash ? " · com dinheiro" : ""}</Text>
+      {chosenCash && !canGiveCash && <Text style={{ color: colors.danger }}>Há prémios em dinheiro: só a equipa de finanças lança estes.</Text>}
+      <Button label="Lançar e avisar todos" icon="trophy" onPress={launch} disabled={!chosen.length || (chosenCash && !canGiveCash)} />
+    </Card>
+    <Card title="A decorrer">
+      {!open ? <Loading /> : open.length === 0 ? <Empty text="Nenhum desafio aberto." icon="trophy-outline" />
+        : open.map(item => <Row key={item.id} icon="trophy" tone="#E5A000" title={item.title}
+          subtitle={`${item.level ? LEVEL_NAMES[item.level] : "Especial"} · ${prizeText(item.prizes) || "sem prémio"} · ${item.entries} participações`}
+          right={<Button small label="Encerrar" onPress={() => close(item)} />} />)}
+    </Card>
+    <Card title={`Catálogo (${templates.length})`} subtitle="Estrelas no Bronze, Prata e Ouro; estrelas e dinheiro no Diamante e na Lenda. Tudo editável."
+      right={editing !== "new" ? <Button small variant="secondary" label="Novo" onPress={() => setEditing("new")} /> : null}>
+      {editing === "new" && <TemplateEditor canGiveCash={canGiveCash} onSave={body => save("new", body)} onCancel={() => setEditing(null)} />}
+      <Chips options={Object.entries(LEVEL_NAMES)} value={level} onChange={setLevel} />
+      {templates.filter(t => String(t.level) === level).map(t => <View key={t.id}>
+        <Row icon={selected.includes(t.id) ? "checkbox" : "square-outline"} tone={t.active ? "#0A84FF" : undefined} title={t.title}
+          subtitle={`${t.category} · ${prizeText(t.prizes)}${t.active ? "" : " · desligado"}${t.times_launched ? ` · lançado ${t.times_launched}×` : ""}`}
+          onPress={t.active ? () => toggle(t.id) : undefined}
+          right={editing !== t.id ? <Button small variant="secondary" label="Editar" onPress={() => setEditing(t.id)} /> : null} />
+        {editing === t.id && <TemplateEditor template={t} canGiveCash={canGiveCash} onSave={body => save(t.id, body)} onCancel={() => setEditing(null)} />}
+      </View>)}
+    </Card>
+  </>;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Cursos: rever os cursos dos criadores antes de irem para a venda.
+function Courses({ ask }) {
+  const [status, setStatus] = useState("review");
+  const { data, error, load } = useAdmin(`/admin/courses?status=${status}`);
+  const [notice, run] = useAction(load);
+  const act = async (course, action) => {
+    let note = "";
+    if (action !== "approve") {
+      note = await ask({ title: action === "reject" ? "Pedir mudanças" : "Retirar da Academia", message: course.title, placeholder: "O criador recebe esta nota" });
+      if (!note) return;
+    }
+    run(() => api(`/admin/courses/${course.id}/review`, { method: "POST", body: { action, note } }),
+      { approve: "Aprovado e à venda.", reject: "Devolvido ao criador.", hide: "Retirado da Academia." }[action]);
+  };
+  return <>
+    <Chips options={[["review", "Por rever"], ["published", "À venda"], ["rejected", "Recusados"], ["hidden", "Retirados"]]} value={status} onChange={setStatus} />
+    <Notice {...notice} />
+    {!data ? error ? <AdminError error={error} /> : <Loading /> : data.courses.length === 0 ? <Empty text="Nada aqui." icon="school-outline" />
+      : data.courses.map(course => <Card key={course.id} title={course.title}
+        subtitle={`${course.by_team ? "Equipa Tchilar" : `@${course.owner_username}`} · ${Number(course.price_kz) ? kz(course.price_kz) : "Grátis"} · ${course.lessons_count} aulas · ${course.students} alunos`}>
+        {course.summary ? <Text style={{ color: colors.text }}>{course.summary}</Text> : null}
+        {course.review_note ? <Text style={{ color: colors.muted }}>Nota: {course.review_note}</Text> : null}
+        <Button small variant="secondary" label="Ver aulas" onPress={() => router.push(`/academy/${course.id}`)} />
+        {["review", "hidden"].includes(status) && <Button small label={status === "hidden" ? "Repor" : "Aprovar"} onPress={() => act(course, "approve")} />}
+        {status === "review" && <Button small variant="secondary" label="Pedir mudanças" onPress={() => act(course, "reject")} />}
+        {status === "published" && <Button small variant="danger" label="Retirar" onPress={() => act(course, "hide")} />}
+      </Card>)}
+  </>;
+}
+
 const SECTIONS = { painel: Overview, pagamentos: Payments, "por-resolver": Attempts, levantamentos: Payouts, financas: Finance, utilizadores: Users,
-  moderacao: Moderation, denuncias: Reports, promocoes: Promotions, musicas: Music, dados: DataRequests, avisos: Broadcasts, registo: Log };
+  moderacao: Moderation, denuncias: Reports, promocoes: Promotions, musicas: Music, dados: DataRequests, avisos: Broadcasts, registo: Log,
+  desafios: Challenges, cursos: Courses };
 
 export default function AdminSection() {
   const { section } = useLocalSearchParams();

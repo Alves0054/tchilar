@@ -5,9 +5,11 @@
 // No Expo Go, este ecrã explica isso e oferece o estúdio do site.
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, router } from "expo-router";
+import { StatusBar } from "expo-status-bar";
 import { useEffect, useRef, useState } from "react";
 import { Alert, KeyboardAvoidingView, Linking, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { GiftShow, useGiftShow } from "../../components/LiveGifts";
 import { Button, Chips } from "../../components/ui";
 import { WEB_URL, api } from "../../lib/api";
 import { colors } from "../../lib/theme";
@@ -55,8 +57,23 @@ export default function GoLive() {
   const [viewers, setViewers] = useState(0);
   const [error, setError] = useState("");
   const whip = useRef(null);
+  // Presentes que chegam durante o direto: quem transmite vê-os em grande e ouve o som dos mais caros.
+  const [feed, setFeed] = useState(null);
+  const [gifts, setGifts] = useState([]);
+  const giftNow = useGiftShow(feed?.comments, gifts);
+  useEffect(() => {
+    if (state !== "live" || !liveId) return undefined;
+    let active = true;
+    let timer;
+    const load = async () => {
+      try { const result = await api(`/lives/${liveId}/feed`); if (active) setFeed(result); } catch { /* tenta outra vez */ }
+      if (active) timer = setTimeout(load, 2500);
+    };
+    load();
+    return () => { active = false; clearTimeout(timer); };
+  }, [state, liveId]);
 
-  useEffect(() => { api("/lives/config").then(setConfig).catch(loadError => setError(loadError.message)); }, []);
+  useEffect(() => { api("/lives/config").then(result => { setConfig(result); setGifts(result.gifts || []); }).catch(loadError => setError(loadError.message)); }, []);
 
   // Câmara ligada logo à entrada, para a pessoa se ver antes de começar.
   useEffect(() => {
@@ -151,7 +168,9 @@ export default function GoLive() {
   const live = state === "live";
   return <View style={styles.screen}>
     <Stack.Screen options={{ headerShown: false }} />
+    <StatusBar style="light" />
     {stream && <RTCView streamURL={stream.toURL()} style={StyleSheet.absoluteFill} objectFit="cover" mirror={facing === "user"} />}
+    <GiftShow gift={giftNow} />
     <SafeAreaView style={styles.overlay} edges={["top", "bottom"]}>
       <View style={styles.top}>
         <Pressable onPress={() => (live ? end() : leave())} hitSlop={12} accessibilityLabel={live ? "Terminar" : "Fechar"}>

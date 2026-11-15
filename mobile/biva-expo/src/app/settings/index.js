@@ -8,9 +8,10 @@ export const SETTINGS_SECTIONS = [
   ["conta", "mail", "Conta", "Email, tipo de conta e apagar conta", "#2EAA6B"],
   ["seguranca", "shield-checkmark", "Segurança", "Palavra-passe, dois passos e sessões", "#E8890C"],
   ["privacidade", "lock-closed", "Privacidade", "Mensagens, comentários, atividade e bloqueios", "#8E44AD"],
+  ["aparencia", "contrast", "Aparência", "Tema claro ou escuro", "#5E5CE6"],
   ["notificacoes", "notifications", "Notificações", "Escolhe sobre o que te avisamos", colors.accent],
   ["pagamentos", "card", "Pagamentos e recibos", "O que pagaste e os recibos", colors.secondary],
-  ["dados", "folder-open", "Os teus dados", "Pedidos à equipa (Lei n.º 22/11)", colors.ink]
+  ["dados", "folder-open", "Os teus dados", "Pedidos à equipa (Lei n.º 22/11)", "#8E8E93"]
 ];
 
 export default function Settings() {

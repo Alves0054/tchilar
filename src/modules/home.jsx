@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Avatar, Icon, api, formatCount } from "./core.jsx";
-import { groupTopic, pageCategoryLabel, pageType } from "./community-types.js";
+import { groupCategory, groupCategoryLabel, pageCategoryLabel, pageType } from "./community-types.js";
 
 // ---------------------------------------------------------------------------------------------
 // Ecrã inicial: "O que está a acontecer?" (faixa Agora) e "O que descobrir / com quem falar?"
@@ -38,7 +38,7 @@ export function HomeNow({ now }) {
             : event.location || "Sê a primeira pessoa a ir"}</small></span>
       </Link>)}
       {groups.map(group => <Link className="home-now-item" key={`g${group.id}`} to={`/groups/${group.id}`}>
-        <span className="home-now-icon tone-groups"><Icon name={groupTopic(group.topic).icon} size={18} /></span>
+        <span className="home-now-icon tone-groups"><Icon name={groupCategory(group.category).icon} size={18} /></span>
         <span><strong>{group.name}</strong>
           <small>{group.new_posts} {group.new_posts === 1 ? "publicação nova" : "publicações novas"}</small></span>
       </Link>)}
@@ -101,8 +101,8 @@ export function HomeDiscover({ discover, variant = "column" }) {
       <h3>Grupos para ti</h3>
       <ul>{groups.slice(0, 3).map(group => <li key={`g${group.id}`} className="home-discover-item">
         <Link to={`/groups/${group.id}`} className="home-discover-main">
-          <span className="home-discover-icon tone-groups"><Icon name={groupTopic(group.topic).icon} size={18} /></span>
-          <span><strong>{group.name}</strong><small>{groupTopic(group.topic).label} · {communityReason(group, "membros")}</small></span></Link>
+          <span className="home-discover-icon tone-groups"><Icon name={groupCategory(group.category).icon} size={18} /></span>
+          <span><strong>{group.name}</strong><small>{groupCategoryLabel(group)} · {communityReason(group, "membros")}</small></span></Link>
         {actionButton(`g${group.id}`, group.requires_approval ? "Pedir" : "Participar", "Membro", `/groups/${group.id}/join`)}
       </li>)}</ul>
     </div>}

@@ -1,0 +1,103 @@
+[
+  {
+    "key": "comecar", "icon": "profile", "title": "Começar",
+    "items": [
+      ["Criar conta", "Precisas de nome, nome de utilizador, email, palavra-passe e data de nascimento (a partir dos 13 anos). O telemóvel é opcional e privado."],
+      ["Confirmar o email", "Enviamos uma ligação para o teu email. Sem ela não consegues recuperar a conta se esqueceres a palavra-passe."],
+      ["O teu perfil", "Põe uma foto, uma capa e uma biografia curta. A profissão, a localidade e o teu site ajudam as pessoas e as marcas a encontrar-te."],
+      ["Modo criador", "Ativa-o no Painel do criador para teres subscrições, estrelas, campanhas com marcas, venda de cursos e o Painel do criador."]
+    ]
+  },
+  {
+    "key": "publicar", "icon": "create", "title": "Publicar",
+    "items": [
+      ["Publicações", "Texto, foto ou vídeo, no Início, num grupo, numa página ou no teu perfil. Podes editar e apagar o que publicaste."],
+      ["Editar fotos e vídeos", "Antes de publicar: efeitos, brilho, contraste e saturação, rodar, espelhar e cortar. Nos vídeos também cortas o início e o fim, mudas a velocidade, escreves texto por cima e pões música."],
+      ["Hashtags", "Escreve #palavra no texto (ex.: #Luanda). Ao tocar numa hashtag vês todas as publicações com ela."],
+      ["Só para subscritores", "Os criadores podem marcar uma publicação como exclusiva: só quem subscreve a vê."],
+      ["Stories", "Foto, vídeo ou texto com fundo de cor, que desaparece ao fim de 24 horas."],
+      ["Reels", "Vídeos curtos em ecrã inteiro. São o formato que chega a mais pessoas."]
+    ]
+  },
+  {
+    "key": "pessoas", "icon": "friends", "title": "Amigos, seguir e mensagens",
+    "items": [
+      ["Amigos e seguir", "Seguir é só ver as publicações de alguém. Amizade é nos dois sentidos e abre as mensagens."],
+      ["Mensagens", "Conversas privadas. Nas Definições → Privacidade escolhes quem te pode escrever."],
+      ["Pesquisa", "A lupa encontra pessoas, publicações, hashtags, grupos e páginas."],
+      ["Notificações", "O sino mostra gostos, comentários, pedidos de amizade, mensagens, pagamentos e prémios. Na app chegam ao telemóvel mesmo com a app fechada."]
+    ]
+  },
+  {
+    "key": "comunidade", "icon": "groups", "title": "Grupos, páginas e eventos",
+    "items": [
+      ["Grupos públicos", "Qualquer pessoa entra e vê as publicações."],
+      ["Grupos privados", "O dono aprova quem entra."],
+      ["Grupos secretos", "Só para maiores de 18. Não aparecem na lista: só os encontra quem sabe o nome exato. A entrada pode ser paga e o dono recebe 70%."],
+      ["Páginas", "Para negócios, artistas, projetos e marcas. As pessoas seguem a página."],
+      ["Eventos", "Marca encontros, festas e aulas. Quem participa recebe a data e o local."]
+    ]
+  },
+  {
+    "key": "diretos", "icon": "live", "title": "Diretos",
+    "items": [
+      ["Ver um direto", "Comenta, reage e oferece estrelas a quem está a transmitir."],
+      ["Entrar em direto", "Na app instalada, transmites com a câmara do telemóvel. No site há o estúdio, e também podes usar o OBS. Quem te segue recebe um aviso."],
+      ["Moderar", "Quem transmite (e os moderadores que escolher) pode fixar comentários, silenciar pessoas e terminar o direto."]
+    ]
+  },
+  {
+    "key": "estrelas", "icon": "star", "title": "Estrelas",
+    "items": [
+      ["O que são", "Uma forma de apoiar quem gostas. Cada estrela custa 10 Kz e há pacotes com estrelas de bónus."],
+      ["Oferecer", "Em publicações e diretos, de 1 a 100 estrelas de cada vez."],
+      ["Para o criador", "Quem recebe fica com 70% do valor das estrelas, que entra no saldo para levantar."],
+      ["Ganhar estrelas", "Convida amigos (50 estrelas por cada pessoa que entra e publica) e participa nos desafios do mês."]
+    ]
+  },
+  {
+    "key": "desafios", "icon": "trophy", "title": "Desafios do mês",
+    "items": [
+      ["Como participar", "Escolhe um desafio e entra com uma publicação pública tua, feita depois de o desafio começar. Ganha quem tiver mais gostos no fim."],
+      ["Níveis", "Bronze, Prata, Ouro, Diamante e Lenda. Quanto mais alto o nível, maior o prémio."],
+      ["Prémios", "1.º, 2.º e 3.º lugar recebem estrelas. Nos níveis Diamante e Lenda também há prémios em dinheiro (Kz), que entram no teu saldo e se levantam para o IBAN."],
+      ["Todos os meses", "A equipa lança novos desafios no início do mês e todas as pessoas recebem um aviso."]
+    ]
+  },
+  {
+    "key": "academia", "icon": "academy", "title": "Academia e cursos",
+    "items": [
+      ["Guias", "Dicas rápidas para cresceres como criador."],
+      ["Cursos", "Cursos com aulas em vídeo e texto, feitos por criadores e pela equipa. Há cursos grátis e pagos; as aulas de amostra veem-se antes de comprar."],
+      ["Vender um curso", "Com o modo criador (ativa-o no Painel do criador), cria o curso, junta as aulas e envia para revisão. Depois de aprovado fica à venda e recebes 85% de cada venda."]
+    ]
+  },
+  {
+    "key": "ganhar", "icon": "stats", "title": "Ganhar dinheiro como criador",
+    "items": [
+      ["Subscrições", "Defines um preço mensal (500 a 500 000 Kz) e quem subscreve vê as tuas publicações exclusivas."],
+      ["Programa de Parceiros", "A partir de 10 000 seguidores e 10 000 visualizações em 28 dias, o Tchilar paga-te pelas visualizações."],
+      ["Campanhas com marcas", "As marcas encontram-te no marketplace e propõem campanhas. Recebes 85% do valor."],
+      ["Promoções", "Paga para mostrar uma publicação a mais pessoas da tua província e idade."],
+      ["Levantamentos", "No Painel do criador → Ganhos. Mínimo de 5 000 Kz, para um IBAN angolano. O teu IBAN fica guardado de forma cifrada."]
+    ]
+  },
+  {
+    "key": "pagamentos", "icon": "card", "title": "Pagamentos e recibos",
+    "items": [
+      ["Multicaixa Express", "Recebes o pedido na app do telemóvel e aprovas lá."],
+      ["Pagamento por Referência", "Pagas no ATM, no Multicaixa Express ou no homebanking com a entidade e a referência. Vale 3 dias."],
+      ["Cartão", "Visa ou Mastercard, numa página segura."],
+      ["Recibos", "Em Definições → Pagamentos e recibos tens todos os teus pagamentos, com recibo."]
+    ]
+  },
+  {
+    "key": "seguranca", "icon": "lock", "title": "Privacidade e segurança",
+    "items": [
+      ["Verificação em dois passos", "Um código da app autenticadora além da palavra-passe. Liga-a em Definições → Segurança."],
+      ["Bloquear e denunciar", "No ⋯ de um perfil ou publicação. A equipa analisa todas as denúncias."],
+      ["Os teus dados", "Descarrega uma cópia de tudo ou apaga a conta quando quiseres, em Definições → Conta (Lei n.º 22/11)."],
+      ["Ajuda", "Perguntas frequentes e contacto com a equipa em Menu → Ajuda."]
+    ]
+  }
+]

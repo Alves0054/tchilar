@@ -4,7 +4,7 @@ import { useContext, useEffect, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { API, Icon, UserContext, api, formatPrice, token } from "./core.jsx";
 
-const KIND_OPTIONS = [["", "Todos os tipos"], ["ad", "Promoções"], ["stars", "Estrelas"], ["campaign", "Campanhas"], ["group_access", "Entradas em grupos"]];
+const KIND_OPTIONS = [["", "Todos os tipos"], ["ad", "Promoções"], ["stars", "Estrelas"], ["campaign", "Campanhas"], ["group_access", "Entradas em grupos"], ["course", "Cursos"]];
 const METHOD_OPTIONS = [["", "Todos os métodos"], ["express", "Multicaixa Express"], ["reference", "Referência"], ["card", "Cartão"], ["demo", "Demonstração"]];
 const STATUS_OPTIONS = [["", "Todos os estados"], ["paid", "Pagos"], ["refunded", "Reembolsados"], ["refund_due", "Reembolso por fazer"]];
 
@@ -50,7 +50,7 @@ export function AdminPayments() {
   // Express e Referência não se devolvem sozinhos: a equipa transfere à mão e confirma aqui (fica no registo).
   // Reembolso: retira o que o pagamento deu e devolve o dinheiro (cartão automático; Express/Referência à mão).
   const refund = async payment => {
-    const what = { stars: "As Estrelas saem do saldo da pessoa.", group_access: "A pessoa sai do grupo.", campaign: "A campanha é cancelada.", ad: "A promoção sai do ar." }[payment.kind];
+    const what = { stars: "As Estrelas saem do saldo da pessoa.", group_access: "A pessoa sai do grupo.", course: "A pessoa perde o acesso ao curso.", campaign: "A campanha é cancelada.", ad: "A promoção sai do ar." }[payment.kind];
     const note = window.prompt(`Reembolsar ${formatPrice(payment.amount)} a @${payment.customer?.username || "?"} (${payment.receipt})?
 ${what}
 Motivo (fica no registo):`);

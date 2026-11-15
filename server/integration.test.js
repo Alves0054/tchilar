@@ -51,10 +51,10 @@ after(async () => {
   await adminPool.end();
 });
 
-const call = async (method, path, user, body) => {
+const call = async (method, path, user, body, extraHeaders = {}) => {
   const response = await fetch(baseUrl + path, {
     method,
-    headers: { ...(body ? { "Content-Type": "application/json" } : {}), ...(user ? { Authorization: `Bearer ${user.token}` } : {}) },
+    headers: { ...(body ? { "Content-Type": "application/json" } : {}), ...(user ? { Authorization: `Bearer ${user.token}` } : {}), ...extraHeaders },
     body: body ? JSON.stringify(body) : undefined
   });
   return { status: response.status, body: await response.json().catch(() => ({})) };
@@ -242,13 +242,14 @@ test("secret groups: adults only, hidden from the list, paid entry by exact name
   assert.equal(earnings.body.sources.groupsKz, 1750);
 });
 
-test("private groups: the owner approves or declines who joins", { skip }, async () => {
-  assert.equal((await call("POST", "/groups", users.ana, { name: "Tema inválido", topic: "nada" })).status, 400);
-  const created = await call("POST", "/groups", users.ana, { name: "Vendas no Bairro", privacy: "private", topic: "compra-venda" });
+test("approval groups: the owner approves or declines who joins", { skip }, async () => {
+  assert.equal((await call("POST", "/groups", users.ana, { name: "Tipo inválido", groupType: "nada" })).status, 400);
+  const created = await call("POST", "/groups", users.ana, { name: "Vendas no Bairro", privacy: "approval", groupType: "compra-venda", category: "compra-venda", subcategory: "telemoveis" });
   assert.equal(created.status, 201);
   const id = created.body.group.id;
   const listed = async user => (await call("GET", "/groups", user)).body.groups.find(g => g.id === id);
-  assert.deepEqual([(await listed(users.bruno)).topic, (await listed(users.bruno)).requires_approval], ["compra-venda", true], "aparece na lista");
+  const seen = await listed(users.bruno);
+  assert.deepEqual([seen.group_type, seen.category, seen.subcategory, seen.requires_approval], ["compra-venda", "compra-venda", "telemoveis", true], "aparece na lista");
 
   // Pedir entrada não torna ninguém membro; o dono vê o pedido.
   assert.equal((await call("POST", `/groups/${id}/join`, users.bruno)).status, 202);
@@ -270,12 +271,12 @@ test("private groups: the owner approves or declines who joins", { skip }, async
 });
 
 test("pages need a type and a category that belongs to it", { skip }, async () => {
-  assert.equal((await call("POST", "/pages", users.ana, { name: "Errada", pageType: "figura", category: "restaurante" })).status, 400);
-  const created = await call("POST", "/pages", users.ana, { name: "Café da Ilha", pageType: "negocio", category: "restaurante" });
+  assert.equal((await call("POST", "/pages", users.ana, { name: "Errada", pageType: "restaurante", category: "musica", subcategory: "restaurantes" })).status, 400);
+  const created = await call("POST", "/pages", users.ana, { name: "Café da Ilha", pageType: "restaurante", category: "alimentacao", subcategory: "cafes" });
   assert.equal(created.status, 201);
-  assert.deepEqual([created.body.page.page_type, created.body.page.category], ["negocio", "restaurante"]);
+  assert.deepEqual([created.body.page.page_type, created.body.page.category, created.body.page.subcategory], ["restaurante", "alimentacao", "cafes"]);
   const plain = await call("POST", "/pages", users.ana, { name: "Sem tipo" });
-  assert.deepEqual([plain.body.page.page_type, plain.body.page.category], ["comunidade", "comunidade"]);
+  assert.deepEqual([plain.body.page.page_type, plain.body.page.category], ["comunidade", "sociedade"]);
 });
 
 test("home screen: what is happening, what to discover, who to talk to", { skip }, async () => {
@@ -308,8 +309,8 @@ test("home screen: what is happening, what to discover, who to talk to", { skip 
   assert.deepEqual((await home(eva)).now.online, [], "escondeu a atividade");
 
   // Descobrir: o grupo onde está um amigo vem antes; depois de entrar deixa de ser sugerido.
-  const quiet = (await call("POST", "/groups", hugo, { name: "Grupo calmo", topic: "viagens" })).body.group;
-  const busy = (await call("POST", "/groups", gil, { name: "Grupo do Gil", topic: "desporto" })).body.group;
+  const quiet = (await call("POST", "/groups", hugo, { name: "Grupo calmo", category: "viagens" })).body.group;
+  const busy = (await call("POST", "/groups", gil, { name: "Grupo do Gil", category: "desporto" })).body.group;
   await call("POST", `/groups/${busy.id}/join`, filipe);
   const groups = (await home(eva)).discover.groups.map(group => group.id);
   assert.ok(groups.indexOf(busy.id) < groups.indexOf(quiet.id), "o grupo com amigos vem primeiro");
@@ -366,7 +367,7 @@ test("search finds people, posts, hashtags, groups and pages without leaking hid
   await newPost(users.bruno, { body: `Treino de ${word}` });
   const exclusive = await newPost(users.carla, { body: `Só para fãs #${word}`, isExclusive: true });
   const group = (await call("POST", "/groups", users.ana, { name: `Dança ${word}`, description: "Aulas ao sábado" })).body.group;
-  const page = (await call("POST", "/pages", users.bruno, { name: `Escola ${word}`, pageType: "negocio", category: "loja" })).body.page;
+  const page = (await call("POST", "/pages", users.bruno, { name: `Escola ${word}`, pageType: "loja", category: "negocios" })).body.page;
 
   const posts = (await call("GET", `/posts?q=${word}`, null)).body.posts.map(post => post.id); // sem sessão: sem subscrições
   assert.ok(posts.includes(visible.id));
@@ -387,10 +388,18 @@ test("search finds people, posts, hashtags, groups and pages without leaking hid
 test("push: the phone of the person gets the notification once, and a revoked session stops it", { skip }, async () => {
   const { createPush } = require("./push");
   const token = `ExponentPushToken[it${Date.now()}abcdef]`;
-  assert.equal((await call("POST", "/push-tokens", users.bruno, { token: "not-a-token", platform: "ios" })).status, 400);
-  assert.equal((await call("POST", "/push-tokens", users.bruno, { token, platform: "android" })).status, 204);
-  await call("POST", "/push-tokens", users.carla, { token, platform: "android" });
-  assert.equal((await pool.query("SELECT user_id FROM push_tokens WHERE token=$1", [token])).rows[0].user_id, users.bruno.id, "outra conta não fica com o token");
+  const deviceKey = crypto.randomBytes(32).toString("hex");
+  const owner = async () => (await pool.query("SELECT user_id FROM push_tokens WHERE token=$1", [token])).rows[0].user_id;
+  assert.equal((await call("POST", "/push-tokens", users.bruno, { token: "not-a-token", platform: "ios", deviceKey })).status, 400);
+  assert.equal((await call("POST", "/push-tokens", users.bruno, { token, platform: "android" })).status, 400, "sem chave do telemóvel");
+  assert.equal((await call("POST", "/push-tokens", users.bruno, { token, platform: "android", deviceKey })).status, 204);
+  // Quem só sabe o token (outra chave) não o desvia.
+  assert.equal((await call("POST", "/push-tokens", users.carla, { token, platform: "android", deviceKey: crypto.randomBytes(32).toString("hex") })).status, 409);
+  assert.equal(await owner(), users.bruno.id);
+  // O mesmo telemóvel (mesma chave) a entrar noutra conta: os avisos passam para a conta nova.
+  assert.equal((await call("POST", "/push-tokens", users.carla, { token, platform: "android", deviceKey })).status, 204);
+  assert.equal(await owner(), users.carla.id);
+  assert.equal((await call("POST", "/push-tokens", users.bruno, { token, platform: "android", deviceKey })).status, 204);
   const sent = [];
   const fetchImpl = async (_url, options) => {
     const chunk = JSON.parse(options.body);
@@ -419,6 +428,218 @@ test("push: the phone of the person gets the notification once, and a revoked se
   await pool.query("UPDATE users SET auth_version=auth_version-1 WHERE id=$1", [users.bruno.id]);
   assert.equal((await call("DELETE", "/push-tokens", users.bruno, { token })).status, 204);
   assert.equal((await pool.query("SELECT 1 FROM push_tokens WHERE token=$1", [token])).rowCount, 0);
+});
+
+// Contas próprias para estes testes (equipa com papéis diferentes, criador e comprador).
+const makeUser = async (name, extra = {}) => {
+  const row = (await pool.query(
+    `INSERT INTO users(username,email,password_hash,display_name,email_verified,is_creator,is_admin,admin_role,totp_enabled_at)
+     VALUES($1,$2,'x',$3,TRUE,$4,$5,$6,$7) RETURNING id,username`,
+    [name, `${name}@example.com`, name, Boolean(extra.creator), Boolean(extra.role), extra.role || null, extra.role ? new Date() : null])).rows[0];
+  return { ...row, token: jwt.sign({ id: row.id, username: row.username, version: 0 }, process.env.JWT_SECRET, { expiresIn: "1h" }) };
+};
+
+test("monthly challenges: 40 templates, launch to everyone, prizes by place in stars and money", { skip }, async () => {
+  const stamp = Date.now().toString(36);
+  const sup = await makeUser(`sup_${stamp}`, { role: "super" });
+  const mod = await makeUser(`mod_${stamp}`, { role: "moderation" });
+  const p1 = await makeUser(`p1_${stamp}`);
+  const p2 = await makeUser(`p2_${stamp}`);
+  const fan = await makeUser(`fan_${stamp}`);
+
+  const catalog = (await call("GET", "/admin/challenge-templates", mod)).body;
+  assert.ok(catalog.templates.length >= 40);
+  assert.equal(catalog.canGiveCash, false);
+  assert.equal((await call("GET", "/admin/challenge-templates", p1)).status, 403);
+  const bronze = catalog.templates.find(t => t.code === "bom-dia-angola");
+  const lenda = catalog.templates.find(t => t.code === "criador-do-mes");
+  assert.deepEqual(lenda.prizes[0], { place: 1, stars: 1000, cashKz: 25000 });
+
+  // Dinheiro é com as finanças/super.
+  assert.equal((await call("POST", "/admin/challenges/launch", mod, { templateIds: [lenda.id] })).status, 403);
+  assert.equal((await call("PATCH", `/admin/challenge-templates/${bronze.id}`, mod, { prizes: [{ stars: 10, cashKz: 100 }] })).status, 403);
+  assert.equal((await call("PATCH", `/admin/challenge-templates/${bronze.id}`, mod, { title: "Bom dia, Angola!" })).status, 200);
+  assert.equal((await call("PATCH", `/admin/challenge-templates/${lenda.id}`, sup, { prizes: [{ stars: 1000, cashKz: 30000 }, { stars: 500, cashKz: 10000 }] })).status, 200);
+
+  const before = Number((await pool.query("SELECT COUNT(*) FROM notifications WHERE user_id=$1 AND type='challenge'", [fan.id])).rows[0].count);
+  const launched = await call("POST", "/admin/challenges/launch", sup, { templateIds: [lenda.id, bronze.id] });
+  assert.equal(launched.status, 201);
+  assert.equal(launched.body.challenges.length, 2);
+  const after = Number((await pool.query("SELECT COUNT(*) FROM notifications WHERE user_id=$1 AND type='challenge'", [fan.id])).rows[0].count);
+  assert.equal(after, before + 1, "cada pessoa recebe um aviso por lançamento");
+  const challengeId = launched.body.challenges.find(c => c.title === lenda.title).id;
+
+  // Só contam publicações feitas depois de o desafio começar.
+  const old = (await pool.query("INSERT INTO posts(user_id,body,created_at) VALUES($1,'antiga',NOW() - INTERVAL '2 days') RETURNING id", [p1.id])).rows[0];
+  assert.equal((await call("POST", `/challenges/${challengeId}/entries`, p1, { postId: old.id })).status, 400);
+  const a = await newPost(p1, { body: "A minha melhor foto" });
+  const b = await newPost(p2, { body: "A minha também" });
+  assert.equal((await call("POST", `/challenges/${challengeId}/entries`, p1, { postId: a.id })).status, 201);
+  assert.equal((await call("POST", `/challenges/${challengeId}/entries`, p2, { postId: b.id })).status, 201);
+  await call("POST", `/posts/${b.id}/like`, fan);
+
+  assert.equal((await call("POST", `/challenges/${challengeId}/close`, mod)).status, 403, "prémio em dinheiro: só finanças encerra");
+  const closed = await call("POST", `/challenges/${challengeId}/close`, sup);
+  assert.equal(closed.status, 200);
+  assert.deepEqual(closed.body.awards.map(item => [item.place, item.username, item.stars, item.cashKz]),
+    [[1, p2.username, 1000, 30000], [2, p1.username, 500, 10000]]);
+  const detail = (await call("GET", `/challenges/${challengeId}`, fan)).body;
+  assert.equal(detail.awards.length, 2);
+  // O dinheiro entra no saldo de ganhos; as estrelas no saldo de estrelas.
+  assert.equal((await call("GET", "/payouts", p2)).body.sources.prizesKz, 30000);
+  assert.equal((await call("GET", "/payouts", p2)).body.available, 30000);
+  assert.equal((await call("POST", `/challenges/${challengeId}/close`, sup)).status, 409, "não encerra duas vezes");
+});
+
+test("academy courses: creators sell, the team reviews, buyers unlock lessons and the creator gets 85%", { skip }, async () => {
+  const stamp = Date.now().toString(36);
+  const mod = await makeUser(`cmod_${stamp}`, { role: "moderation" });
+  const creator = await makeUser(`prof_${stamp}`, { creator: true });
+  const buyer = await makeUser(`aluno_${stamp}`);
+
+  assert.equal((await call("POST", "/courses", buyer, { title: "Curso" })).status, 403, "só criadores");
+  assert.equal((await call("POST", "/courses", creator, { title: "Curso", priceKz: 100 })).status, 400, "preço mínimo");
+  const id = (await call("POST", "/courses", creator, { title: "Reels que vendem", summary: "Do zero ao primeiro cliente", priceKz: 2000, category: "marketing" })).body.id;
+  assert.equal((await call("POST", `/courses/${id}/submit`, creator)).status, 400, "sem aulas não publica");
+  assert.equal((await call("POST", `/courses/${id}/lessons`, creator, { title: "Boas-vindas", body: "Olá!", isPreview: true })).status, 201);
+  assert.equal((await call("POST", `/courses/${id}/lessons`, creator, { title: "O segredo", body: "Conteúdo pago" })).status, 201);
+  assert.equal((await call("POST", `/courses/${id}/submit`, creator)).body.status, "review");
+  assert.equal((await call("GET", `/courses/${id}`, buyer)).status, 404, "em revisão não aparece");
+  assert.equal((await call("POST", `/admin/courses/${id}/review`, mod, { action: "reject" })).status, 400, "recusar pede motivo");
+  assert.equal((await call("POST", `/admin/courses/${id}/review`, mod, { action: "approve" })).body.status, "published");
+
+  const locked = (await call("GET", `/courses/${id}`, buyer)).body;
+  assert.equal(locked.course.has_access, false);
+  assert.deepEqual(locked.lessons.map(lesson => [lesson.title, lesson.locked, lesson.body ?? null]), [["Boas-vindas", false, "Olá!"], ["O segredo", true, null]]);
+  assert.ok((await call("GET", "/courses", buyer)).body.courses.some(course => course.id === id));
+
+  await call("POST", `/courses/${id}/buy`, buyer, {});
+  const purchase = (await pool.query("SELECT id,status FROM course_purchases WHERE course_id=$1 AND user_id=$2", [id, buyer.id])).rows[0];
+  assert.equal(purchase.status, "pending");
+  assert.equal((await call("GET", `/courses/${id}`, buyer)).body.course.has_access, false, "sem pagamento confirmado não abre");
+  await payments.fulfill("course", purchase.id, {});
+  await payments.fulfill("course", purchase.id, {});
+  const open = (await call("GET", `/courses/${id}`, buyer)).body;
+  assert.equal(open.course.has_access, true);
+  assert.equal(open.lessons[1].body, "Conteúdo pago");
+  assert.equal((await call("POST", `/courses/${id}/buy`, buyer, {})).status, 409, "já tem o curso");
+  assert.equal((await call("GET", "/payouts", creator)).body.sources.coursesKz, 1700, "85% de 2000 Kz");
+  assert.ok((await call("GET", "/courses/mine", buyer)).body.purchased.some(course => course.id === id));
+  assert.equal((await call("DELETE", `/courses/${id}`, creator)).status, 409, "vendido: não se apaga");
+
+  // Mudar o que se vê na loja manda o curso de volta à revisão.
+  assert.equal((await call("PATCH", `/courses/${id}`, creator, { priceKz: 3000 })).body.status, "review");
+});
+
+test("event page: details, who is going (friends first) and blocked people hidden", { skip }, async () => {
+  const startsAt = new Date(Date.now() + 3 * 86400000).toISOString();
+  const created = await call("POST", "/events", users.ana, { name: "Kizomba no Kinaxixi", description: "Aula aberta", location: "Luanda", startsAt });
+  const id = created.body.event.id;
+  await call("POST", `/events/${id}/rsvp`, users.bruno);
+  const page = await call("GET", `/events/${id}`, users.dino);
+  assert.equal(page.status, 200);
+  assert.equal(page.body.event.name, "Kizomba no Kinaxixi");
+  assert.equal(page.body.event.attendee_count, 2);
+  assert.equal(page.body.event.is_attending, false);
+  assert.deepEqual(page.body.attendees.map(person => person.username).sort(), ["ana", "bruno"]);
+  assert.equal((await call("GET", `/events/${id}`, users.ana)).body.event.is_creator, true);
+  assert.equal((await call("GET", "/events/999999", users.dino)).status, 404);
+});
+
+test("sessions never expire on their own: only signing out everywhere, a new password or suspension ends them", { skip }, async () => {
+  const bcrypt = require("bcryptjs");
+  const stamp = Date.now().toString(36);
+  const email = `sessao${stamp}@example.com`;
+  await pool.query("INSERT INTO users(username,email,password_hash,display_name,email_verified) VALUES($1,$2,$3,'Sessão',TRUE)",
+    [`sessao_${stamp}`, email, await bcrypt.hash("uma frase bem comprida", 4)]);
+
+  const web = (await call("POST", "/auth/login", null, { email, password: "uma frase bem comprida" })).body.token;
+  const app = (await call("POST", "/auth/login", null, { email, password: "uma frase bem comprida", client: "app" })).body.token;
+  assert.equal(jwt.decode(web).exp, undefined, "site: sem prazo");
+  assert.equal(jwt.decode(app).exp, undefined, "app: sem prazo");
+  assert.equal(jwt.decode(app).app, true);
+  assert.equal((await call("GET", "/auth/me", { token: app })).status, 200);
+
+  // Terminar as outras sessões corta todas menos a de quem pediu.
+  const kept = (await call("POST", "/auth/logout-all", { token: web })).body.token;
+  const cut = await call("GET", "/auth/me", { token: app });
+  assert.equal(cut.status, 401);
+  assert.equal(cut.body.sessionExpired, true);
+  assert.equal((await call("GET", "/auth/me", { token: kept })).status, 200);
+  assert.equal(jwt.decode(kept).exp, undefined);
+});
+
+test("sessions per device: list, end one device, real sign-out, new-login alert", { skip }, async () => {
+  const bcrypt = require("bcryptjs");
+  const stamp = Date.now().toString(36);
+  const email = `aparelho${stamp}@example.com`;
+  const id = (await pool.query("INSERT INTO users(username,email,password_hash,display_name,email_verified) VALUES($1,$2,$3,'Aparelhos',TRUE) RETURNING id",
+    [`aparelho_${stamp}`, email, await bcrypt.hash("uma frase bem comprida", 4)])).rows[0].id;
+  const login = async (body, headers) => (await call("POST", "/auth/login", null, { email, password: "uma frase bem comprida", ...body }, headers)).body.token;
+
+  const web = await login({});
+  assert.equal((await pool.query("SELECT COUNT(*)::int AS n FROM notifications WHERE user_id=$1 AND type='privacy'", [id])).rows[0].n, 0, "o primeiro início de sessão não avisa");
+  const phone = await login({ client: "app" }, { "x-tchilar-device": "iPhone 15 · iOS 18" });
+  assert.ok(jwt.decode(phone).sid, "o token leva o id da sessão");
+  const alert = (await pool.query("SELECT text FROM notifications WHERE user_id=$1 AND type='privacy'", [id])).rows;
+  assert.equal(alert.length, 1, "novo aparelho → aviso");
+  assert.match(alert[0].text, /iPhone 15/);
+
+  const list = (await call("GET", "/auth/sessions", { token: web })).body.sessions;
+  assert.equal(list.length, 2);
+  assert.equal(list.find(item => item.current).client, "web");
+  const phoneSession = list.find(item => !item.current);
+  assert.equal(phoneSession.device, "iPhone 15 · iOS 18");
+
+  // Terminar o telemóvel a partir do site: só o telemóvel sai.
+  assert.equal((await call("DELETE", `/auth/sessions/${phoneSession.id}`, { token: web })).status, 200);
+  assert.equal((await call("GET", "/auth/me", { token: phone })).status, 401);
+  assert.equal((await call("GET", "/auth/me", { token: web })).status, 200);
+  assert.equal((await call("DELETE", `/auth/sessions/${phoneSession.id}`, { token: web })).status, 404);
+
+  // Sair a sério: o token deixa de valer mesmo que alguém o tenha guardado.
+  assert.equal((await call("POST", "/auth/logout", { token: web })).status, 200);
+  assert.equal((await call("GET", "/auth/me", { token: web })).status, 401);
+
+  // Token sem sessão e sem prazo (forjado ou antigo) não entra; com sessão inventada também não.
+  assert.equal((await call("GET", "/auth/me", { token: jwt.sign({ id, username: "x", version: 0 }, process.env.JWT_SECRET) })).status, 401);
+  assert.equal((await call("GET", "/auth/me", { token: jwt.sign({ id, username: "x", version: 0, sid: "00000000-0000-4000-8000-000000000000" }, process.env.JWT_SECRET) })).status, 401);
+});
+
+test("live gifts: 15 gifts from 100 Kz to 25 000 Kz, paid in stars, louder sounds for the big ones", { skip }, async () => {
+  const stamp = Date.now().toString(36);
+  const make = async name => {
+    const row = (await pool.query("INSERT INTO users(username,email,password_hash,display_name,email_verified) VALUES($1,$2,'x',$1,TRUE) RETURNING id,username",
+      [`${name}_${stamp}`, `${name}${stamp}@example.com`])).rows[0];
+    return { ...row, token: jwt.sign({ id: row.id, username: row.username, version: 0 }, process.env.JWT_SECRET, { expiresIn: "1h" }) };
+  };
+  const host = await make("anfitriao");
+  const fan = await make("fa");
+
+  const config = (await call("GET", "/lives/config", fan)).body;
+  assert.equal(config.gifts.length, 15);
+  assert.deepEqual([config.gifts[0].kz, config.gifts[14].kz], [100, 25000]);
+  assert.deepEqual([config.gifts[0].stars, config.gifts[14].stars], [10, 2500], "1 estrela = 10 Kz");
+  const sounds = config.gifts.map(gift => gift.sound);
+  assert.ok(sounds.every((level, index) => index === 0 || level >= sounds[index - 1]), "o som nunca desce com o valor");
+  assert.equal(sounds.at(-1), 8);
+
+  const live = (await call("POST", "/lives", host, { title: "Noite de presentes", category: "musica" })).body.id;
+  assert.equal((await call("POST", `/lives/${live}/stars`, fan, { gift: "coroa" })).status, 402, "sem estrelas não oferece");
+  assert.equal((await call("POST", `/lives/${live}/stars`, fan, { gift: "nao-existe" })).status, 400);
+  await pool.query("INSERT INTO star_ledger(user_id,amount,kind) VALUES($1,400,'purchase')", [fan.id]);
+
+  const sent = await call("POST", `/lives/${live}/stars`, fan, { gift: "coroa" });
+  assert.equal(sent.status, 200);
+  assert.equal(sent.body.balance, 100, "a coroa custa 300 estrelas (3 000 Kz)");
+  const feed = (await call("GET", `/lives/${live}/feed`, fan)).body;
+  const giftComment = feed.comments.find(comment => comment.gift === "coroa");
+  assert.ok(giftComment, "o presente aparece no chat do direto");
+  assert.equal(giftComment.stars, 300);
+  assert.equal(feed.stars, 300, "quem transmite recebe as estrelas");
+  assert.equal((await call("POST", `/lives/${live}/stars`, host, { gift: "rosa" })).status, 400, "não se oferece a si próprio");
+  assert.equal((await call("POST", `/lives/${live}/stars`, fan, { amount: 5 })).status, 200, "as estrelas soltas continuam a funcionar");
+  await call("POST", `/lives/${live}/end`, host);
 });
 
 test("payments: each person sees their receipts and the team sees, filters and exports them all", { skip }, async () => {
@@ -679,4 +900,206 @@ test("payouts in a batch: one file for the bank, then mark them all as paid", { 
   assert.deepEqual(batch.body.skipped, [999999]);
   assert.equal((await pool.query("SELECT COUNT(*)::int AS n FROM payout_requests WHERE id = ANY($1) AND status='paid' AND reference='LOTE-BAI-01'", [ids])).rows[0].n, 2);
   await pool.query("UPDATE users SET is_admin=FALSE, admin_role=NULL, totp_enabled_at=NULL WHERE id IN ($1,$2)", [users.bruno.id, users.carla.id]);
+});
+
+test("post page: one post by id, notifications point to it, private posts stay private", { skip }, async () => {
+  const post = await newPost(users.ana, { body: "Uma publicação com página própria" });
+  const page = await call("GET", `/posts/${post.id}`, users.bruno);
+  assert.equal(page.status, 200);
+  assert.equal(page.body.post.id, post.id);
+  assert.equal(page.body.post.username, "ana");
+  assert.equal((await call("GET", `/posts/${post.id}`, null)).status, 200, "pública: abre sem conta");
+  assert.equal((await call("GET", "/posts/999999999", users.bruno)).status, 404);
+  assert.equal((await call("GET", "/posts/abc", users.bruno)).status, 400);
+
+  await call("POST", `/posts/${post.id}/like`, users.bruno);
+  const notification = (await call("GET", "/notifications", users.ana)).body.notifications.find(item => item.type === "like" && item.post_id === post.id);
+  assert.ok(notification, "o gosto leva à publicação");
+
+  const exclusive = await newPost(users.ana, { body: "Só para subscritores", isExclusive: true });
+  if (exclusive.is_exclusive) assert.equal((await call("GET", `/posts/${exclusive.id}`, users.bruno)).status, 404, "exclusiva: só subscritores");
+});
+
+test("monthly challenges launch by themselves: one per level, stars only, once a month", { skip }, async () => {
+  const { launchMonthlyChallenges } = require("./index");
+  await pool.query("DELETE FROM challenges WHERE template_id IS NOT NULL");
+  const created = await launchMonthlyChallenges();
+  const starLevels = (await pool.query(`SELECT DISTINCT level FROM challenge_templates t WHERE active
+    AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(t.prizes) p WHERE COALESCE((p->>'cashKz')::numeric,0) > 0) ORDER BY level`)).rows.map(row => row.level);
+  assert.ok(starLevels.length >= 1);
+  assert.deepEqual(created.map(item => item.level).sort(), starLevels, "um desafio por nível (dos que só dão estrelas)");
+  const prizes = (await pool.query("SELECT prizes FROM challenges WHERE id = ANY($1)", [created.map(item => item.id)])).rows;
+  assert.ok(prizes.every(row => row.prizes.every(prize => !Number(prize.cashKz))), "sem dinheiro: isso é com a equipa de finanças");
+  assert.ok(created.every(item => new Date(item.ends_at) > new Date()), "termina no fim do mês");
+  assert.deepEqual(await launchMonthlyChallenges(), [], "só uma vez por mês");
+  assert.ok((await call("GET", "/challenges", users.bruno)).body.challenges.some(item => item.id === created[0].id), "aparece na lista de desafios");
+});
+
+test("courses can be reported, but not your own and not unpublished ones", { skip }, async () => {
+  const course = (await pool.query("INSERT INTO courses(owner_id,title,summary,status,published_at) VALUES($1,'Curso de teste','Resumo','published',NOW()) RETURNING id", [users.ana.id])).rows[0].id;
+  const draft = (await pool.query("INSERT INTO courses(owner_id,title) VALUES($1,'Rascunho') RETURNING id", [users.ana.id])).rows[0].id;
+  assert.equal((await call("POST", "/reports", users.bruno, { targetType: "course", targetId: course, reason: "spam" })).status, 201);
+  assert.equal((await call("POST", "/reports", users.ana, { targetType: "course", targetId: course, reason: "spam" })).status, 400, "o próprio curso não");
+  assert.equal((await call("POST", "/reports", users.bruno, { targetType: "course", targetId: draft, reason: "spam" })).status, 404, "rascunhos não estão à vista");
+  const row = (await pool.query("SELECT target_user_id FROM reports WHERE target_type='course' AND target_id=$1", [course])).rows[0];
+  assert.equal(row.target_user_id, users.ana.id);
+});
+
+test("groups inside: team roles, invites, pinned posts, polls, chat, files, events, stats and reports", { skip }, async () => {
+  const { ana, bruno, carla, dino } = users;
+  const group = (await call("POST", "/groups", ana, { name: "Clube Free Fire Luanda", privacy: "private", groupType: "jogos", subcategory: "free-fire", category: "jogos", rules: "Respeito sempre." })).body.group;
+  assert.equal(group.invite_only, true);
+  const id = group.id;
+
+  // Privado: só entra quem é convidado.
+  assert.equal((await call("POST", `/groups/${id}/join`, bruno)).status, 403);
+  assert.equal((await call("POST", `/groups/${id}/invites`, ana, { username: bruno.username })).status, 201);
+  assert.equal((await call("GET", `/groups/${id}`, bruno)).body.group.has_invite, true);
+  assert.equal((await call("POST", `/groups/${id}/join`, bruno)).status, 200);
+  await call("POST", `/groups/${id}/invites`, ana, { username: carla.username });
+  await call("POST", `/groups/${id}/join`, carla);
+  const detail = (await call("GET", `/groups/${id}`, bruno)).body.group;
+  assert.deepEqual([detail.my_role, detail.rules, detail.request_count], ["member", "Respeito sempre.", undefined]);
+  assert.equal((await call("GET", `/groups/${id}`, dino)).body.group.is_member, false, "de fora vê o grupo, não é membro");
+
+  // Papéis: o dono nomeia; um moderador não pode remover quem está acima.
+  assert.equal((await call("POST", `/groups/${id}/members/${carla.id}/role`, bruno, { role: "moderator" })).status, 403, "membros não nomeiam");
+  assert.equal((await call("POST", `/groups/${id}/members/${bruno.id}/role`, ana, { role: "moderator" })).status, 200);
+  assert.equal((await call("DELETE", `/groups/${id}/members/${ana.id}`, bruno)).status, 403);
+  const members = (await call("GET", `/groups/${id}/members`, carla)).body.members;
+  assert.deepEqual(members.map(m => m.role), ["owner", "moderator", "member"]);
+  assert.equal((await call("PATCH", `/groups/${id}`, bruno, { rules: "Outra" })).status, 403, "moderador não muda as regras");
+  assert.equal((await call("PATCH", `/groups/${id}`, ana, { rules: "Sem spam.", privacy: "approval" })).status, 200);
+
+  // Publicações fixadas (moderador) e esconder por não cumprir as regras.
+  const post = (await call("POST", "/posts", carla, { body: "Torneio sábado!", groupId: id })).body.post;
+  assert.equal((await call("POST", `/groups/${id}/pins/${post.id}`, carla)).status, 403);
+  assert.equal((await call("POST", `/groups/${id}/pins/${post.id}`, bruno)).status, 200);
+  assert.deepEqual((await call("GET", `/posts?groupId=${id}&pinned=1`, carla)).body.posts.map(p => p.id), [post.id]);
+  const spam = (await call("POST", "/posts", carla, { body: "Compra aqui", groupId: id })).body.post;
+  assert.equal((await call("POST", `/groups/${id}/posts/${spam.id}/hide`, bruno)).status, 200);
+  assert.ok(!(await call("GET", `/posts?groupId=${id}`, bruno)).body.posts.some(p => p.id === spam.id));
+
+  // Sondagem.
+  assert.equal((await call("POST", `/groups/${id}/polls`, carla, { question: "Que dia?", options: ["Sábado"] })).status, 400);
+  const pollId = (await call("POST", `/groups/${id}/polls`, carla, { question: "Que dia?", options: ["Sábado", "Domingo"], days: 3 })).body.poll.id;
+  const polls = (await call("GET", `/groups/${id}/polls`, bruno)).body.polls;
+  const sabado = polls[0].options[0].id;
+  assert.equal((await call("POST", `/groups/${id}/polls/${pollId}/vote`, bruno, { optionIds: [sabado, polls[0].options[1].id] })).status, 400, "só uma resposta");
+  assert.equal((await call("POST", `/groups/${id}/polls/${pollId}/vote`, bruno, { optionIds: [sabado] })).status, 200);
+  const after = (await call("GET", `/groups/${id}/polls`, bruno)).body.polls[0];
+  assert.deepEqual([after.voters, after.options[0].votes, after.options[0].mine], [1, 1, true]);
+  assert.equal((await call("GET", `/groups/${id}/polls`, dino)).status, 403, "de fora não vê");
+
+  // Chat.
+  const first = (await call("POST", `/groups/${id}/chat`, bruno, { body: "Olá malta" })).body.message;
+  await call("POST", `/groups/${id}/chat`, carla, { body: "Bom dia" });
+  const newer = (await call("GET", `/groups/${id}/chat?after=${first.id}`, ana)).body.messages;
+  assert.deepEqual(newer.map(m => m.body), ["Bom dia"]);
+  assert.equal((await call("POST", `/groups/${id}/chat`, dino, { body: "?" })).status, 403);
+
+  // Evento do grupo: não aparece na lista pública e só membros o abrem.
+  const startsAt = new Date(Date.now() + 3 * 86400000).toISOString();
+  const event = (await call("POST", `/groups/${id}/events`, carla, { name: "Torneio", startsAt, location: "Talatona" })).body.event;
+  assert.ok((await call("GET", `/groups/${id}/events`, bruno)).body.events.some(e => e.id === event.id));
+  assert.ok(!(await call("GET", "/events", dino)).body.events.some(e => e.id === event.id));
+  assert.equal((await call("GET", `/events/${event.id}`, dino)).status, 404);
+
+  // Ficheiro: só membros, com link assinado; descarrega como anexo.
+  const form = new FormData();
+  form.append("file", new Blob(["regras do torneio"], { type: "text/plain" }), "Regras do torneio.txt");
+  const sent = await fetch(`${baseUrl}/groups/${id}/files`, { method: "POST", headers: { Authorization: `Bearer ${carla.token}` }, body: form });
+  assert.equal(sent.status, 201);
+  const files = (await call("GET", `/groups/${id}/files`, bruno)).body.files;
+  assert.equal(files[0].name, "Regras do torneio.txt");
+  const download = await fetch(baseUrl.replace(/\/api$/, "") + files[0].url);
+  assert.equal(download.status, 200);
+  assert.match(download.headers.get("content-disposition"), /attachment/);
+  const raw = files[0].url.split("?")[0];
+  assert.equal((await fetch(baseUrl.replace(/\/api$/, "") + raw)).status, 403, "sem assinatura não descarrega");
+  await call("DELETE", `/groups/${id}/files/${files[0].id}`, carla);
+
+  // Estatísticas (equipa) e denúncia do grupo.
+  assert.equal((await call("GET", `/groups/${id}/stats`, carla)).status, 403);
+  const stats = (await call("GET", `/groups/${id}/stats`, bruno)).body;
+  assert.equal(stats.stats.members, 3);
+  assert.ok(stats.stats.active_30d >= 2);
+  assert.equal(stats.weekly.length, 8);
+  assert.equal((await call("POST", "/reports", dino, { targetType: "group", targetId: id, reason: "spam" })).status, 201);
+});
+
+test("group calls: start, join, signal between participants, max size, leave ends the call", { skip }, async () => {
+  const { ana, bruno, carla, dino } = users;
+  const group = (await call("POST", "/groups", ana, { name: "Chamadas do Clube" })).body.group;
+  const id = group.id;
+  await call("POST", `/groups/${id}/join`, bruno);
+  assert.equal((await call("POST", `/groups/${id}/call`, dino, { kind: "video" })).status, 404, "só membros");
+
+  const started = await call("POST", `/groups/${id}/call`, ana, { kind: "video" });
+  assert.equal(started.status, 201);
+  assert.equal(started.body.call.kind, "video");
+  assert.ok(Array.isArray(started.body.iceServers) && started.body.iceServers.length > 0);
+  const notified = (await call("GET", "/notifications", bruno)).body.notifications.find(n => n.type === "group_call" && n.group_id === id);
+  assert.ok(notified, "os membros são avisados e a notificação abre o grupo");
+
+  // O segundo "começar" entra na mesma chamada (mesmo que peça só voz).
+  const joined = await call("POST", `/groups/${id}/call`, bruno, { kind: "voice" });
+  assert.equal(joined.body.call.id, started.body.call.id);
+  assert.equal(joined.body.call.kind, "video");
+  assert.equal(joined.body.call.participants.length, 2);
+
+  // Sinalização: a Ana (número mais baixo) oferece ao Bruno; o Bruno recebe uma vez.
+  const [low, high] = ana.id < bruno.id ? [ana, bruno] : [bruno, ana];
+  assert.equal((await call("POST", `/groups/${id}/call/signal`, low, { to: high.id, kind: "offer", payload: JSON.stringify({ sdp: "v=0" }) })).status, 201);
+  assert.equal((await call("POST", `/groups/${id}/call/signal`, low, { to: carla.id, kind: "offer", payload: "x" })).status, 404, "a Carla não está na chamada");
+  const beat = (await call("POST", `/groups/${id}/call/heartbeat`, high, { muted: true, camera: false })).body;
+  assert.deepEqual(beat.signals.map(s => [s.from_user, s.kind]), [[low.id, "offer"]]);
+  assert.equal((await call("POST", `/groups/${id}/call/heartbeat`, high, { muted: true, camera: false })).body.signals.length, 0, "entregue só uma vez");
+  const me = (await call("GET", `/groups/${id}/call`, low)).body.call.participants.find(p => p.user_id === high.id);
+  assert.deepEqual([me.muted, me.camera], [true, false]);
+
+  // Sair: com toda a gente fora, a chamada termina e a seguinte é nova.
+  await call("POST", `/groups/${id}/call/leave`, ana);
+  await call("POST", `/groups/${id}/call/leave`, bruno);
+  assert.equal((await call("GET", `/groups/${id}/call`, ana)).body.call, null);
+  const again = await call("POST", `/groups/${id}/call`, bruno, { kind: "voice" });
+  assert.notEqual(again.body.call.id, started.body.call.id);
+  assert.equal(again.body.call.kind, "voice");
+  await call("POST", `/groups/${id}/call/leave`, bruno);
+});
+
+test("direct calls from messages: ring, answer, decline, add people up to 8", { skip }, async () => {
+  const { ana, bruno, carla, dino } = users;
+  assert.equal((await call("POST", "/calls", ana, { to: [] })).status, 400);
+  const started = await call("POST", "/calls", ana, { to: [bruno.id], kind: "voice" });
+  assert.equal(started.status, 201);
+  const callId = started.body.call.id;
+  assert.equal(started.body.call.kind, "voice");
+
+  // Está a tocar para o Bruno (e só para ele).
+  const ringing = (await call("GET", "/calls/incoming", bruno)).body.call;
+  assert.equal(ringing.id, callId);
+  assert.equal(ringing.caller_id, ana.id);
+  assert.equal((await call("GET", "/calls/incoming", carla)).body.call, null);
+  assert.ok((await call("GET", "/notifications", bruno)).body.notifications.some(n => n.type === "call" && n.call_id === callId));
+  assert.equal((await call("POST", `/calls/${callId}/join`, carla)).status, 404, "quem não foi convidado não entra");
+
+  // Atender: deixa de tocar; a Ana vê o Bruno na chamada.
+  assert.equal((await call("POST", `/calls/${callId}/join`, bruno)).status, 201);
+  assert.equal((await call("GET", "/calls/incoming", bruno)).body.call, null);
+  const beat = (await call("POST", `/calls/${callId}/heartbeat`, ana, {})).body;
+  assert.deepEqual(beat.call.participants.map(p => p.user_id).sort(), [ana.id, bruno.id].sort());
+
+  // Adicionar a Carla durante a chamada; a Carla recusa.
+  assert.equal((await call("POST", `/calls/${callId}/invite`, bruno, { username: carla.username })).status, 201);
+  assert.equal((await call("GET", "/calls/incoming", carla)).body.call.id, callId);
+  assert.equal((await call("POST", `/calls/${callId}/decline`, carla)).status, 200);
+  assert.equal((await call("GET", "/calls/incoming", carla)).body.call, null);
+
+  // Mais de 8 pessoas não.
+  assert.equal((await call("POST", "/calls", dino, { to: [1, 2, 3, 4, 5, 6, 7, 8, 9] })).status, 400);
+
+  await call("POST", `/calls/${callId}/leave`, ana);
+  await call("POST", `/calls/${callId}/leave`, bruno);
+  assert.equal((await call("POST", `/calls/${callId}/join`, bruno)).status, 410, "chamada terminada");
 });

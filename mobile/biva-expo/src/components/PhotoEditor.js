@@ -69,14 +69,16 @@ async function applyColor(photo, edit) {
   return { uri: file.uri, width: image.width(), height: image.height() };
 }
 
-export function PhotoEditor({ asset, visible, onCancel, onDone }) {
+// fixedCrop: proporção obrigatória (ex.: "1:1" na foto de perfil) — esconde a escolha de corte.
+export function PhotoEditor({ asset, visible, onCancel, onDone, fixedCrop = null, title = "Editar foto" }) {
   const { width: screenWidth } = useWindowDimensions();
   const [edit, setEdit] = useState(INITIAL);
   const [tool, setTool] = useState("filter");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const image = useImage(asset?.uri || null);
-  useEffect(() => { if (visible) { setEdit(INITIAL); setTool("filter"); setError(""); } }, [visible, asset?.uri]);
+  const start = fixedCrop ? { ...INITIAL, crop: fixedCrop } : INITIAL;
+  useEffect(() => { if (visible) { setEdit(start); setTool("filter"); setError(""); } }, [visible, asset?.uri]);
   if (!asset) return null;
   const set = patch => setEdit(current => ({ ...current, ...patch }));
 
@@ -109,7 +111,7 @@ export function PhotoEditor({ asset, visible, onCancel, onDone }) {
     <SafeAreaView style={styles.screen} edges={["top", "bottom"]}>
       <View style={styles.head}>
         <Pressable onPress={onCancel} hitSlop={12} accessibilityLabel="Cancelar"><Ionicons name="close" size={28} color="#fff" /></Pressable>
-        <Text style={styles.title}>Editar foto</Text>
+        <Text style={styles.title}>{title}</Text>
         <Pressable onPress={done} disabled={busy} style={styles.done}>{busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.doneText}>Concluído</Text>}</Pressable>
       </View>
 
@@ -143,16 +145,16 @@ export function PhotoEditor({ asset, visible, onCancel, onDone }) {
           </View>)}
         </View>}
         {tool === "crop" && <View style={{ gap: 12 }}>
-          <Chips options={CROPS} value={edit.crop} onChange={crop => set({ crop })} />
+          {!fixedCrop && <Chips options={CROPS} value={edit.crop} onChange={crop => set({ crop })} />}
           <View style={styles.row}>
             <Pressable style={styles.action} onPress={() => set({ rotate: (edit.rotate + 90) % 360 })}><Ionicons name="refresh" size={20} color="#fff" /><Text style={styles.actionText}>Rodar</Text></Pressable>
             <Pressable style={[styles.action, edit.flip && styles.actionOn]} onPress={() => set({ flip: !edit.flip })}><Ionicons name="swap-horizontal" size={20} color="#fff" /><Text style={styles.actionText}>Espelhar</Text></Pressable>
-            <Pressable style={styles.action} onPress={() => setEdit(INITIAL)}><Ionicons name="arrow-undo" size={20} color="#fff" /><Text style={styles.actionText}>Repor</Text></Pressable>
+            <Pressable style={styles.action} onPress={() => setEdit(start)}><Ionicons name="arrow-undo" size={20} color="#fff" /><Text style={styles.actionText}>Repor</Text></Pressable>
           </View>
         </View>}
         {Boolean(error) && <Text style={styles.error}>{error}</Text>}
         <View style={styles.tabs}>
-          {TOOLS.map(([id, label]) => <Pressable key={id} onPress={() => setTool(id)} style={styles.tab}>
+          {TOOLS.map(([id, label]) => [id, id === "crop" && fixedCrop ? "Rodar" : label]).map(([id, label]) => <Pressable key={id} onPress={() => setTool(id)} style={styles.tab}>
             <Text style={[styles.tabText, tool === id && styles.tabOn]}>{label}</Text>
           </Pressable>)}
         </View>

@@ -1,15 +1,18 @@
 import { Ionicons } from "@expo/vector-icons";
-import { Stack, useLocalSearchParams } from "expo-router";
+import { Stack, router, useLocalSearchParams } from "expo-router";
 import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, FlatList, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { FlatList, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { api } from "../../lib/api";
 import { useGlassHeaderPadding } from "../../lib/headers";
 import { useSession } from "../../lib/session";
 import { colors, relativeTime } from "../../lib/theme";
+import { useKeyboardOverlap } from "../../lib/keyboard";
+import { ChatSkeleton } from "../../components/Loaders";
 
 // Conversa com uma pessoa. Pergunta por mensagens novas a cada 4 segundos enquanto está aberta.
 export default function Chat() {
+  const [keyboardRef, keyboardOverlap] = useKeyboardOverlap();
   const { id, name } = useLocalSearchParams();
   const { user } = useSession();
   const [messages, setMessages] = useState(null);
@@ -61,9 +64,19 @@ export default function Chat() {
   };
 
   return <SafeAreaView style={[styles.safe, { paddingTop: top }]} edges={["bottom"]}>
-    <Stack.Screen options={{ title: person?.display_name || name || "Conversa" }} />
-    <KeyboardAvoidingView style={styles.safe} behavior={Platform.OS === "ios" ? "padding" : undefined} keyboardVerticalOffset={90}>
-      {messages === null ? <ActivityIndicator style={{ marginTop: 32 }} color={colors.primary} />
+    <Stack.Screen options={{
+      title: person?.display_name || name || "Conversa",
+      // Ligar a esta pessoa (voz ou vídeo); durante a chamada dá para adicionar mais pessoas, até 8.
+      headerRight: () => <View style={{ flexDirection: "row", gap: 18 }}>
+        {["voice", "video"].map(kind => <Pressable key={kind} hitSlop={10} accessibilityLabel={kind === "voice" ? "Chamada de voz" : "Chamada de vídeo"}
+          onPress={() => router.push({ pathname: "/call/direct/[callId]", params: { callId: "new", to: String(id), kind, name: person?.display_name || name || "Chamada" } })}>
+          <Ionicons name={kind === "voice" ? "call-outline" : "videocam-outline"} size={23} color={colors.text} />
+        </Pressable>)}
+      </View>
+    }} />
+    {/* A caixa de escrever fica sempre por cima do teclado (mede quanto o teclado tapa). */}
+    <View ref={keyboardRef} style={[styles.safe, { paddingBottom: keyboardOverlap }]}>
+      {messages === null ? <ChatSkeleton />
         : <FlatList
           data={[...messages].reverse()}
           inverted
@@ -87,7 +100,7 @@ export default function Chat() {
           <Ionicons name="send" size={20} color="#fff" />
         </Pressable>
       </View> : <Text style={styles.empty}>Não é possível enviar mensagens a esta pessoa.</Text>}
-    </KeyboardAvoidingView>
+    </View>
   </SafeAreaView>;
 }
 
@@ -98,7 +111,7 @@ const styles = StyleSheet.create({
   mine: { alignSelf: "flex-end", backgroundColor: colors.primary, borderBottomRightRadius: 6 },
   theirs: { alignSelf: "flex-start", backgroundColor: colors.surface, borderBottomLeftRadius: 6, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.line },
   body: { color: colors.text, fontSize: 15, lineHeight: 20 },
-  mineText: { color: "#fff" },
+  mineText: { color: colors.onPrimary },
   time: { color: colors.muted, fontSize: 11, marginTop: 3 },
   mineTime: { color: "rgba(255,255,255,0.75)" },
   empty: { textAlign: "center", color: colors.muted, padding: 24 },

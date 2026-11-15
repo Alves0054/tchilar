@@ -4,6 +4,7 @@ const {
   ANGOLA_PROVINCES, GIFT_AMOUNTS, MAX_CAMPAIGN_KZ, MIN_CAMPAIGN_KZ, REFERRAL_BONUS_STARS, STAR_PACKS, STAR_PRICE_KZ,
   campaignSplit, packPrice, parseBirthDate, referralQualifies, starsValueKz
 } = require("./growth");
+const { LEVELS, hasCash, parsePrizes } = require("./challenge-templates");
 
 // Saldo de estrelas para gastar: compras, prémios e bónus menos as ofertas feitas.
 // As estrelas RECEBIDAS não entram aqui: valem dinheiro (70%) e vão para os ganhos (ver finance-routes.js).
@@ -294,9 +295,14 @@ function registerGrowthRoutes(app, deps) {
   // ---------------------------------------------------------------------------------------------
   // Desafios mensais
   // ---------------------------------------------------------------------------------------------
+  // Prémios: por lugar (1.º, 2.º, 3.º...), em estrelas e/ou Kz. Desafios antigos têm só prize_stars (1.º lugar).
+  const CHALLENGE_PRIZES_SQL = "COALESCE(ch.prizes, jsonb_build_array(jsonb_build_object('place',1,'stars',ch.prize_stars,'cashKz',0)))";
   const CHALLENGE_FIELDS = `ch.id,ch.title,ch.description,ch.prize,ch.prize_stars,ch.sponsor,ch.starts_at,ch.ends_at,ch.closed_at,ch.winner_post_id,
+    ch.level,ch.new_posts_only,ch.template_id,${CHALLENGE_PRIZES_SQL} AS prizes,
     (ch.ends_at > NOW() AND ch.closed_at IS NULL) AS is_open,
     (SELECT COUNT(*) FROM challenge_entries e WHERE e.challenge_id=ch.id)::int AS entries`;
+  // Só quem trata do dinheiro (finanças ou super) pode criar, mudar, lançar ou encerrar prémios em Kz.
+  const canGiveCash = req => ["super", "finance"].includes(req.user.adminRole);
 
   app.get("/api/challenges", optionalAuth, async (req, res) => {
     const result = await pool.query(`
@@ -306,13 +312,13 @@ function registerGrowthRoutes(app, deps) {
       FROM challenges ch
       LEFT JOIN posts wp ON wp.id=ch.winner_post_id LEFT JOIN users wu ON wu.id=wp.user_id
       WHERE ch.ends_at > NOW() - INTERVAL '60 days'
-      ORDER BY (ch.ends_at > NOW() AND ch.closed_at IS NULL) DESC, ch.ends_at DESC LIMIT 30`, [req.user?.id || 0]);
+      ORDER BY (ch.ends_at > NOW() AND ch.closed_at IS NULL) DESC, ch.level DESC NULLS LAST, ch.ends_at DESC LIMIT 60`, [req.user?.id || 0]);
     res.json({ challenges: result.rows });
   });
 
   // Classificação: por gostos (desempate pela participação mais antiga).
   const rankingSql = `
-    SELECT e.post_id,e.created_at,u.username,u.display_name,u.avatar_url,LEFT(p.body,140) AS excerpt,p.media_url,p.media_type,
+    SELECT e.post_id,e.user_id,e.created_at,u.username,u.display_name,u.avatar_url,LEFT(p.body,140) AS excerpt,p.media_url,p.media_type,
       p.like_count::int AS likes
     FROM challenge_entries e JOIN posts p ON p.id=e.post_id JOIN users u ON u.id=e.user_id
     WHERE e.challenge_id=$1 AND p.hidden_at IS NULL AND u.suspended_at IS NULL
@@ -321,30 +327,38 @@ function registerGrowthRoutes(app, deps) {
   app.get("/api/challenges/:id", optionalAuth, async (req, res) => {
     const id = parseId(req.params.id);
     if (!id) return res.status(400).json({ error: "Desafio inválido." });
-    const [challenge, ranking] = await Promise.all([
+    const [challenge, ranking, awards] = await Promise.all([
       pool.query(`SELECT ${CHALLENGE_FIELDS} FROM challenges ch WHERE ch.id=$1`, [id]),
-      pool.query(`${rankingSql} LIMIT 20`, [id])
+      pool.query(`${rankingSql} LIMIT 20`, [id]),
+      pool.query(`SELECT a.place,a.stars,a.cash_kz::float AS cash_kz,u.username,u.display_name,u.avatar_url
+        FROM challenge_awards a JOIN users u ON u.id=a.user_id WHERE a.challenge_id=$1 ORDER BY a.place`, [id])
     ]);
     if (!challenge.rowCount) return res.status(404).json({ error: "Desafio não encontrado." });
-    res.json({ challenge: challenge.rows[0], ranking: ranking.rows });
+    res.json({ challenge: challenge.rows[0], ranking: ranking.rows, awards: awards.rows });
   });
 
+  // Desafio feito à mão (sem modelo). prizes: [{stars, cashKz}, ...] por lugar; prizeStars continua a valer (só 1.º lugar).
   app.post("/api/challenges", auth, requireAdmin, async (req, res) => {
     const body = isRecord(req.body) ? req.body : {};
     const title = cleanText(body.title);
     const description = cleanText(body.description);
     const prize = cleanText(body.prize);
     const sponsor = cleanText(body.sponsor) || "Tchilar";
-    const prizeStars = Number(body.prizeStars || 0);
     const days = Number(body.days);
+    const level = body.level === undefined || body.level === null ? null : Number(body.level);
+    const prizeStars = Number(body.prizeStars || 0);
     if (!title || title.length > 100) return res.status(400).json({ error: "O título deve ter entre 1 e 100 caracteres." });
     if (description.length > 1000 || prize.length > 120 || sponsor.length > 80) return res.status(400).json({ error: "Um dos campos é demasiado longo." });
-    if (!Number.isInteger(prizeStars) || prizeStars < 0 || prizeStars > 1_000_000) return res.status(400).json({ error: "Prémio em estrelas inválido." });
+    if (body.prizes === undefined && (!Number.isInteger(prizeStars) || prizeStars < 0 || prizeStars > 1_000_000)) return res.status(400).json({ error: "Prémio em estrelas inválido." });
+    const parsed = body.prizes !== undefined ? parsePrizes(body.prizes) : { prizes: [{ place: 1, stars: prizeStars, cashKz: 0 }] };
+    if (parsed.error) return res.status(400).json({ error: parsed.error });
+    if (hasCash(parsed.prizes) && !canGiveCash(req)) return res.status(403).json({ error: "Só a equipa de finanças pode criar prémios em dinheiro." });
+    if (level !== null && (!Number.isInteger(level) || level < 1 || level > 5)) return res.status(400).json({ error: "Nível inválido." });
     if (!Number.isInteger(days) || days < 1 || days > 62) return res.status(400).json({ error: "A duração deve ser entre 1 e 62 dias." });
     const result = await pool.query(`
-      INSERT INTO challenges(title,description,prize,prize_stars,sponsor,ends_at,created_by)
-      VALUES($1,$2,$3,$4,$5,NOW() + ($6::int * INTERVAL '1 day'),$7) RETURNING id`,
-    [title, description, prize, prizeStars, sponsor, days, req.user.id]);
+      INSERT INTO challenges(title,description,prize,prize_stars,sponsor,ends_at,created_by,prizes,level,new_posts_only)
+      VALUES($1,$2,$3,$4,$5,NOW() + ($6::int * INTERVAL '1 day'),$7,$8,$9,$10) RETURNING id`,
+    [title, description, prize, parsed.prizes[0].stars, sponsor, days, req.user.id, JSON.stringify(parsed.prizes), level, body.newPostsOnly === true]);
     res.status(201).json({ id: result.rows[0].id });
   });
 
@@ -352,12 +366,16 @@ function registerGrowthRoutes(app, deps) {
     const id = parseId(req.params.id);
     const postId = parseId(req.body?.postId);
     if (!id || !postId) return res.status(400).json({ error: "Pedido inválido." });
-    const challenge = await pool.query("SELECT 1 FROM challenges WHERE id=$1 AND ends_at > NOW() AND closed_at IS NULL", [id]);
+    const challenge = await pool.query("SELECT starts_at,new_posts_only FROM challenges WHERE id=$1 AND ends_at > NOW() AND closed_at IS NULL", [id]);
     if (!challenge.rowCount) return res.status(409).json({ error: "Este desafio já terminou." });
+    const { starts_at: startsAt, new_posts_only: newOnly } = challenge.rows[0];
     const post = await pool.query(
-      "SELECT 1 FROM posts WHERE id=$1 AND user_id=$2 AND NOT is_exclusive AND group_id IS NULL AND hidden_at IS NULL AND shared_post_id IS NULL",
-      [postId, req.user.id]);
-    if (!post.rowCount) return res.status(400).json({ error: "Escolhe uma publicação pública tua." });
+      `SELECT 1 FROM posts WHERE id=$1 AND user_id=$2 AND NOT is_exclusive AND group_id IS NULL AND hidden_at IS NULL AND shared_post_id IS NULL
+        AND ($3::boolean = FALSE OR created_at >= $4)`,
+      [postId, req.user.id, newOnly, startsAt]);
+    if (!post.rowCount) {
+      return res.status(400).json({ error: newOnly ? "Escolhe uma publicação pública tua feita depois de o desafio começar." : "Escolhe uma publicação pública tua." });
+    }
     const result = await pool.query(
       "INSERT INTO challenge_entries(challenge_id,post_id,user_id) VALUES($1,$2,$3) ON CONFLICT DO NOTHING RETURNING post_id",
       [id, postId, req.user.id]);
@@ -365,31 +383,188 @@ function registerGrowthRoutes(app, deps) {
     res.status(201).json({ joined: true });
   });
 
-  // Encerrar: a participação com mais gostos ganha; o prémio em estrelas é creditado automaticamente.
+  // Encerrar: os primeiros lugares (por gostos) recebem os prémios. Estrelas entram no saldo de estrelas;
+  // o dinheiro entra no saldo de ganhos (levantamentos para o IBAN).
   app.post("/api/challenges/:id/close", auth, requireAdmin, async (req, res) => {
     const id = parseId(req.params.id);
     if (!id) return res.status(400).json({ error: "Desafio inválido." });
     const outcome = await transaction(async client => {
-      const challenge = await client.query("SELECT * FROM challenges WHERE id=$1 AND closed_at IS NULL FOR UPDATE", [id]);
-      if (!challenge.rowCount) return { error: "Este desafio já foi encerrado." };
-      const [winner] = (await client.query(`${rankingSql} LIMIT 1`, [id])).rows;
-      const winnerUser = winner ? (await client.query("SELECT user_id FROM posts WHERE id=$1", [winner.post_id])).rows[0]?.user_id : null;
-      await client.query("UPDATE challenges SET closed_at=NOW(), winner_post_id=$2 WHERE id=$1", [id, winner?.post_id || null]);
-      if (winnerUser) {
-        const row = challenge.rows[0];
-        if (row.prize_stars > 0) {
-          await client.query("INSERT INTO star_ledger(user_id,amount,kind,post_id) VALUES($1,$2,'challenge_prize',$3)",
-            [winnerUser, row.prize_stars, winner.post_id]);
+      const challenge = await client.query(`SELECT ch.title, ${CHALLENGE_PRIZES_SQL} AS prizes FROM challenges ch WHERE ch.id=$1 AND ch.closed_at IS NULL FOR UPDATE`, [id]);
+      if (!challenge.rowCount) return { status: 409, error: "Este desafio já foi encerrado." };
+      const row = challenge.rows[0];
+      const prizes = row.prizes || [];
+      if (hasCash(prizes) && !canGiveCash(req)) return { status: 403, error: "Este desafio tem prémios em dinheiro: só a equipa de finanças o encerra." };
+      const ranking = (await client.query(`${rankingSql} LIMIT ${Math.max(1, prizes.length)}`, [id])).rows;
+      await client.query("UPDATE challenges SET closed_at=NOW(), winner_post_id=$2 WHERE id=$1", [id, ranking[0]?.post_id || null]);
+      const awards = [];
+      for (const [index, entry] of ranking.entries()) {
+        const prize = prizes[index];
+        const stars = Number(prize?.stars) || 0;
+        const cashKz = Number(prize?.cashKz) || 0;
+        if (!stars && !cashKz) continue;
+        await client.query("INSERT INTO challenge_awards(challenge_id,place,user_id,post_id,stars,cash_kz) VALUES($1,$2,$3,$4,$5,$6)",
+          [id, index + 1, entry.user_id, entry.post_id, stars, cashKz]);
+        if (stars > 0) {
+          await client.query("INSERT INTO star_ledger(user_id,amount,kind,post_id) VALUES($1,$2,'challenge_prize',$3)", [entry.user_id, stars, entry.post_id]);
         }
-        await notify(client, winnerUser, null, "challenge", `Ganhaste o desafio «${row.title}»!${row.prize ? ` Prémio: ${row.prize}.` : ""}`);
+        const what = [stars > 0 && `${stars} estrelas`, cashKz > 0 && `${cashKz.toLocaleString("pt-PT")} Kz no teu saldo`].filter(Boolean).join(" e ");
+        await notify(client, entry.user_id, null, "challenge", `Ficaste em ${index + 1}.º lugar no desafio «${row.title}»! Prémio: ${what}.`);
+        awards.push({ place: index + 1, username: entry.username, stars, cashKz });
       }
-      return { winner: winner || null };
+      return { winner: ranking[0] || null, awards };
     });
-    if (outcome.error) return res.status(409).json(outcome);
+    if (outcome.error) return res.status(outcome.status).json({ error: outcome.error });
     res.json(outcome);
+  });
+
+  // ----- Catálogo de modelos (Administração) -----
+  app.get("/api/admin/challenge-templates", auth, requireAdmin, async (req, res) => {
+    const result = await pool.query(`
+      SELECT t.id,t.code,t.level,t.category,t.title,t.description,t.prizes,t.active,t.sort,t.updated_at,
+        (SELECT MAX(c.starts_at) FROM challenges c WHERE c.template_id=t.id) AS last_launched_at,
+        (SELECT COUNT(*) FROM challenges c WHERE c.template_id=t.id)::int AS times_launched
+      FROM challenge_templates t ORDER BY t.level, t.sort, t.id`);
+    res.json({ templates: result.rows, levels: LEVELS, canGiveCash: canGiveCash(req) });
+  });
+
+  const parseTemplate = (body, partial) => {
+    const out = {};
+    if (!partial || body.title !== undefined) {
+      out.title = cleanText(body.title);
+      if (!out.title || out.title.length > 100) return { error: "O título deve ter entre 1 e 100 caracteres." };
+    }
+    if (!partial || body.description !== undefined) {
+      out.description = cleanText(body.description);
+      if (out.description.length > 1000) return { error: "A descrição pode ter até 1000 caracteres." };
+    }
+    if (!partial || body.category !== undefined) {
+      out.category = cleanText(body.category).toLowerCase() || "geral";
+      if (out.category.length > 40) return { error: "Categoria demasiado longa." };
+    }
+    if (!partial || body.level !== undefined) {
+      out.level = Number(body.level);
+      if (!Number.isInteger(out.level) || out.level < 1 || out.level > 5) return { error: "Nível inválido (1 a 5)." };
+    }
+    if (!partial || body.prizes !== undefined) {
+      const parsed = parsePrizes(body.prizes);
+      if (parsed.error) return parsed;
+      out.prizes = parsed.prizes;
+    }
+    if (body.active !== undefined) {
+      if (typeof body.active !== "boolean") return { error: "Estado inválido." };
+      out.active = body.active;
+    }
+    return { template: out };
+  };
+
+  app.post("/api/admin/challenge-templates", auth, requireAdmin, async (req, res) => {
+    const parsed = parseTemplate(isRecord(req.body) ? req.body : {}, false);
+    if (parsed.error) return res.status(400).json({ error: parsed.error });
+    const t = parsed.template;
+    if (hasCash(t.prizes) && !canGiveCash(req)) return res.status(403).json({ error: "Só a equipa de finanças pode criar prémios em dinheiro." });
+    const slug = t.title.toLowerCase().normalize("NFD").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "desafio";
+    const result = await pool.query(`
+      INSERT INTO challenge_templates(code,level,category,title,description,prizes,sort,updated_by)
+      VALUES($1,$2,$3,$4,$5,$6,(SELECT COALESCE(MAX(sort),0)+1 FROM challenge_templates),$7) RETURNING id`,
+    [`${slug}-${Date.now().toString(36)}`, t.level, t.category, t.title, t.description, JSON.stringify(t.prizes), req.user.id]);
+    res.status(201).json({ id: result.rows[0].id });
+  });
+
+  app.patch("/api/admin/challenge-templates/:id", auth, requireAdmin, async (req, res) => {
+    const id = parseId(req.params.id);
+    if (!id) return res.status(400).json({ error: "Modelo inválido." });
+    const parsed = parseTemplate(isRecord(req.body) ? req.body : {}, true);
+    if (parsed.error) return res.status(400).json({ error: parsed.error });
+    const t = parsed.template;
+    const current = await pool.query("SELECT prizes FROM challenge_templates WHERE id=$1", [id]);
+    if (!current.rowCount) return res.status(404).json({ error: "Modelo não encontrado." });
+    // Mexer em prémios com dinheiro (pôr, mudar ou tirar) é com as finanças.
+    if (t.prizes && (hasCash(t.prizes) || hasCash(current.rows[0].prizes)) && !canGiveCash(req)) {
+      return res.status(403).json({ error: "Só a equipa de finanças pode mudar prémios em dinheiro." });
+    }
+    const fields = Object.keys(t);
+    if (!fields.length) return res.status(400).json({ error: "Nada para mudar." });
+    const values = fields.map(key => key === "prizes" ? JSON.stringify(t[key]) : t[key]);
+    await pool.query(`UPDATE challenge_templates SET ${fields.map((key, index) => `${key}=$${index + 2}`).join(",")}, updated_at=NOW(), updated_by=$${fields.length + 2} WHERE id=$1`,
+      [id, ...values, req.user.id]);
+    res.json({ updated: true });
+  });
+
+  // Lançar o mês: cria um desafio por modelo escolhido (até ao fim do mês, ou "days" dias) e avisa toda a gente.
+  app.post("/api/admin/challenges/launch", auth, requireAdmin, async (req, res) => {
+    const body = isRecord(req.body) ? req.body : {};
+    const ids = Array.isArray(body.templateIds) ? [...new Set(body.templateIds.map(Number))].filter(Number.isSafeInteger) : [];
+    if (!ids.length || ids.length > 20) return res.status(400).json({ error: "Escolhe entre 1 e 20 desafios para lançar." });
+    const days = body.days === undefined || body.days === null ? null : Number(body.days);
+    if (days !== null && (!Number.isInteger(days) || days < 1 || days > 62)) return res.status(400).json({ error: "A duração deve ser entre 1 e 62 dias." });
+    const templates = (await pool.query("SELECT * FROM challenge_templates WHERE id = ANY($1) AND active", [ids])).rows;
+    if (templates.length !== ids.length) return res.status(400).json({ error: "Um dos desafios escolhidos não existe ou está desligado." });
+    if (templates.some(t => hasCash(t.prizes)) && !canGiveCash(req)) return res.status(403).json({ error: "Há prémios em dinheiro: só a equipa de finanças lança estes desafios." });
+    const launched = await transaction(async client => {
+      const created = [];
+      for (const t of templates) {
+        // Sem "days": termina no último minuto do mês, hora de Luanda.
+        const row = (await client.query(`
+          INSERT INTO challenges(title,description,prize,prize_stars,sponsor,ends_at,created_by,template_id,level,prizes,new_posts_only)
+          VALUES($1,$2,'',$3,'Tchilar',
+            CASE WHEN $4::int IS NULL
+              THEN (date_trunc('month', NOW() AT TIME ZONE 'Africa/Luanda') + INTERVAL '1 month' - INTERVAL '1 minute') AT TIME ZONE 'Africa/Luanda'
+              ELSE NOW() + ($4::int * INTERVAL '1 day') END,
+            $5,$6,$7,$8,TRUE) RETURNING id,title,ends_at`,
+        [t.title, t.description, Number(t.prizes[0]?.stars) || 0, days, req.user.id, t.id, t.level, JSON.stringify(t.prizes)])).rows[0];
+        created.push(row);
+      }
+      const cashTop = Math.max(0, ...templates.flatMap(t => t.prizes.map(prize => Number(prize.cashKz) || 0)));
+      const text = `Novos desafios do mês: ${created.length} ${created.length === 1 ? "desafio" : "desafios"} com estrelas${cashTop ? ` e prémios até ${cashTop.toLocaleString("pt-PT")} Kz` : ""}. Participa!`;
+      await client.query(`INSERT INTO notifications(user_id,actor_id,type,text)
+        SELECT u.id,NULL,'challenge',$1 FROM users u WHERE u.suspended_at IS NULL`, [text]);
+      return created;
+    });
+    res.status(201).json({ challenges: launched });
   });
 
   return { rewardReferral };
 }
 
-module.exports = { registerGrowthRoutes };
+// Desafios do mês automáticos: no início de cada mês (hora de Luanda), se a equipa ainda não lançou
+// desafios do catálogo nesse mês, lança um por nível (1 a 5), escolhendo em cada nível o que está há mais
+// tempo sem sair (rotação). Só modelos ativos e sem prémios em dinheiro: esses precisam da equipa de finanças.
+// Corre de hora a hora; o bloqueio na base de dados impede que duas cópias da API lancem em duplicado.
+async function launchMonthlyChallenges({ pool, transaction }) {
+  return transaction(async client => {
+    const lock = await client.query("SELECT pg_try_advisory_xact_lock(424242) AS ok");
+    if (!lock.rows[0].ok) return [];
+    const already = await client.query(`
+      SELECT 1 FROM challenges WHERE template_id IS NOT NULL
+        AND starts_at >= date_trunc('month', NOW() AT TIME ZONE 'Africa/Luanda') AT TIME ZONE 'Africa/Luanda' LIMIT 1`);
+    if (already.rowCount) return [];
+    const picks = (await client.query(`
+      SELECT DISTINCT ON (t.level) t.*
+      FROM challenge_templates t
+      WHERE t.active AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(t.prizes) p WHERE COALESCE((p->>'cashKz')::numeric, 0) > 0)
+      ORDER BY t.level, (SELECT MAX(c.starts_at) FROM challenges c WHERE c.template_id=t.id) ASC NULLS FIRST, t.sort, t.id`)).rows;
+    if (!picks.length) return [];
+    const created = [];
+    for (const t of picks) {
+      created.push((await client.query(`
+        INSERT INTO challenges(title,description,prize,prize_stars,sponsor,ends_at,created_by,template_id,level,prizes,new_posts_only)
+        VALUES($1,$2,'',$3,'Tchilar',
+          (date_trunc('month', NOW() AT TIME ZONE 'Africa/Luanda') + INTERVAL '1 month' - INTERVAL '1 minute') AT TIME ZONE 'Africa/Luanda',
+          NULL,$4,$5,$6,TRUE) RETURNING id,title,level,ends_at`,
+      [t.title, t.description, Number(t.prizes[0]?.stars) || 0, t.id, t.level, JSON.stringify(t.prizes)])).rows[0]);
+    }
+    await client.query(`INSERT INTO notifications(user_id,actor_id,type,text)
+      SELECT u.id,NULL,'challenge',$1 FROM users u WHERE u.suspended_at IS NULL`,
+    [`Desafios do mês: ${created.length} novos desafios com estrelas. Participa!`]);
+    // Os níveis com prémios em dinheiro ficam para a equipa de finanças lançar no painel.
+    const missing = [1, 2, 3, 4, 5].filter(level => !created.some(item => item.level === level));
+    if (missing.length) {
+      await client.query(`INSERT INTO notifications(user_id,actor_id,type,text)
+        SELECT u.id,NULL,'announcement',$1 FROM users u WHERE u.is_admin AND COALESCE(u.admin_role,'super') IN ('super','finance')`,
+      [`Desafios do mês lançados (${created.length}). Os níveis ${missing.join(", ")} têm prémios em dinheiro: lança-os em Administração → Desafios.`]);
+    }
+    return created;
+  });
+}
+
+module.exports = { launchMonthlyChallenges, registerGrowthRoutes };
