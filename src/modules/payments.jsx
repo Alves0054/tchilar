@@ -6,7 +6,7 @@ import { API, Icon, UserContext, api, formatPrice, token } from "./core.jsx";
 import { Select } from "./select.jsx";
 import { DatePicker } from "./date-picker.jsx";
 
-const KIND_OPTIONS = [["", "Todos os tipos"], ["ad", "Promoções"], ["stars", "Estrelas"], ["campaign", "Campanhas"], ["group_access", "Entradas em grupos"], ["course", "Cursos"]];
+const KIND_OPTIONS = [["", "Todos os tipos"], ["ad", "Promoções"], ["stars", "Estrelas"], ["campaign", "Campanhas"], ["group_access", "Entradas em grupos"], ["course", "Cursos"], ["event_ticket", "Bilhetes"]];
 const METHOD_OPTIONS = [["", "Todos os métodos"], ["express", "Multicaixa Express"], ["reference", "Referência"], ["card", "Cartão"], ["paypal", "PayPal"], ["redotpay", "RedotPay"], ["paypay", "PayPay Africa"], ["demo", "Demonstração"]];
 const STATUS_OPTIONS = [["", "Todos os estados"], ["paid", "Pagos"], ["refunded", "Reembolsados"], ["refund_due", "Reembolso por fazer"]];
 

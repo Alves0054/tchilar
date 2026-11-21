@@ -22,8 +22,8 @@ export default function Events() {
       tone="#F06A2A"
       title={event.name}
       lines={[when(event.starts_at), [event.location, `${event.attendee_count} ${event.attendee_count === 1 ? "vai" : "vão"}`].filter(Boolean).join(" · "), event.description]}
-      action={event.ticket_stars > 0
-        ? <ActionButton label={event.my_ticket ? "Bilhete ✓" : `${event.ticket_stars} ★`} active={Boolean(event.my_ticket)} onPress={() => router.push(`/event/${event.id}`)} />
+      action={event.ticket_price_kz > 0
+        ? <ActionButton label={event.my_ticket ? "Bilhete ✓" : `${Number(event.ticket_price_kz).toLocaleString("pt-PT")} Kz`} active={Boolean(event.my_ticket)} onPress={() => router.push(`/event/${event.id}`)} />
         : <ActionButton label={event.is_attending ? "Vou" : "Participar"} active={event.is_attending} onPress={async () => {
         try {
           const result = await api(`/events/${event.id}/rsvp`, { method: "POST" });

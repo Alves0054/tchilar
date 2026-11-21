@@ -1897,68 +1897,84 @@ test("shops: WhatsApp orders and the verified business seal", { skip }, async ()
   assert.ok((await pool.query("SELECT 1 FROM notifications WHERE user_id=$1 AND type='business'", [owner.id])).rowCount);
 });
 
-test("event tickets: paid in stars, QR check-in once, refunded when the event is deleted", { skip }, async () => {
+test("event tickets: paid with money, 85% for the organizer after the event, QR check-in, refunds when cancelled", { skip }, async () => {
   const stamp = Date.now().toString(36);
   const organizer = await makeUser(`tix_org_${stamp}`);
   const buyer = await makeUser(`tix_buyer_${stamp}`);
-  const poor = await makeUser(`tix_poor_${stamp}`);
-  await pool.query("INSERT INTO star_ledger(user_id,amount,kind) VALUES($1,100,'purchase')", [buyer.id]);
+  const late = await makeUser(`tix_late_${stamp}`);
+  const finance = await makeUser(`tix_fin_${stamp}`, { role: "finance" });
   const startsAt = new Date(Date.now() + 2 * 86400000).toISOString();
-  assert.equal((await call("POST", "/events", organizer, { name: "Show", startsAt, ticketStars: -5 })).status, 400);
-  const event = (await call("POST", "/events", organizer, { name: "Show de semba", startsAt, ticketStars: 60, ticketsTotal: 2 })).body.event;
-  assert.equal(event.ticket_stars, 60);
+  assert.equal((await call("POST", "/events", organizer, { name: "Show", startsAt, ticketPriceKz: 50 })).status, 400, "mínimo 100 Kz");
+  const event = (await call("POST", "/events", organizer, { name: "Show de semba", startsAt, ticketPriceKz: 2000, ticketsTotal: 2 })).body.event;
+  assert.equal(event.ticket_price_kz, 2000);
   assert.equal((await call("POST", `/events/${event.id}/rsvp`, buyer)).status, 409, "num evento pago entra-se com bilhete");
-  assert.equal((await call("POST", `/events/${event.id}/tickets`, poor)).status, 402);
-  const bought = await call("POST", `/events/${event.id}/tickets`, buyer);
-  assert.equal(bought.status, 201, bought.body.error);
-  assert.equal(bought.body.balance, 40);
-  assert.equal((await call("POST", `/events/${event.id}/tickets`, buyer)).status, 409, "um bilhete por pessoa");
-  const code = bought.body.ticket.code;
-  assert.match(code, /^[A-Z2-9]{8}$/);
+
+  // Comprar abre o pagamento; só depois de confirmado há bilhete.
+  await call("POST", `/events/${event.id}/tickets`, buyer, {}); // sem meios de pagamento nos testes: fica à espera
+  const pending = (await pool.query("SELECT id::int AS id,status,code FROM event_tickets WHERE event_id=$1 AND user_id=$2", [event.id, buyer.id])).rows[0];
+  assert.deepEqual([pending.status, pending.code], ["pending", null]);
+  assert.equal((await call("GET", `/events/${event.id}`, buyer)).body.event.my_ticket, null, "sem pagamento confirmado não há bilhete");
+  await payments.fulfill("event_ticket", pending.id, {});
+  await payments.fulfill("event_ticket", pending.id, {}); // confirmação repetida não muda nada
   const detail = (await call("GET", `/events/${event.id}`, buyer)).body.event;
-  assert.equal(detail.my_ticket.code, code);
+  const code = detail.my_ticket.code;
+  assert.match(code, /^[A-Z2-9]{8}$/);
   assert.equal(detail.tickets_sold, 1);
+  assert.equal(detail.is_attending, true);
+  assert.equal((await call("POST", `/events/${event.id}/tickets`, buyer, {})).status, 409, "um bilhete por pessoa");
   const qr = await fetch(`${baseUrl}/events/${event.id}/tickets/mine/qr`, { headers: { Authorization: `Bearer ${buyer.token}` } });
   assert.equal(qr.headers.get("content-type"), "image/png");
-  assert.equal((await fetch(`${baseUrl}/events/${event.id}/tickets/mine/qr`, { headers: { Authorization: `Bearer ${poor.token}` } })).status, 404);
+
+  // Recibo e lista de pagamentos da equipa.
+  const receipt = (await call("GET", "/admin/payments?kind=event_ticket", finance)).body;
+  assert.ok(JSON.stringify(receipt).includes("Bilhete «Show de semba»"));
+
   // Validação à entrada: só quem organiza, cada bilhete uma vez.
   assert.equal((await call("POST", `/events/${event.id}/check-in`, buyer, { code })).status, 403);
   assert.equal((await call("POST", `/events/${event.id}/check-in`, organizer, { code: "ZZZZZZZZ" })).status, 404);
-  const entry = await call("POST", `/events/${event.id}/check-in`, organizer, { code: code.toLowerCase() });
-  assert.equal(entry.body.person.username, buyer.username);
-  assert.equal((await call("POST", `/events/${event.id}/check-in`, organizer, { code })).status, 409, "o mesmo bilhete não entra duas vezes");
+  assert.equal((await call("POST", `/events/${event.id}/check-in`, organizer, { code: code.toLowerCase() })).body.person.username, buyer.username);
+  assert.equal((await call("POST", `/events/${event.id}/check-in`, organizer, { code })).status, 409);
   const list = (await call("GET", `/events/${event.id}/tickets`, organizer)).body;
-  assert.deepEqual([list.sold, list.checked_in, list.stars], [1, 1, 60]);
-  const earned = async () => (await pool.query("SELECT COALESCE(SUM(amount),0)::int AS n FROM star_ledger WHERE user_id=$1 AND kind='gift_received'", [organizer.id])).rows[0].n;
-  assert.equal(await earned(), 60, "as estrelas contam para quem organiza");
-  // Antes de o evento acontecer, as estrelas dos bilhetes ainda não se podem levantar.
-  const payouts = (await call("GET", "/payouts", organizer)).body;
-  assert.equal(payouts.sources.starsKz, 0, "bilhetes de eventos futuros ficam à espera");
-  assert.ok(payouts.accruing.ticketsKz > 0);
-  // Esgotado.
-  const sold = (await call("POST", "/events", organizer, { name: "Lotação 1", startsAt, ticketStars: 10, ticketsTotal: 1 })).body.event;
-  assert.equal((await call("POST", `/events/${sold.id}/tickets`, buyer)).status, 201);
-  await pool.query("INSERT INTO star_ledger(user_id,amount,kind) VALUES($1,50,'purchase')", [poor.id]);
-  assert.match((await call("POST", `/events/${sold.id}/tickets`, poor)).body.error, /esgotaram/);
-  // Apagar devolve as estrelas.
+  assert.deepEqual([list.sold, list.checked_in, list.gross_kz, list.net_kz], [1, 1, 2000, 1700]);
+
+  // Os 85% só se podem levantar 1 dia depois do evento; até lá ficam à espera.
+  let payouts = (await call("GET", "/payouts", organizer)).body;
+  assert.equal(payouts.sources.ticketsKz, 0);
+  assert.equal(payouts.accruing.ticketsKz, 1700);
+
+  // Lotação: um pagamento a meio guarda o lugar durante 30 minutos.
+  const other = await makeUser(`tix_other_${stamp}`);
+  await call("POST", `/events/${event.id}/tickets`, other, {});
+  assert.match((await call("POST", `/events/${event.id}/tickets`, late, {})).body.error, /esgotaram/);
+
+  // Cancelar antes do evento: o bilhete pago fica por devolver e sai dos ganhos de quem organiza.
   assert.equal((await call("DELETE", `/events/${event.id}`, organizer)).status, 200);
-  const balance = (await pool.query("SELECT COALESCE(SUM(amount) FILTER (WHERE kind <> 'gift_received'),0)::int AS n FROM star_ledger WHERE user_id=$1", [buyer.id])).rows[0].n;
-  assert.equal(balance, 90, "100 - 60 - 10 + 60 devolvidas");
-  assert.equal(await earned(), 10, "quem organiza perde as estrelas do evento apagado");
-  // Depois de começar, um evento com bilhetes vendidos já não se apaga (as estrelas já podem ter sido levantadas).
-  await pool.query("UPDATE events SET starts_at=NOW() - INTERVAL '2 days' WHERE id=$1", [sold.id]);
-  await pool.query("UPDATE star_ledger SET available_at=NOW() - INTERVAL '1 day' WHERE event_id=$1 AND kind='gift_received'", [sold.id]);
-  assert.equal((await call("GET", "/payouts", organizer)).body.sources.starsKz > 0, true, "depois do evento as estrelas contam");
-  assert.equal((await call("DELETE", `/events/${sold.id}`, organizer)).status, 409);
-  // Apagar a página de um evento futuro também devolve as estrelas (e não as liberta para levantar).
+  const refunded = (await pool.query("SELECT refund_status,event_id FROM event_tickets WHERE id=$1", [pending.id])).rows[0];
+  assert.deepEqual([refunded.refund_status, refunded.event_id], ["manual", null], "o registo fica para o recibo e a devolução");
+  payouts = (await call("GET", "/payouts", organizer)).body;
+  assert.deepEqual([payouts.sources.ticketsKz, payouts.accruing.ticketsKz], [0, 0]);
+  assert.ok((await pool.query("SELECT 1 FROM notifications WHERE user_id=$1 AND type='event_refund'", [buyer.id])).rowCount);
+
+  // Depois do evento: o dinheiro conta e um evento com bilhetes já não se apaga.
+  const past = (await call("POST", "/events", organizer, { name: "Já foi", startsAt, ticketPriceKz: 1000 })).body.event;
+  await call("POST", `/events/${past.id}/tickets`, buyer, {});
+  const ticketId = (await pool.query("SELECT id::int AS id FROM event_tickets WHERE event_id=$1 AND user_id=$2", [past.id, buyer.id])).rows[0].id;
+  await payments.fulfill("event_ticket", ticketId, {});
+  await pool.query("UPDATE events SET starts_at=NOW() - INTERVAL '2 days' WHERE id=$1", [past.id]);
+  await pool.query("UPDATE event_tickets SET available_at=NOW() - INTERVAL '1 day' WHERE id=$1", [ticketId]);
+  assert.equal((await call("GET", "/payouts", organizer)).body.sources.ticketsKz, 850, "85% de 1000 Kz");
+  assert.equal((await call("DELETE", `/events/${past.id}`, organizer)).status, 409);
+  assert.equal((await call("POST", `/events/${past.id}/tickets`, late, {})).status, 409, "depois de começar já não se vende");
+
+  // Apagar a página de um evento futuro também deixa o bilhete por devolver.
   const page = (await call("POST", "/pages", organizer, { name: `Bilhetes ${stamp}`, pageType: "loja", category: "negocios" })).body.page;
-  const pageEvent = (await call("POST", "/events", organizer, { name: "Na página", startsAt, ticketStars: 20, pageId: page.id })).body.event;
-  assert.equal((await call("POST", `/events/${pageEvent.id}/tickets`, buyer)).status, 201);
-  const before = (await call("GET", "/payouts", organizer)).body.sources.starsKz;
+  const pageEvent = (await call("POST", "/events", organizer, { name: "Na página", startsAt, ticketPriceKz: 500, pageId: page.id })).body.event;
+  await call("POST", `/events/${pageEvent.id}/tickets`, late, {});
+  const lateTicket = (await pool.query("SELECT id::int AS id FROM event_tickets WHERE event_id=$1 AND user_id=$2", [pageEvent.id, late.id])).rows[0].id;
+  await payments.fulfill("event_ticket", lateTicket, {});
   assert.equal((await call("DELETE", `/pages/${page.id}`, organizer)).status, 200);
-  assert.equal((await call("GET", "/payouts", organizer)).body.sources.starsKz, before, "as estrelas do evento apagado não ficam levantáveis");
-  const after = (await pool.query("SELECT COALESCE(SUM(amount) FILTER (WHERE kind <> 'gift_received'),0)::int AS n FROM star_ledger WHERE user_id=$1", [buyer.id])).rows[0].n;
-  assert.equal(after, 90, "quem comprou recebe as 20 estrelas de volta");
+  assert.equal((await pool.query("SELECT refund_status FROM event_tickets WHERE id=$1", [lateTicket])).rows[0].refund_status, "manual");
+  assert.equal((await call("GET", "/payouts", organizer)).body.sources.ticketsKz, 850, "o bilhete cancelado não conta");
 });
 
 test("paid lives: entry in stars before video, chat and P2P signals", { skip }, async () => {

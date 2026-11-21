@@ -12,9 +12,9 @@ const notifyUser = (db, userId, text, type = "payment") =>
 const kz = value => `${Number(value).toLocaleString("pt-PT")} Kz`;
 
 // Onde vive cada produto pago, para marcar o reembolso.
-const REFUND_TABLES = { ad: "ads", stars: "star_purchases", campaign: "brand_campaigns", group_access: "group_access_purchases", course: "course_purchases", subscription: "subscription_payments" };
+const REFUND_TABLES = { ad: "ads", stars: "star_purchases", campaign: "brand_campaigns", group_access: "group_access_purchases", course: "course_purchases", subscription: "subscription_payments", event_ticket: "event_tickets" };
 
-const PURPOSE_LABELS = { ad: "Promoção", stars: "Estrelas", campaign: "Campanha", group_access: "Entrada em grupo", course: "Curso", subscription: "Subscrição" };
+const PURPOSE_LABELS = { ad: "Promoção", stars: "Estrelas", campaign: "Campanha", group_access: "Entrada em grupo", course: "Curso", subscription: "Subscrição", event_ticket: "Bilhete" };
 const ATTEMPT_FILTERS = {
   pending: "lp.status='pending' AND (lp.expires_at IS NULL OR lp.expires_at > NOW())",
   expired: "(lp.status='expired' OR (lp.status='pending' AND lp.expires_at <= NOW()))",
@@ -28,6 +28,7 @@ const PRODUCT_PAID_SQL = `CASE lp.purpose
   WHEN 'group_access' THEN EXISTS(SELECT 1 FROM group_access_purchases x WHERE x.id=lp.ref_id AND x.status='paid')
   WHEN 'course' THEN EXISTS(SELECT 1 FROM course_purchases x WHERE x.id=lp.ref_id AND x.status='paid')
   WHEN 'subscription' THEN EXISTS(SELECT 1 FROM subscription_payments x WHERE x.id=lp.ref_id AND x.status='paid')
+  WHEN 'event_ticket' THEN EXISTS(SELECT 1 FROM event_tickets x WHERE x.id=lp.ref_id AND x.status='paid')
   ELSE FALSE END`;
 
 const DATA_REQUEST_KINDS = {

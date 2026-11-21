@@ -1160,7 +1160,9 @@ export function CreatorEarnings() {
     ["Grupos secretos", data.sources.groupsKz || 0, "lock", "70% das entradas pagas"],
     ["Prémios de desafios", data.sources.prizesKz || 0, "trophy", "Prémios em dinheiro dos desafios do mês"],
     ["Cursos vendidos", data.sources.coursesKz || 0, "academy", "85% das vendas na Academia"],
-    ["Subscrições", data.sources.subscriptionsKz || 0, "spark", "85% de cada mês pago por Express, Referência, PayPay, PayPal ou RedotPay"]
+    ["Subscrições", data.sources.subscriptionsKz || 0, "spark", "85% de cada mês pago por Express, Referência, PayPay, PayPal ou RedotPay"],
+    ["Bilhetes de eventos", data.sources.ticketsKz || 0, "events", data.accruing.ticketsKz > 0
+      ? `+${formatPrice(data.accruing.ticketsKz)} à espera dos eventos (fica disponível 1 dia depois de cada evento)` : "85% de cada bilhete, disponível 1 dia depois do evento"]
   ];
   const hasPending = data.requests.some(request => request.status === "requested");
   return <>

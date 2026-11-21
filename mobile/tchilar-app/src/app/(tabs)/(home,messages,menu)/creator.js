@@ -361,7 +361,9 @@ function Earnings() {
     ["Grupos secretos", data.sources.groupsKz || 0, "lock-closed-outline", "70% das entradas pagas"],
     ["Prémios de desafios", data.sources.prizesKz || 0, "trophy-outline", "Prémios em dinheiro dos desafios do mês"],
     ["Cursos vendidos", data.sources.coursesKz || 0, "school-outline", "85% das vendas na Academia"],
-    ["Subscrições", data.sources.subscriptionsKz || 0, "sparkles-outline", "85% de cada mês pago"]
+    ["Subscrições", data.sources.subscriptionsKz || 0, "sparkles-outline", "85% de cada mês pago"],
+    ["Bilhetes de eventos", data.sources.ticketsKz || 0, "ticket-outline", data.accruing.ticketsKz > 0
+      ? `+${kz(data.accruing.ticketsKz)} à espera dos eventos` : "85% de cada bilhete, 1 dia depois do evento"]
   ];
   const hasPending = data.requests.some(request => request.status === "requested");
   const status = { requested: ["Em processamento", "warning"], paid: ["Pago", "good"], rejected: ["Recusado", "danger"] };

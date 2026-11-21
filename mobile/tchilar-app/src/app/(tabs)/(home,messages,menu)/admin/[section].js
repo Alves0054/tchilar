@@ -565,7 +565,7 @@ function PromotionCodes() {
   const { data, error, load } = useAdmin("/admin/promotion-codes");
   const [notice, run] = useAction(load);
   const [form, setForm] = useState({ code: "", discountPercent: "10", minAmountKz: "0", maxDiscountKz: "", maxUses: "", expiresAt: "", purposes: [] });
-  const purposeOptions = [["stars", "Estrelas"], ["ad", "Promoções"], ["campaign", "Campanhas"], ["course", "Cursos"], ["subscription", "Subscrições"], ["group_access", "Grupos"], ["verification", "Verificação"]];
+  const purposeOptions = [["stars", "Estrelas"], ["ad", "Promoções"], ["campaign", "Campanhas"], ["course", "Cursos"], ["subscription", "Subscrições"], ["group_access", "Grupos"], ["verification", "Verificação"], ["event_ticket", "Bilhetes"]];
   const create = () => run(async () => {
     await api("/admin/promotion-codes", { method: "POST", body: {
       code: form.code, discountPercent: Number(form.discountPercent), minAmountKz: Number(form.minAmountKz),

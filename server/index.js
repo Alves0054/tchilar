@@ -2646,9 +2646,10 @@ app.get("/api/events", optionalAuth, async (req, res) => {
   const result = await pool.query(`
     SELECT e.id,e.page_id,p.name AS page_name,e.name,e.description,e.location,e.image_url,e.starts_at,e.created_at,
       u.id AS creator_id,u.username AS creator_username,u.display_name AS creator_name,
-      e.ticket_stars,e.tickets_total,
-      (SELECT COUNT(*) FROM event_tickets t WHERE t.event_id=e.id)::int AS tickets_sold,
-      (SELECT json_build_object('code',t.code,'stars',t.stars,'checked_in_at',t.checked_in_at) FROM event_tickets t WHERE t.event_id=e.id AND t.user_id=$1) AS my_ticket,
+      e.ticket_price_kz::float AS ticket_price_kz,e.tickets_total,
+      (SELECT COUNT(*) FROM event_tickets t WHERE t.event_id=e.id AND t.status='paid' AND t.refund_status IS NULL)::int AS tickets_sold,
+      (SELECT json_build_object('code',t.code,'amount_kz',t.amount_kz,'checked_in_at',t.checked_in_at) FROM event_tickets t
+        WHERE t.event_id=e.id AND t.user_id=$1 AND t.status='paid' AND t.refund_status IS NULL) AS my_ticket,
       (SELECT COUNT(*) FROM event_attendees a WHERE a.event_id=e.id)::int AS attendee_count,
       EXISTS(SELECT 1 FROM event_attendees a WHERE a.event_id=e.id AND a.user_id=$1) AS is_attending
     FROM events e JOIN users u ON u.id=e.creator_id LEFT JOIN pages p ON p.id=e.page_id
@@ -2684,13 +2685,13 @@ app.post("/api/events", auth, imageUpload.single("image"), optimizeUpload("event
       const page = await pool.query("SELECT 1 FROM pages WHERE id=$1 AND owner_id=$2 AND hidden_at IS NULL", [pageId, req.user.id]);
       if (!page.rowCount) return reject(403, "Só o responsável pela página pode criar eventos nela.");
     }
-    // Bilhete em estrelas (0 = grátis, com o botão "Vou").
+    // Bilhete pago com dinheiro (0 = grátis, com o botão "Vou"). Quem organiza fica com 85%.
     const ticket = parseTicketInput(body);
     if (ticket.error) return reject(400, ticket.error);
     const event = await transaction(async client => {
       const result = await client.query(`
-        INSERT INTO events(creator_id,page_id,name,description,location,image_url,starts_at,ticket_stars,tickets_total)
-        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id,page_id,name,description,location,image_url,starts_at,created_at,ticket_stars,tickets_total`,
+        INSERT INTO events(creator_id,page_id,name,description,location,image_url,starts_at,ticket_price_kz,tickets_total)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id,page_id,name,description,location,image_url,starts_at,created_at,ticket_price_kz::float AS ticket_price_kz,tickets_total`,
       [req.user.id, pageId, name, description, location, imageUrl, startsAt.toISOString(), ticket.price, ticket.total]);
       await client.query("INSERT INTO event_attendees(event_id,user_id) VALUES($1,$2)", [result.rows[0].id, req.user.id]);
       return result.rows[0];
@@ -2702,16 +2703,16 @@ app.post("/api/events", auth, imageUpload.single("image"), optimizeUpload("event
   }
 });
 
-registerEventTickets(app, { pool, auth, parseId, transaction, blockedBetween, appUrl });
+registerEventTickets(app, { pool, auth, parseId, isRecord, transaction, blockedBetween, appUrl, payments });
 
 app.post("/api/events/:eventId/rsvp", auth, async (req, res) => {
   const eventId = parseId(req.params.eventId);
   if (!eventId) return res.status(400).json({ error: "Evento inválido." });
   // Eventos de um grupo: só os membros do grupo confirmam presença.
-  const event = await pool.query(`SELECT creator_id,ticket_stars FROM events e WHERE id=$1
+  const event = await pool.query(`SELECT creator_id,ticket_price_kz::float AS ticket_price_kz FROM events e WHERE id=$1
     AND (e.group_id IS NULL OR EXISTS(SELECT 1 FROM group_members gm WHERE gm.group_id=e.group_id AND gm.user_id=$2))`, [eventId, req.user.id]);
   if (!event.rowCount) return res.status(404).json({ error: "Evento não encontrado." });
-  if (event.rows[0].ticket_stars > 0 && event.rows[0].creator_id !== req.user.id) {
+  if (event.rows[0].ticket_price_kz > 0 && event.rows[0].creator_id !== req.user.id) {
     return res.status(409).json({ error: "Este evento tem bilhete: compra-o para garantires o lugar." });
   }
   const attending = await transaction(async client => {
@@ -3136,9 +3137,10 @@ app.get("/api/events/:eventId", optionalAuth, async (req, res) => {
   const event = await pool.query(`
     SELECT e.id,e.page_id,p.name AS page_name,e.name,e.description,e.location,e.image_url,e.starts_at,e.created_at,
       u.id AS creator_id,u.username AS creator_username,u.display_name AS creator_name,u.avatar_url AS creator_avatar,
-      e.ticket_stars,e.tickets_total,
-      (SELECT COUNT(*) FROM event_tickets t WHERE t.event_id=e.id)::int AS tickets_sold,
-      (SELECT json_build_object('code',t.code,'stars',t.stars,'checked_in_at',t.checked_in_at) FROM event_tickets t WHERE t.event_id=e.id AND t.user_id=$2) AS my_ticket,
+      e.ticket_price_kz::float AS ticket_price_kz,e.tickets_total,
+      (SELECT COUNT(*) FROM event_tickets t WHERE t.event_id=e.id AND t.status='paid' AND t.refund_status IS NULL)::int AS tickets_sold,
+      (SELECT json_build_object('code',t.code,'amount_kz',t.amount_kz,'checked_in_at',t.checked_in_at) FROM event_tickets t
+        WHERE t.event_id=e.id AND t.user_id=$2 AND t.status='paid' AND t.refund_status IS NULL) AS my_ticket,
       (SELECT COUNT(*) FROM event_attendees a WHERE a.event_id=e.id)::int AS attendee_count,
       EXISTS(SELECT 1 FROM event_attendees a WHERE a.event_id=e.id AND a.user_id=$2) AS is_attending,
       (e.creator_id=$2 OR EXISTS(SELECT 1 FROM pages pg WHERE pg.id=e.page_id AND pg.owner_id=$2)) AS is_creator

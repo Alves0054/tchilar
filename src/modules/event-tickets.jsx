@@ -1,12 +1,12 @@
 import { useContext, useEffect, useState } from "react";
-import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { API_BASE, Avatar, Icon, UserContext, api, formatCount, token } from "./core.jsx";
+import { Link, useParams, useSearchParams } from "react-router-dom";
+import { API_BASE, Avatar, Icon, UserContext, api, formatCount, formatPrice, token } from "./core.jsx";
 import { EventDate, eventWhen } from "./events.jsx";
+import { PaymentDialog } from "./shared.jsx";
 import "./events.css";
 
-// Página de um evento: comprar o bilhete (em estrelas), mostrar o QR e, para quem organiza, validar à entrada.
-// O QR leva /events/:id?checkin=CÓDIGO: quem organiza aponta a câmara do telemóvel e o bilhete fica validado aqui.
-export const ticketLabel = stars => `${formatCount(stars)} ${stars === 1 ? "estrela" : "estrelas"}`;
+// Página de um evento: comprar o bilhete (Express, Referência, PayPay...), mostrar o QR e, para quem organiza,
+// validar à entrada. O QR leva /events/:id?checkin=CÓDIGO: quem organiza aponta a câmara e o bilhete fica validado aqui.
 
 function TicketQr({ eventId }) {
   const [src, setSrc] = useState("");
@@ -47,7 +47,8 @@ function OrganizerTickets({ event, autoCode }) {
     {data && <dl className="admin-kpis">
       <div><dt>Vendidos</dt><dd>{data.sold}{data.total ? ` / ${data.total}` : ""}</dd></div>
       <div><dt>Já entraram</dt><dd>{data.checked_in}</dd></div>
-      <div><dt>Estrelas</dt><dd>{formatCount(data.stars)}</dd></div>
+      <div><dt>Vendas</dt><dd>{formatPrice(data.gross_kz)}</dd></div>
+      <div><dt>Para ti (85%)</dt><dd>{formatPrice(data.net_kz)}</dd></div>
     </dl>}
     <form className="ticket-checkin" onSubmit={event => { event.preventDefault(); checkIn(code); }}>
       <input value={code} onChange={changeEvent => setCode(changeEvent.target.value.toUpperCase())} maxLength={16} placeholder="Código do bilhete" aria-label="Código do bilhete" />
@@ -67,34 +68,22 @@ function OrganizerTickets({ event, autoCode }) {
 export function EventPage() {
   const { eventId } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
-  const navigate = useNavigate();
   const { user, authReady } = useContext(UserContext);
   const [event, setEvent] = useState(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [notice, setNotice] = useState("");
+  const [notice, setNotice] = useState(searchParams.get("pagamento") === "sucesso" ? "Pagamento recebido. O teu bilhete aparece aqui assim que for confirmado." : "");
+  const [paying, setPaying] = useState(false);
   const checkinCode = searchParams.get("checkin");
   const load = () => api(`/events/${eventId}`).then(result => setEvent(result.event)).catch(loadError => setError(loadError.message));
   useEffect(() => { if (authReady) load(); }, [eventId, authReady, user?.id]);
 
   if (error) return <div className="page narrow"><div className="empty card">{error} <Link to="/events">Ver eventos</Link></div></div>;
   if (!event) return <div className="page narrow"><div className="empty card">A carregar...</div></div>;
-  const paid = event.ticket_stars > 0;
+  const paid = event.ticket_price_kz > 0;
   const soldOut = paid && event.tickets_total && event.tickets_sold >= event.tickets_total;
 
-  const buy = async () => {
-    if (!window.confirm(`Comprar o bilhete para «${event.name}» por ${ticketLabel(event.ticket_stars)}?`)) return;
-    setBusy(true); setNotice(""); setError("");
-    try {
-      await api(`/events/${event.id}/tickets`, { method: "POST" });
-      setNotice("Bilhete comprado. Mostra o QR à entrada.");
-      await load();
-    } catch (buyError) {
-      if (/estrelas suficientes/.test(buyError.message)) {
-        if (window.confirm(`${buyError.message} Queres comprar estrelas agora?`)) navigate("/estrelas");
-      } else setNotice(buyError.message);
-    } finally { setBusy(false); }
-  };
+  const buy = () => { setNotice(""); setPaying(true); };
   const rsvp = async () => {
     setBusy(true);
     try { await api(`/events/${event.id}/rsvp`, { method: "POST" }); await load(); } catch (rsvpError) { setNotice(rsvpError.message); } finally { setBusy(false); }
@@ -114,12 +103,12 @@ export function EventPage() {
         <small>Organizado por {event.page_id && event.page_name ? <Link to={`/pages/${event.page_id}`}>{event.page_name}</Link>
           : <Link to={`/u/${event.creator_username}`}>{event.creator_name}</Link>} · {formatCount(event.attendee_count)} {event.attendee_count === 1 ? "pessoa vai" : "pessoas vão"}</small>
         <div className="event-page-actions">
-          {paid && <span className="ticket-price"><Icon name="star" size={15} /> Bilhete: {ticketLabel(event.ticket_stars)}
+          {paid && <span className="ticket-price"><Icon name="card" size={15} /> Bilhete: {formatPrice(event.ticket_price_kz)}
             {event.tickets_total ? <small> · {Math.max(0, event.tickets_total - event.tickets_sold)} por vender</small> : null}</span>}
           {!user ? <Link className="btn" to="/login">Entrar para {paid ? "comprar bilhete" : "participar"}</Link>
             : event.is_creator ? null
               : paid ? (!event.my_ticket && <button className="btn" type="button" disabled={busy || soldOut} onClick={buy}>
-                <Icon name="star" size={15} /> {soldOut ? "Esgotado" : busy ? "A comprar..." : "Comprar bilhete"}</button>)
+                <Icon name="card" size={15} /> {soldOut ? "Esgotado" : "Comprar bilhete"}</button>)
                 : <button className={`btn${event.is_attending ? " secondary" : ""}`} type="button" disabled={busy} onClick={rsvp}>
                   <Icon name={event.is_attending ? "check" : "plus"} size={15} /> {event.is_attending ? "Vou (carrega para cancelar)" : "Vou participar"}</button>}
         </div>
@@ -133,6 +122,9 @@ export function EventPage() {
       <TicketQr eventId={event.id} />
     </section>}
     {event.is_creator && paid && <OrganizerTickets event={event} autoCode={checkinCode} />}
+    {paying && <PaymentDialog title={`Bilhete «${event.name}»`} amountKz={event.ticket_price_kz} purpose="event_ticket"
+      onPay={choice => api(`/events/${event.id}/tickets`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(choice) })}
+      onDone={() => { setPaying(false); load(); }} onClose={() => { setPaying(false); load(); }} />}
     {event.is_creator && !paid && checkinCode && <p className="muted">Este evento é grátis: não tem bilhetes para validar.</p>}
     {!event.is_creator && checkinCode && <p className="muted" role="status">Só quem organiza o evento pode validar bilhetes.
       <button className="link-button" type="button" onClick={() => setSearchParams({})}>Fechar</button></p>}

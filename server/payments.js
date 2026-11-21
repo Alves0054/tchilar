@@ -16,7 +16,7 @@ const REFERENCE_VALID_DAYS = 3;
 // As promoções e as campanhas ficam de fora: o orçamento (budget) é o produto comprado, o desconto é do Tchilar.
 const SALE_AMOUNT_TABLES = {
   stars: "star_purchases", group_access: "group_access_purchases", course: "course_purchases",
-  subscription: "subscription_payments", verification: "verification_purchases"
+  subscription: "subscription_payments", verification: "verification_purchases", event_ticket: "event_tickets"
 };
 // Todos os métodos que o Tchilar conhece, pela ordem em que aparecem. Os que não têm chaves aparecem como "Em breve".
 const ALL_METHODS = ["express", "reference", "paypay", "card", "paypal", "redotpay"];

@@ -9,7 +9,8 @@ const KINDS = {
   campaign: { prefix: "C", label: "Campanha" },
   group_access: { prefix: "G", label: "Entrada em grupo" },
   course: { prefix: "K", label: "Curso" },
-  subscription: { prefix: "S", label: "Subscrição" }
+  subscription: { prefix: "S", label: "Subscrição" },
+  event_ticket: { prefix: "B", label: "Bilhete" }
 };
 const METHODS = { card: "Cartão", express: "Multicaixa Express", reference: "Pagamento por Referência", paypal: "PayPal", redotpay: "RedotPay", paypay: "PayPay Africa", demo: "Demonstração (sem cobrança)" };
 const STATUSES = { paid: "Pago", refunded: "Reembolsado", refund_due: "Reembolso por fazer" };
@@ -60,6 +61,11 @@ const PAYMENTS_SQL = `
       'Subscrição de ' || COALESCE(cu.display_name, 'conta apagada') || ' (1 mês)',
       COALESCE(sp.stripe_payment_intent, sp.stripe_session_id), ${refundState("sp")}
     FROM subscription_payments sp LEFT JOIN users cu ON cu.id=sp.creator_id WHERE sp.status='paid'
+    UNION ALL
+    SELECT 'event_ticket', et.id::int, et.user_id, et.amount_kz::float, et.paid_at,
+      'Bilhete «' || COALESCE(et.event_name, 'evento') || '»',
+      COALESCE(et.stripe_payment_intent, et.stripe_session_id), ${refundState("et")}
+    FROM event_tickets et WHERE et.status='paid' AND et.amount_kz > 0
   )
   SELECT i.kind, i.ref_id, i.user_id, i.amount_kz, i.paid_at, i.description, i.status, i.card_ref,
     COALESCE(l.method, CASE WHEN i.card_ref IS NOT NULL THEN 'card' ELSE 'demo' END) AS method,

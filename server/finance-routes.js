@@ -4,6 +4,7 @@ const { logAdminAction } = require("./admin-routes");
 const { campaignSplit, starsValueKz } = require("./growth");
 const { groupAccessValueKz } = require("./groups");
 const { courseShareKz } = require("./courses");
+const { ticketShareKz } = require("./event-tickets");
 const { subscriptionShareKz } = require("./local-subscriptions");
 const { MIN_PAYOUT_KZ, partnerPayout } = require("./promotions");
 const {
@@ -21,15 +22,16 @@ const EARNINGS_SQL = `
       WHERE p.user_id=u.id AND u.partner_since IS NOT NULL AND v.viewed_on >= GREATEST(u.partner_since::date, date_trunc('month', CURRENT_DATE)::date))::int AS partner_views_this_month,
     (SELECT COALESCE(SUM(amount),0) FROM star_ledger
       WHERE user_id=u.id AND kind='gift_received' AND (available_at IS NULL OR available_at <= NOW()))::int AS stars_received,
-    -- Bilhetes de eventos que ainda não aconteceram: ficam à espera até 1 dia depois do início (available_at),
-    -- mesmo que o evento deixe de existir; se for cancelado antes, voltam a quem comprou.
-    (SELECT COALESCE(SUM(amount),0) FROM star_ledger
-      WHERE user_id=u.id AND kind='gift_received' AND available_at > NOW())::int AS stars_on_hold,
     (SELECT COALESCE(SUM(budget),0) FROM brand_campaigns WHERE creator_id=u.id AND status='completed')::float AS campaigns_gross,
     (SELECT COALESCE(SUM(amount_kz),0) FROM group_access_purchases WHERE owner_id=u.id AND status='paid' AND refund_status IS NULL)::float AS groups_gross,
     (SELECT COALESCE(SUM(cash_kz),0) FROM challenge_awards WHERE user_id=u.id)::float AS prizes_kz,
     (SELECT COALESCE(SUM(amount_kz),0) FROM course_purchases WHERE owner_id=u.id AND NOT by_team AND status='paid' AND refund_status IS NULL)::float AS courses_gross,
     (SELECT COALESCE(SUM(amount_kz),0) FROM subscription_payments WHERE creator_id=u.id AND status='paid' AND refund_status IS NULL)::float AS subscriptions_gross,
+    -- Bilhetes de eventos: 85% de quem organiza, levantável 1 dia depois de o evento começar.
+    (SELECT COALESCE(SUM(amount_kz),0) FROM event_tickets WHERE owner_id=u.id AND status='paid' AND refund_status IS NULL
+      AND available_at <= NOW())::float AS tickets_gross,
+    (SELECT COALESCE(SUM(amount_kz),0) FROM event_tickets WHERE owner_id=u.id AND status='paid' AND refund_status IS NULL
+      AND available_at > NOW())::float AS tickets_on_hold,
     (SELECT COALESCE(SUM(amount),0) FROM payout_requests WHERE user_id=u.id AND status IN ('requested','paid'))::float AS withdrawn
   FROM users u WHERE u.id=$1`;
 
@@ -41,11 +43,12 @@ function earningsFrom(row) {
   const prizesKz = Math.round(Number(row.prizes_kz || 0) * 100) / 100;
   const coursesKz = courseShareKz(row.courses_gross);
   const subscriptionsKz = subscriptionShareKz(row.subscriptions_gross);
+  const ticketsKz = ticketShareKz(row.tickets_gross);
   return {
-    sources: { partnerKz, starsKz, campaignsKz, groupsKz, prizesKz, coursesKz, subscriptionsKz },
-    accruing: { partnerKz: partnerPayout(row.partner_views_this_month), ticketsKz: starsValueKz(row.stars_on_hold || 0) },
+    sources: { partnerKz, starsKz, campaignsKz, groupsKz, prizesKz, coursesKz, subscriptionsKz, ticketsKz },
+    accruing: { partnerKz: partnerPayout(row.partner_views_this_month), ticketsKz: ticketShareKz(row.tickets_on_hold) },
     withdrawn: row.withdrawn,
-    ...payoutBalance({ partnerKz, starsKz, campaignsKz, groupsKz, prizesKz, coursesKz, subscriptionsKz, withdrawnKz: row.withdrawn })
+    ...payoutBalance({ partnerKz, starsKz, campaignsKz, groupsKz, prizesKz, coursesKz, subscriptionsKz, ticketsKz, withdrawnKz: row.withdrawn })
   };
 }
 
@@ -247,7 +250,8 @@ function registerFinanceRoutes(app, deps) {
         ((SELECT COALESCE(SUM(budget),0) FROM ads WHERE refund_status IN ('manual','failed'))
           + (SELECT COALESCE(SUM(amount_kz),0) FROM star_purchases WHERE refund_status IN ('manual','failed'))
           + (SELECT COALESCE(SUM(amount_kz),0) FROM group_access_purchases WHERE refund_status IN ('manual','failed'))
-          + (SELECT COALESCE(SUM(budget),0) FROM brand_campaigns WHERE refund_status IN ('manual','failed')))::float AS refunds_to_do,
+          + (SELECT COALESCE(SUM(budget),0) FROM brand_campaigns WHERE refund_status IN ('manual','failed'))
+          + (SELECT COALESCE(SUM(amount_kz),0) FROM event_tickets WHERE refund_status IN ('manual','failed')))::float AS refunds_to_do,
         (SELECT COUNT(*) FROM ads WHERE status='in_review')::int AS promotions_in_review,
         (SELECT COALESCE(SUM(amount_kz),0) FROM star_purchases WHERE status='paid' AND refund_status IS NULL)::float AS stars_sold,
         (SELECT COALESCE(SUM(amount),0) FROM star_ledger WHERE kind='gift_received')::int AS stars_gifted,
@@ -257,6 +261,7 @@ function registerFinanceRoutes(app, deps) {
         (SELECT COALESCE(SUM(amount_kz),0) FROM course_purchases WHERE status='paid' AND refund_status IS NULL)::float AS courses_sold,
         (SELECT COALESCE(SUM(amount_kz),0) FROM course_purchases WHERE status='paid' AND refund_status IS NULL AND NOT by_team)::float AS creator_courses_sold,
         (SELECT COALESCE(SUM(amount_kz),0) FROM subscription_payments WHERE status='paid' AND refund_status IS NULL)::float AS subscriptions_sold,
+        (SELECT COALESCE(SUM(amount_kz),0) FROM event_tickets WHERE status='paid' AND refund_status IS NULL)::float AS tickets_sold,
         (SELECT COALESCE(SUM(amount),0) FROM payout_requests WHERE status='requested')::float AS payouts_requested,
         (SELECT COUNT(*) FROM payout_requests WHERE status='requested')::int AS payouts_requested_count,
         (SELECT COALESCE(SUM(amount),0) FROM payout_requests WHERE status='paid')::float AS payouts_paid,
@@ -266,17 +271,19 @@ function registerFinanceRoutes(app, deps) {
     const row = result.rows[0];
     const campaignsCommission = campaignSplit(row.campaigns_gross).commission;
     const owedToCreators = starsValueKz(row.stars_gifted) + campaignSplit(row.campaigns_completed).net + partnerPayout(row.partner_views)
-      + groupAccessValueKz(row.groups_sold) + courseShareKz(row.creator_courses_sold) + subscriptionShareKz(row.subscriptions_sold);
+      + groupAccessValueKz(row.groups_sold) + courseShareKz(row.creator_courses_sold) + subscriptionShareKz(row.subscriptions_sold)
+      + ticketShareKz(row.tickets_sold);
     res.json({
       income: { promotions: row.promotions_revenue, stars: row.stars_sold, campaigns: row.campaigns_gross, groups: row.groups_sold,
-        courses: row.courses_sold, subscriptions: row.subscriptions_sold },
+        courses: row.courses_sold, subscriptions: row.subscriptions_sold, tickets: row.tickets_sold },
       tchilar_share: {
         promotions: row.promotions_revenue,
         stars: Math.round((row.stars_sold - starsValueKz(row.stars_gifted)) * 100) / 100,
         campaigns_commission: campaignsCommission,
         groups: Math.round((row.groups_sold - groupAccessValueKz(row.groups_sold)) * 100) / 100,
         courses: Math.round((row.courses_sold - courseShareKz(row.creator_courses_sold)) * 100) / 100,
-        subscriptions: Math.round((row.subscriptions_sold - subscriptionShareKz(row.subscriptions_sold)) * 100) / 100
+        subscriptions: Math.round((row.subscriptions_sold - subscriptionShareKz(row.subscriptions_sold)) * 100) / 100,
+        tickets: Math.round((row.tickets_sold - ticketShareKz(row.tickets_sold)) * 100) / 100
       },
       creators: {
         earned: Math.round(owedToCreators * 100) / 100,

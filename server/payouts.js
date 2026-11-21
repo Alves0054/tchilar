@@ -106,8 +106,8 @@ function decrypt(key, payload) {
 // ---------------------------------------------------------------------------------------------
 // Saldo: ganhos de todas as fontes menos o que já foi pedido ou pago.
 // ---------------------------------------------------------------------------------------------
-function payoutBalance({ partnerKz = 0, starsKz = 0, campaignsKz = 0, groupsKz = 0, prizesKz = 0, coursesKz = 0, subscriptionsKz = 0, withdrawnKz = 0 }) {
-  const earned = Math.round((partnerKz + starsKz + campaignsKz + groupsKz + prizesKz + coursesKz + subscriptionsKz) * 100) / 100;
+function payoutBalance({ partnerKz = 0, starsKz = 0, campaignsKz = 0, groupsKz = 0, prizesKz = 0, coursesKz = 0, subscriptionsKz = 0, ticketsKz = 0, withdrawnKz = 0 }) {
+  const earned = Math.round((partnerKz + starsKz + campaignsKz + groupsKz + prizesKz + coursesKz + subscriptionsKz + ticketsKz) * 100) / 100;
   const available = Math.max(0, Math.round((earned - withdrawnKz) * 100) / 100);
   return { earned, available };
 }

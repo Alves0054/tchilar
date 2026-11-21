@@ -121,7 +121,7 @@ export function AdminPromotionCodes() {
     try { await api(`/admin/promotion-codes/${item.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ active: !item.active }) }); load(); }
     catch (toggleError) { setError(toggleError.message); }
   };
-  const purposeOptions = [["stars","Estrelas"],["ad","Promoções"],["campaign","Campanhas"],["course","Cursos"],["subscription","Subscrições"],["group_access","Grupos"],["verification","Verificação"]];
+  const purposeOptions = [["stars","Estrelas"],["ad","Promoções"],["campaign","Campanhas"],["course","Cursos"],["subscription","Subscrições"],["group_access","Grupos"],["verification","Verificação"],["event_ticket","Bilhetes"]];
   return <section className="creator-card">
     <div className="creator-card-head"><div><h2>Criar código promocional</h2><p>Limita o desconto por compra, número de usos e data de validade.</p></div></div>
     {error && <p className="error" role="alert">{error}</p>}

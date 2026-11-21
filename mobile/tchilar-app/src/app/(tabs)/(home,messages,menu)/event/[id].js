@@ -6,12 +6,12 @@ import { useCallback, useEffect, useState } from "react";
 import { Image } from "expo-image";
 import { Alert, Linking, Platform, Pressable, Share, StyleSheet, Text, TextInput, View } from "react-native";
 import { Avatar } from "../../../../components/Avatar";
-import { Button, Card, Empty, Loading, Notice, Page, count } from "../../../../components/ui";
+import { PaymentSheet } from "../../../../components/PaymentSheet";
+import { Button, Card, Empty, Loading, Notice, Page, count, kz } from "../../../../components/ui";
 import { API_URL, WEB_URL, api, readToken } from "../../../../lib/api";
 import { colors } from "../../../../lib/theme";
 
 const fmt = (value, options) => new Date(value).toLocaleString("pt-PT", options);
-const starsLabel = stars => `${count(stars)} ${stars === 1 ? "estrela" : "estrelas"}`;
 
 // O QR do próprio bilhete (pedido com a sessão; nunca fica em cache partilhada).
 function TicketQr({ eventId }) {
@@ -38,7 +38,7 @@ function OrganizerTickets({ eventId }) {
     } catch (checkError) { setResult({ ok: false, text: checkError.message }); } finally { setBusy(false); }
   };
   return <Card title="Bilhetes à entrada" subtitle="Escreve o código do bilhete. Também podes apontar a câmara normal do telemóvel ao QR: abre o Tchilar no browser e valida.">
-    {data && <Text style={styles.rowText}>{data.sold}{data.total ? ` de ${data.total}` : ""} vendidos · {data.checked_in} já entraram · {starsLabel(data.stars)}</Text>}
+    {data && <Text style={styles.rowText}>{data.sold}{data.total ? ` de ${data.total}` : ""} vendidos · {data.checked_in} já entraram · {kz(data.gross_kz)} em vendas · {kz(data.net_kz)} para ti (85%)</Text>}
     <TextInput value={code} onChangeText={value => setCode(value.toUpperCase())} placeholder="Código do bilhete" placeholderTextColor={colors.muted}
       autoCapitalize="characters" autoCorrect={false} maxLength={16} style={styles.codeInput} />
     <Button label={busy ? "A validar..." : "Validar bilhete"} icon="checkmark-circle" onPress={checkIn} busy={busy} disabled={code.trim().length < 6} />
@@ -56,6 +56,7 @@ export default function EventScreen() {
   const [data, setData] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [paying, setPaying] = useState(false);
   const load = useCallback(() => api(`/events/${id}`).then(setData).catch(loadError => setError(loadError.message)), [id]);
   useEffect(() => { load(); }, [load]);
   if (!data) return error ? <Page><Notice error={error} /></Page> : <Loading />;
@@ -63,19 +64,9 @@ export default function EventScreen() {
   const starts = new Date(event.starts_at);
   const past = starts < new Date();
 
-  const paid = event.ticket_stars > 0;
+  const paid = event.ticket_price_kz > 0;
   const soldOut = paid && event.tickets_total && event.tickets_sold >= event.tickets_total;
-  const buy = () => Alert.alert("Comprar bilhete", `«${event.name}» por ${starsLabel(event.ticket_stars)}?`, [
-    { text: "Cancelar", style: "cancel" },
-    { text: "Comprar", onPress: async () => {
-      setBusy(true);
-      try { await api(`/events/${event.id}/tickets`, { method: "POST" }); await load(); }
-      catch (buyError) {
-        if (/estrelas suficientes/.test(buyError.message)) Alert.alert("Estrelas", buyError.message, [{ text: "Agora não" }, { text: "Comprar estrelas", onPress: () => router.push("/stars") }]);
-        else Alert.alert("Eventos", buyError.message);
-      } finally { setBusy(false); }
-    } }
-  ]);
+  const buy = () => setPaying(true);
   const rsvp = async () => {
     setBusy(true);
     try { await api(`/events/${event.id}/rsvp`, { method: "POST" }); await load(); } catch (rsvpError) { Alert.alert("Eventos", rsvpError.message); } finally { setBusy(false); }
@@ -84,7 +75,7 @@ export default function EventScreen() {
     const query = encodeURIComponent(event.location);
     Linking.openURL(Platform.OS === "ios" ? `maps:0,0?q=${query}` : `geo:0,0?q=${query}`).catch(() => Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${query}`));
   };
-  const remove = () => Alert.alert("Apagar evento?", `Quem ia participar deixa de o ver.${event.tickets_sold ? ` As estrelas dos ${event.tickets_sold} bilhetes vendidos voltam a quem comprou.` : ""}`, [
+  const remove = () => Alert.alert("Apagar evento?", `Quem ia participar deixa de o ver.${event.tickets_sold ? ` O dinheiro dos ${event.tickets_sold} bilhetes vendidos é devolvido a quem comprou.` : ""}`, [
     { text: "Cancelar", style: "cancel" },
     { text: "Apagar", style: "destructive", onPress: async () => {
       try { await api(`/events/${event.id}`, { method: "DELETE" }); router.back(); } catch (deleteError) { Alert.alert("Eventos", deleteError.message); }
@@ -120,12 +111,12 @@ export default function EventScreen() {
         <Text style={styles.rowText}>{count(event.attendee_count)} {event.attendee_count === 1 ? "pessoa vai" : "pessoas vão"}</Text>
       </View>
       {paid && <View style={styles.row}>
-        <Ionicons name="star" size={20} color="#C58A00" />
-        <Text style={styles.rowText}>Bilhete: <Text style={{ fontWeight: "800" }}>{starsLabel(event.ticket_stars)}</Text>
+        <Ionicons name="ticket" size={20} color="#C58A00" />
+        <Text style={styles.rowText}>Bilhete: <Text style={{ fontWeight: "800" }}>{kz(event.ticket_price_kz)}</Text>
           {event.tickets_total ? ` · ${Math.max(0, event.tickets_total - event.tickets_sold)} por vender` : ""}</Text>
       </View>}
       {!past && !event.is_creator && (paid
-        ? !event.my_ticket && <Button label={soldOut ? "Esgotado" : "Comprar bilhete"} icon="star" busy={busy} disabled={Boolean(soldOut)} onPress={buy} />
+        ? !event.my_ticket && <Button label={soldOut ? "Esgotado" : "Comprar bilhete"} icon="ticket" busy={busy} disabled={Boolean(soldOut)} onPress={buy} />
         : <Button label={event.is_attending ? "Vou ✓ (toca para sair)" : "Participar"} variant={event.is_attending ? "secondary" : "primary"} icon={event.is_attending ? undefined : "calendar"} busy={busy} onPress={rsvp} />)}
       <Button variant="secondary" label="Partilhar" icon="share-outline" onPress={() => Share.share({ message: `${event.name} · ${fmt(starts, { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" })}${event.location ? ` · ${event.location}` : ""}\n${WEB_URL}/events` }).catch(() => {})} />
     </Card>
@@ -150,6 +141,9 @@ export default function EventScreen() {
     </Card>
 
     {event.is_creator && <Button variant="ghost" label="Apagar evento" onPress={remove} />}
+    <PaymentSheet visible={paying} title={`Bilhete «${event.name}»`} amount={event.ticket_price_kz} purpose="event_ticket"
+      start={choice => api(`/events/${event.id}/tickets`, { method: "POST", body: choice })}
+      onClose={() => { setPaying(false); load(); }} onPaid={() => { setPaying(false); load(); }} />
   </Page>;
 }
 

@@ -1,16 +1,21 @@
-// Bilhetes de eventos pagos em estrelas.
-// - Quem compra gasta estrelas; quem organiza recebe-as como presente (contam para os levantamentos,
-//   com a mesma parte do Tchilar que os presentes dos diretos).
-// - Cada bilhete tem um código curto. O QR leva uma ligação para o evento com esse código: quem organiza
+// Bilhetes de eventos, pagos com dinheiro pelos meios do Tchilar (Express, Referência, PayPay, PayPal...).
+// - Quem organiza fica com 85% de cada venda e o Tchilar com 15% (EVENT_TICKET_ORGANIZER_SHARE).
+// - O dinheiro de um bilhete só pode ser levantado 1 dia depois de o evento começar (available_at): até lá pode
+//   ser devolvido se o evento for cancelado (gatilho na base de dados, migrações 071 e 072).
+// - Cada bilhete pago tem um código curto. O QR leva uma ligação para o evento com esse código: quem organiza
 //   aponta a câmara do telemóvel, abre o Tchilar e o bilhete fica validado (ou escreve o código à mão).
-// - Se o evento for apagado antes de começar, as estrelas voltam a quem comprou.
+// - Os pagamentos, recibos e reembolsos seguem o mesmo caminho dos cursos (purpose "event_ticket").
 const crypto = require("crypto");
 const QRCode = require("qrcode");
 
-const MAX_TICKET_STARS = 100_000;
+const EVENT_TICKET_ORGANIZER_SHARE = 0.85;
+const MIN_TICKET_KZ = 100;
+const MAX_TICKET_KZ = 1_000_000;
 const MAX_TICKETS = 100_000;
+const PENDING_HOLD_MINUTES = 30;            // um pagamento a meio guarda o lugar durante 30 min (para não esgotar a mais)
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // sem O/0 e I/1, que se confundem à porta
-const balanceSql = "SELECT COALESCE(SUM(amount) FILTER (WHERE kind <> 'gift_received'),0)::int AS balance FROM star_ledger WHERE user_id=$1";
+
+const ticketShareKz = gross => Math.round(Number(gross || 0) * EVENT_TICKET_ORGANIZER_SHARE * 100) / 100;
 
 function ticketCode() {
   const bytes = crypto.randomBytes(8);
@@ -18,84 +23,109 @@ function ticketCode() {
 }
 const normalizeCode = value => String(value || "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 16);
 
-// Preço e lotação vindos do formulário de criar evento. Sem preço, o evento é grátis (botão "Vou").
+// Preço (Kz) e lotação vindos do formulário de criar evento. Sem preço, o evento é grátis (botão "Vou").
 function parseTicketInput(body) {
-  const rawPrice = body.ticketStars ?? body.ticket_stars;
+  const rawPrice = body.ticketPriceKz ?? body.ticket_price_kz;
   const rawTotal = body.ticketsTotal ?? body.tickets_total;
   const price = rawPrice === undefined || rawPrice === null || rawPrice === "" ? 0 : Number(rawPrice);
   const total = rawTotal === undefined || rawTotal === null || rawTotal === "" ? null : Number(rawTotal);
-  if (!Number.isInteger(price) || price < 0 || price > MAX_TICKET_STARS) return { error: `O bilhete custa entre 0 e ${MAX_TICKET_STARS.toLocaleString("pt-PT")} estrelas.` };
+  if (!Number.isFinite(price) || price < 0 || (price > 0 && (price < MIN_TICKET_KZ || price > MAX_TICKET_KZ)) || Math.round(price * 100) !== price * 100) {
+    return { error: `O bilhete custa entre ${MIN_TICKET_KZ} e ${MAX_TICKET_KZ.toLocaleString("pt-PT")} Kz.` };
+  }
   if (total !== null && (!Number.isInteger(total) || total < 1 || total > MAX_TICKETS)) return { error: "Indica quantos bilhetes há (pelo menos 1)." };
   return { price, total: price ? total : null };
 }
 
 const checkInUrl = (appUrl, eventId, code) => `${appUrl.replace(/\/$/, "")}/events/${eventId}?checkin=${encodeURIComponent(code)}`;
 
-// A devolução quando um evento desaparece antes de começar é feita na base de dados (gatilho da migração 071),
-// para valer em todos os caminhos: apagar o evento, a página, o grupo ou a conta de quem organiza.
+// Bilhete válido: pago e sem reembolso.
+const VALID_TICKET = "t.status='paid' AND t.refund_status IS NULL";
 
 // Um evento pago com bilhetes vendidos só pode ser apagado (e devolvido) antes de começar.
 async function deleteBlockedReason(client, eventId) {
   const row = (await client.query(`
-    SELECT e.starts_at <= NOW() AS started, (SELECT COUNT(*) FROM event_tickets t WHERE t.event_id=e.id AND t.stars > 0)::int AS sold
+    SELECT e.starts_at <= NOW() AS started, (SELECT COUNT(*) FROM event_tickets t WHERE t.event_id=e.id AND ${VALID_TICKET})::int AS sold
     FROM events e WHERE e.id=$1`, [eventId])).rows[0];
   return row?.started && row.sold > 0 ? "Este evento já começou e tem bilhetes vendidos: já não pode ser apagado." : null;
 }
 
 function registerEventTickets(app, deps) {
-  const { pool, auth, parseId, transaction, blockedBetween, appUrl } = deps;
+  const { pool, auth, parseId, isRecord, transaction, blockedBetween, appUrl, payments } = deps;
 
   // Quem organiza: quem criou o evento ou quem gere a página do evento.
   const organizerSql = "(e.creator_id=$2 OR EXISTS(SELECT 1 FROM pages pg WHERE pg.id=e.page_id AND pg.owner_id=$2))";
 
+  // Comprar: cria (ou reaproveita) a compra pendente e abre o pagamento escolhido.
   app.post("/api/events/:eventId/tickets", auth, async (req, res) => {
     const eventId = parseId(req.params.eventId);
     if (!eventId) return res.status(400).json({ error: "Evento inválido." });
-    const outcome = await transaction(async client => {
-      await client.query("SELECT pg_advisory_xact_lock(42, $1)", [req.user.id]);
+    const body = isRecord(req.body) ? req.body : {};
+    const prepared = await transaction(async client => {
       const event = (await client.query(`
-        SELECT e.id,e.name,e.creator_id,e.ticket_stars,e.tickets_total,e.starts_at,
-          (SELECT COUNT(*) FROM event_tickets t WHERE t.event_id=e.id)::int AS sold
+        SELECT e.id,e.name,e.creator_id,e.ticket_price_kz::float AS price,e.tickets_total,e.starts_at,
+          (SELECT COUNT(*) FROM event_tickets t WHERE t.event_id=e.id AND t.user_id<>$2
+            AND (${VALID_TICKET} OR (t.status='pending' AND t.created_at > NOW() - make_interval(mins => ${PENDING_HOLD_MINUTES}))))::int AS taken
         FROM events e
         WHERE e.id=$1 AND NOT ${blockedBetween("$2", "e.creator_id")}
           AND (e.group_id IS NULL OR EXISTS(SELECT 1 FROM group_members gm WHERE gm.group_id=e.group_id AND gm.user_id=$2))
         FOR UPDATE OF e`, [eventId, req.user.id])).rows[0];
       if (!event) return { status: 404, error: "Evento não encontrado." };
-      if (!event.ticket_stars) return { status: 409, error: "Este evento é grátis: carrega em «Vou»." };
+      if (!event.price) return { status: 409, error: "Este evento é grátis: carrega em «Vou»." };
       if (event.creator_id === req.user.id) return { status: 400, error: "Não precisas de bilhete para o teu próprio evento." };
-      if (new Date(event.starts_at).getTime() < Date.now() - 6 * 60 * 60 * 1000) return { status: 409, error: "Este evento já terminou." };
-      const existing = (await client.query("SELECT code FROM event_tickets WHERE event_id=$1 AND user_id=$2", [eventId, req.user.id])).rows[0];
-      if (existing) return { status: 409, error: "Já tens bilhete para este evento." };
-      if (event.tickets_total && event.sold >= event.tickets_total) return { status: 409, error: "Os bilhetes esgotaram." };
-      const balance = (await client.query(balanceSql, [req.user.id])).rows[0].balance;
-      if (balance < event.ticket_stars) return { status: 402, error: "Não tens estrelas suficientes.", balance, price: event.ticket_stars };
-      await client.query(`
-        INSERT INTO star_ledger(user_id,amount,kind,counterpart_id,event_id,available_at)
-        VALUES($1,$2,'gift_sent',$3,$4,NULL),($3,$5,'gift_received',$1,$4,$6::timestamptz + INTERVAL '1 day')`,
-      [req.user.id, -event.ticket_stars, event.creator_id, eventId, event.ticket_stars, event.starts_at]);
-      let code;
-      for (let attempt = 0; attempt < 5 && !code; attempt += 1) {
-        const candidate = ticketCode();
-        const inserted = await client.query(`
-          INSERT INTO event_tickets(event_id,user_id,code,stars) VALUES($1,$2,$3,$4)
-          ON CONFLICT (code) DO NOTHING RETURNING code`, [eventId, req.user.id, candidate, event.ticket_stars]);
-        code = inserted.rows[0]?.code;
-      }
-      if (!code) throw new Error("Não foi possível gerar o código do bilhete.");
-      await client.query("INSERT INTO event_attendees(event_id,user_id) VALUES($1,$2) ON CONFLICT DO NOTHING", [eventId, req.user.id]);
-      await client.query("INSERT INTO notifications(user_id,actor_id,type,text) VALUES($1,$2,'event_ticket',$3)",
-        [event.creator_id, req.user.id, `Comprou um bilhete para «${event.name}» (${event.ticket_stars} estrelas).`]);
-      return { ticket: { code, stars: event.ticket_stars, checked_in_at: null }, balance: balance - event.ticket_stars };
+      if (new Date(event.starts_at).getTime() <= Date.now()) return { status: 409, error: "Este evento já começou: já não se vendem bilhetes." };
+      const mine = (await client.query("SELECT id,status,refund_status FROM event_tickets WHERE event_id=$1 AND user_id=$2", [eventId, req.user.id])).rows[0];
+      if (mine?.status === "paid" && !mine.refund_status) return { status: 409, error: "Já tens bilhete para este evento." };
+      if (event.tickets_total && event.taken >= event.tickets_total) return { status: 409, error: "Os bilhetes esgotaram." };
+      const available = new Date(new Date(event.starts_at).getTime() + 24 * 60 * 60 * 1000);
+      // Um bilhete reembolsado fica no registo (recibo); a compra nova deixa de o ligar ao evento.
+      if (mine?.status === "pending") await client.query("DELETE FROM event_tickets WHERE id=$1", [mine.id]);
+      else if (mine) await client.query("UPDATE event_tickets SET event_id=NULL WHERE id=$1", [mine.id]);
+      const ticket = (await client.query(`
+        INSERT INTO event_tickets(event_id,user_id,owner_id,event_name,amount_kz,status,stars,available_at)
+        VALUES($1,$2,$3,$4,$5,'pending',0,$6) RETURNING id::int AS id`,
+      [eventId, req.user.id, event.creator_id, event.name, event.price, available])).rows[0];
+      return { ticketId: ticket.id, event };
     });
-    if (outcome.error) return res.status(outcome.status).json({ error: outcome.error, balance: outcome.balance, price: outcome.price });
-    res.status(201).json(outcome);
+    if (prepared.error) return res.status(prepared.status).json({ error: prepared.error });
+    const user = await pool.query("SELECT email FROM users WHERE id=$1", [req.user.id]);
+    const result = await payments.start({
+      purpose: "event_ticket", refId: prepared.ticketId, amountKz: prepared.event.price, userId: req.user.id, email: user.rows[0]?.email,
+      method: body.method, phone: body.phone, promoCode: body.promoCode, name: `Bilhete «${prepared.event.name}»`,
+      successPath: `/events/${eventId}?pagamento=sucesso`, cancelPath: `/events/${eventId}?pagamento=cancelado`,
+      onSession: sessionId => pool.query("UPDATE event_tickets SET stripe_session_id=$2 WHERE id=$1", [prepared.ticketId, sessionId])
+    });
+    if (result.error) return res.status(503).json({ error: result.error });
+    res.status(201).json(result);
+  });
+
+  // Pagamento confirmado: o bilhete ganha o código e a pessoa passa a ir ao evento.
+  payments.register("event_ticket", async (ticketId, details) => {
+    await transaction(async client => {
+      let paid = null;
+      for (let attempt = 0; attempt < 5 && !paid; attempt += 1) {
+        const result = await client.query(`
+          UPDATE event_tickets SET status='paid', paid_at=NOW(), code=$3, stripe_payment_intent=$2
+          WHERE id=$1 AND status='pending' AND NOT EXISTS(SELECT 1 FROM event_tickets x WHERE x.code=$3)
+          RETURNING event_id,user_id,owner_id,event_name`, [ticketId, details.paymentIntent || null, ticketCode()]);
+        paid = result.rows[0] || null;
+        if (!paid && !(await client.query("SELECT 1 FROM event_tickets WHERE id=$1 AND status='pending'", [ticketId])).rowCount) return;
+      }
+      if (!paid) throw new Error("Não foi possível gerar o código do bilhete.");
+      if (paid.event_id) await client.query("INSERT INTO event_attendees(event_id,user_id) VALUES($1,$2) ON CONFLICT DO NOTHING", [paid.event_id, paid.user_id]);
+      await client.query("INSERT INTO notifications(user_id,type,text) VALUES($1,'payment',$2)",
+        [paid.user_id, `O teu bilhete para «${paid.event_name}» está pronto. Mostra o QR à entrada.`]);
+      if (paid.owner_id && paid.owner_id !== paid.user_id) {
+        await client.query("INSERT INTO notifications(user_id,actor_id,type,text) VALUES($1,$2,'event_ticket',$3)",
+          [paid.owner_id, paid.user_id, `Comprou um bilhete para «${paid.event_name}». Os teus 85% ficam disponíveis 1 dia depois do evento.`]);
+      }
+    });
   });
 
   // O QR do próprio bilhete (PNG). Leva a ligação de validação, nunca dados pessoais.
   app.get("/api/events/:eventId/tickets/mine/qr", auth, async (req, res) => {
     const eventId = parseId(req.params.eventId);
     if (!eventId) return res.status(400).json({ error: "Evento inválido." });
-    const ticket = (await pool.query("SELECT code FROM event_tickets WHERE event_id=$1 AND user_id=$2", [eventId, req.user.id])).rows[0];
+    const ticket = (await pool.query(`SELECT t.code FROM event_tickets t WHERE t.event_id=$1 AND t.user_id=$2 AND ${VALID_TICKET}`, [eventId, req.user.id])).rows[0];
     if (!ticket) return res.status(404).json({ error: "Não tens bilhete para este evento." });
     const png = await QRCode.toBuffer(checkInUrl(appUrl, eventId, ticket.code), { width: 480, margin: 2, errorCorrectionLevel: "M" });
     res.set("Cache-Control", "private, no-store");
@@ -106,17 +136,19 @@ function registerEventTickets(app, deps) {
   app.get("/api/events/:eventId/tickets", auth, async (req, res) => {
     const eventId = parseId(req.params.eventId);
     if (!eventId) return res.status(400).json({ error: "Evento inválido." });
-    const event = await pool.query(`SELECT e.id,e.ticket_stars,e.tickets_total FROM events e WHERE e.id=$1 AND ${organizerSql}`, [eventId, req.user.id]);
+    const event = await pool.query(`SELECT e.id,e.tickets_total FROM events e WHERE e.id=$1 AND ${organizerSql}`, [eventId, req.user.id]);
     if (!event.rowCount) return res.status(403).json({ error: "Só quem organiza vê os bilhetes." });
     const tickets = await pool.query(`
-      SELECT t.code,t.stars,t.created_at,t.checked_in_at,u.username,u.display_name,u.avatar_url
-      FROM event_tickets t JOIN users u ON u.id=t.user_id WHERE t.event_id=$1 ORDER BY t.created_at DESC LIMIT 1000`, [eventId]);
+      SELECT t.code,t.amount_kz::float AS amount_kz,t.paid_at AS created_at,t.checked_in_at,u.username,u.display_name,u.avatar_url
+      FROM event_tickets t JOIN users u ON u.id=t.user_id WHERE t.event_id=$1 AND ${VALID_TICKET} ORDER BY t.paid_at DESC LIMIT 1000`, [eventId]);
     const rows = tickets.rows;
+    const gross = rows.reduce((sum, row) => sum + row.amount_kz, 0);
     res.json({
       tickets: rows,
       sold: rows.length,
       checked_in: rows.filter(row => row.checked_in_at).length,
-      stars: rows.reduce((sum, row) => sum + row.stars, 0),
+      gross_kz: Math.round(gross * 100) / 100,
+      net_kz: ticketShareKz(gross),
       total: event.rows[0].tickets_total
     });
   });
@@ -130,7 +162,7 @@ function registerEventTickets(app, deps) {
     if (!event.rowCount) return res.status(403).json({ error: "Só quem organiza pode validar bilhetes." });
     const ticket = (await pool.query(`
       SELECT t.id,t.checked_in_at,u.username,u.display_name,u.avatar_url
-      FROM event_tickets t JOIN users u ON u.id=t.user_id WHERE t.event_id=$1 AND t.code=$2`, [eventId, code])).rows[0];
+      FROM event_tickets t JOIN users u ON u.id=t.user_id WHERE t.event_id=$1 AND t.code=$2 AND ${VALID_TICKET}`, [eventId, code])).rows[0];
     if (!ticket) return res.status(404).json({ error: "Bilhete inválido para este evento." });
     const person = { username: ticket.username, display_name: ticket.display_name, avatar_url: ticket.avatar_url };
     if (ticket.checked_in_at) return res.status(409).json({ error: "Este bilhete já entrou.", checked_in_at: ticket.checked_in_at, person });
@@ -139,4 +171,7 @@ function registerEventTickets(app, deps) {
   });
 }
 
-module.exports = { MAX_TICKET_STARS, checkInUrl, deleteBlockedReason, normalizeCode, parseTicketInput, registerEventTickets, ticketCode };
+module.exports = {
+  EVENT_TICKET_ORGANIZER_SHARE, MIN_TICKET_KZ, VALID_TICKET, checkInUrl, deleteBlockedReason, normalizeCode, parseTicketInput,
+  registerEventTickets, ticketCode, ticketShareKz
+};
