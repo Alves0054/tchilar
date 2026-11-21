@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { downscaleImage } from "../PhotoEditors.jsx";
 import { Auth } from "./auth.jsx";
-import { API_BASE, Avatar, Icon, UserContext, VideoPlayer, api, formatCount, formatPrice, token } from "./core.jsx";
+import { API_BASE, Avatar, Icon, UserContext, VideoPlayer, api, formatCount, formatPrice, postImageSrc, token } from "./core.jsx";
 import { InfoLinks, LiveBadge, StoreButtons, SponsoredSlot, StarGiftButton, TextWithTags, VerifiedBadge, pageMonogram, pageTone } from "./shared.jsx";
 import { HomeDiscover, HomeNow, PresenceAvatar } from "./home.jsx";
 import { DEFAULT_STORY_BACKGROUND, STORY_COLORS, STORY_THEMES, storyBackgroundStyle } from "./community-types.js";
@@ -711,7 +711,7 @@ export function PostCard({ post, onChanged, startWithComments = false, startWith
         onWatched={user && !ownsPost ? () => api(`/posts/${post.id}/watched`, { method: "POST" }).catch(() => {}) : undefined}
         music={post.music ? { title: post.music.title, artist: post.music.artist, src: `${API_BASE}${post.music.audio_url}` } : null} />
       : <button className="post-image-open" type="button" aria-label={`Abrir imagem publicada por ${authorName}`} onClick={() => openPostImage(post)}>
-        <img className="media" src={`${API_BASE}${post.media_url}`} alt="Publicação" />
+        <img className="media" src={postImageSrc(post.media_url)} alt="Publicação" loading="lazy" />
       </button>)}
     <div className="post-counts">
       <span><span className="post-count-mark" aria-hidden="true"><Icon name="heart" size={11} /></span>{formatCount(likes)} {likes === 1 ? "gosto" : "gostos"}</span>

@@ -17,6 +17,10 @@ const IMAGE_PROFILES = {
   story: { width: 1080, height: 1920, quality: 80 }
 };
 
+// Versão pequena das fotos das publicações, para o modo "Poupar dados" (cerca de 5 a 10 vezes mais leve).
+const SMALL_VARIANT = { width: 480, quality: 55 };
+const smallVariantName = filename => String(filename).replace(/\.webp$/i, ".sm.webp");
+
 // Converte um ficheiro de imagem no disco. Devolve o novo nome de ficheiro (.webp).
 async function optimizeImageFile(filePath, profileName) {
   const profile = IMAGE_PROFILES[profileName];
@@ -35,6 +39,13 @@ async function optimizeImageFile(filePath, profileName) {
     .resize({ width: profile.width, height: profile.height, fit: "inside", withoutEnlargement: true })
     .webp({ quality: profile.quality, effort: 4 })
     .toFile(temporaryPath); // sem .withMetadata(): o GPS e outros dados EXIF não são guardados
+  if (profileName === "post") {
+    await sharp(input, { animated: false, limitInputPixels: 50_000_000 })
+      .rotate()
+      .resize({ width: SMALL_VARIANT.width, height: SMALL_VARIANT.width, fit: "inside", withoutEnlargement: true })
+      .webp({ quality: SMALL_VARIANT.quality, effort: 4 })
+      .toFile(path.join(directory, smallVariantName(outputName)));
+  }
   await fs.promises.rm(filePath, { force: true });
   await fs.promises.rename(temporaryPath, outputPath);
   return outputName;
@@ -60,4 +71,4 @@ function optimizeUpload(profileName) {
   };
 }
 
-module.exports = { IMAGE_PROFILES, optimizeImageFile, optimizeUpload };
+module.exports = { IMAGE_PROFILES, optimizeImageFile, optimizeUpload, smallVariantName };

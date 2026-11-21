@@ -176,6 +176,7 @@ export function InvitePage() {
     try { await navigator.clipboard.writeText(link); setCopied(true); window.setTimeout(() => setCopied(false), 2500); } catch { setCopied(false); }
   };
   const share = () => navigator.share?.({ title: "Vem para o Tchilar", text: "Junta-te a mim no Tchilar!", url: link }).catch(() => {});
+  const whatsapp = `https://wa.me/?text=${encodeURIComponent(`Junta-te a mim no Tchilar, a rede social angolana! ${link}`)}`;
   return <div className="page narrow growth-page">
     <header className="tc-head">
       <div className="tc-head-text">
@@ -187,16 +188,49 @@ export function InvitePage() {
     <section className="creator-card">
       <h2>O teu convite</h2>
       <div className="invite-link"><input readOnly value={link} aria-label="Ligação de convite" onFocus={event => event.target.select()} />
-        <button className="btn" type="button" onClick={copy}><Icon name={copied ? "check" : "copy"} size={16} /> {copied ? "Copiado" : "Copiar"}</button>
+        <a className="btn invite-whatsapp" href={whatsapp} target="_blank" rel="noopener noreferrer"><Icon name="messages" size={16} /> WhatsApp</a>
+        <button className="btn secondary" type="button" onClick={copy}><Icon name={copied ? "check" : "copy"} size={16} /> {copied ? "Copiado" : "Copiar"}</button>
         {typeof navigator.share === "function" && <button className="btn secondary" type="button" onClick={share}><Icon name="share" size={16} /> Partilhar</button>}</div>
       {data && <div className="mini-stats"><div><strong>{formatCount(data.invited)}</strong><span>pessoas convidadas</span></div><div><strong>{formatCount(data.rewarded * data.bonus)}</strong><span>estrelas ganhas</span></div></div>}
     </section>
+    <InviteRanking />
     {data?.people.length > 0 && <section className="creator-card"><h2>Quem entrou com o teu convite</h2>
       <ul className="person-list">{data.people.map(person => <PersonLine key={person.username} person={person} time={person.created_at}>
         <span className={`status-pill ${person.rewarded ? "is-ok" : "is-warning"}`}>{person.rewarded ? `+${data.bonus} estrelas` : "À espera da 1.ª publicação"}</span>
       </PersonLine>)}</ul></section>}
   </div>;
 }
+// Ranking do mês: nacional ou por província (só quem autorizou mostrar a província).
+function InviteRanking() {
+  const [province, setProvince] = useState("");
+  const [data, setData] = useState(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    setError("");
+    api(`/referrals/ranking${province ? `?province=${encodeURIComponent(province)}` : ""}`).then(setData).catch(loadError => setError(loadError.message));
+  }, [province]);
+  return <section className="creator-card invite-ranking">
+    <div className="creator-card-head"><div><h2>Ranking do mês</h2>
+      <p>Quem trouxe mais amigos este mês (contam os que já confirmaram o email e publicaram). Recomeça no dia 1.</p></div></div>
+    <label className="invite-ranking-filter">Ver
+      <Select value={province} onChange={event => setProvince(event.target.value)}>
+        <option value="">Angola inteira</option>
+        {(data?.provinces || []).map(name => <option key={name} value={name}>{name}</option>)}
+      </Select>
+    </label>
+    {error && <p className="error" role="alert">{error}</p>}
+    {data && !data.ranking.length && <p className="muted">Ainda ninguém {province ? `em ${province} ` : ""}trouxe amigos este mês. Podes ser o primeiro.</p>}
+    {data?.ranking.length > 0 && <ol className="invite-ranking-list">{data.ranking.map(row => <li key={row.username} className={row.is_me ? "is-me" : ""}>
+      <span className="invite-ranking-pos">{row.position}</span>
+      <Avatar user={row} size="small" />
+      <Link to={`/u/${row.username}`}><strong>{row.display_name}</strong><small>@{row.username}</small></Link>
+      <span className="invite-ranking-count">{formatCount(row.invited)} {row.invited === 1 ? "amigo" : "amigos"}</span>
+    </li>)}</ol>}
+    {data && <p className="muted invite-ranking-me">{data.me.position ? `Estás em ${data.me.position}.º lugar com ${data.me.invited} ${data.me.invited === 1 ? "amigo" : "amigos"}.` : "Ainda não tens amigos a contar este mês."}
+      {province ? " Nas províncias só aparece quem escolheu mostrar a província (Definições → Público)." : ""}</p>}
+  </section>;
+}
+
 export const ACADEMY_GUIDES = [
   ["Começa pelo teu perfil", "profile", ["Usa uma foto de perfil nítida, com o rosto visível.", "Escreve na biografia o que publicas e para quem.", "Indica a tua área (profissão) para as marcas te encontrarem no marketplace."]],
   ["Publica com regularidade", "create", ["Escolhe 3 a 4 dias por semana e cumpre-os.", "Os vídeos curtos (Reels) chegam a mais pessoas.", "Usa os Stories todos os dias para manteres os seguidores por perto."]],

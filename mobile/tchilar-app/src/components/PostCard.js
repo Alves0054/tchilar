@@ -14,7 +14,7 @@ import { REPORT_REASONS, useOptions } from "./OptionsSheet";
 import { usePrompt } from "./usePrompt";
 import { ShareSheet } from "./ShareSheet";
 import { VideoPost } from "./VideoPost";
-import { fontSize } from "../lib/display";
+import { feedImageUri, fontSize } from "../lib/display";
 import { VerifiedBadge } from "./VerifiedBadge";
 
 // Uma publicação do feed. O gosto muda logo no ecrã e volta atrás se a API recusar.
@@ -113,7 +113,7 @@ export function PostCard({ post, showCommentButton = true, onRemoved, autoPlay =
       <Pressable onPress={more} hitSlop={10} accessibilityLabel="Mais opções"><Ionicons name="ellipsis-horizontal" size={20} color={colors.muted} /></Pressable>
     </View>
     {Boolean(body) && <TextWithTags style={styles.body} text={body} />}
-    {media && post.media_type === "image" && <Image source={{ uri: media }} style={styles.media} contentFit="cover" transition={200} />}
+    {media && post.media_type === "image" && <Image source={{ uri: feedImageUri(media) }} style={styles.media} contentFit="cover" transition={200} />}
     {media && post.media_type === "video" && <VideoPost uri={media} style={styles.media} edit={post.video_edit} music={post.music} playing={autoPlay} muted={autoPlay}
       onWatched={user && String(user.id) !== String(post.user_id) ? () => api(`/posts/${post.id}/watched`, { method: "POST" }).catch(() => {}) : undefined} />}
     {post.shared && !post.shared.unavailable && <View style={styles.shared}>

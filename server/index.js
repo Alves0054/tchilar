@@ -17,7 +17,7 @@ connectRateLimitStore();
 const { default: helmet } = require("helmet");
 const Stripe = require("stripe");
 const { runMigrations } = require("./migrate");
-const { optimizeUpload } = require("./images");
+const { optimizeUpload, smallVariantName } = require("./images");
 const { activatePaidAd, registerCreatorRoutes } = require("./creator-routes");
 const { launchMonthlyChallenges, registerGrowthRoutes } = require("./growth-routes");
 const { registerHomeRoutes } = require("./home-routes");
@@ -62,6 +62,7 @@ const { SESSION_IDLE_DAYS, createSession, deviceLabel, registerSessionRoutes, to
 const { DOCUMENT_TYPES, registerGroupFeatures } = require("./group-features");
 const { parseGroupKind, parseGroupPrivacy, parsePageType, parseStoryBackground } = require("./community-types");
 const QRCode = require("qrcode");
+const { parseTicketInput, refundEventTickets, registerEventTickets } = require("./event-tickets");
 const { MODERATION_ACTIONS, REPORT_REASONS, blockedBetween, shouldAutoHide } = require("./moderation");
 const {
   ACTIVE_SUBSCRIPTION_SQL,
@@ -405,6 +406,8 @@ async function removeUpload(mediaUrl) {
   } catch (error) {
     if (error.code !== "ENOENT") console.error("Could not remove upload:", error.code || error.name);
   }
+  // A versão pequena (modo "Poupar dados"), quando existe.
+  if (/\.webp$/i.test(mediaUrl)) await fs.promises.rm(path.join(uploadDir, smallVariantName(path.basename(mediaUrl))), { force: true }).catch(() => {});
 }
 
 async function initDb() {
@@ -854,7 +857,13 @@ app.get("/uploads/:filename", optionalAuth, async (req, res, next) => {
     }
     res.set("X-Content-Type-Options", "nosniff");
     res.set("Content-Security-Policy", "default-src 'none'; sandbox");
-    res.sendFile(path.join(uploadDir, filename), { dotfiles: "deny" }, error => {
+    // Modo "Poupar dados": ?size=sm serve a versão pequena da foto, se existir (fotos antigas não a têm).
+    let served = filename;
+    if (req.query.size === "sm" && /\.webp$/i.test(filename)) {
+      const small = smallVariantName(filename);
+      if (await fs.promises.access(path.join(uploadDir, small)).then(() => true, () => false)) served = small;
+    }
+    res.sendFile(path.join(uploadDir, served), { dotfiles: "deny" }, error => {
       if (error) next(error);
     });
   } catch (error) {
@@ -2361,6 +2370,10 @@ app.get("/api/pages", optionalAuth, async (req, res) => {
   const result = await pool.query(`
     SELECT p.id,p.name,p.page_type,p.category,p.subcategory,p.description,p.about,p.contact_email,p.contact_phone,p.website,p.address,p.opening_hours,
       p.logo_url,p.cover_url,p.cover_position,p.is_official,p.shop_enabled,p.created_at,u.username AS owner_username,
+      p.whatsapp,(p.business_verified_at IS NOT NULL) AS business_verified,
+      CASE WHEN p.owner_id=$1 THEN p.business_nif END AS business_nif,
+      CASE WHEN p.owner_id=$1 THEN p.business_requested_at END AS business_requested_at,
+      CASE WHEN p.owner_id=$1 THEN p.business_rejected_reason END AS business_rejected_reason,
       CASE WHEN p.verification_expires_at > NOW() THEN p.verification_tier END AS verification_tier,
       u.display_name AS owner_name,u.avatar_url AS owner_avatar,
       (SELECT COUNT(*) FROM page_followers f WHERE f.page_id=p.id)::int AS follower_count,
@@ -2390,6 +2403,9 @@ app.patch("/api/pages/:pageId/about", auth, async (req, res) => {
   }
   // Loja: só existe se quem gere a página a ligar (sem loja, o separador "Loja" não aparece).
   if (body.shop_enabled !== undefined && typeof body.shop_enabled !== "boolean") return res.status(400).json({ error: "Indica se a página tem loja." });
+  // WhatsApp das encomendas: guardado só com dígitos (formato que o wa.me aceita). "" apaga.
+  const whatsapp = parsePhone(body.whatsapp, body.whatsapp_country);
+  if (whatsapp.error) return res.status(400).json({ error: "Indica um número de WhatsApp válido." });
   if (values.website) {
     try {
       const url = new URL(values.website);
@@ -2401,11 +2417,12 @@ app.patch("/api/pages/:pageId/about", auth, async (req, res) => {
   const result = await pool.query(`
     UPDATE pages SET about=COALESCE($1,about),contact_email=COALESCE($2,contact_email),contact_phone=COALESCE($3,contact_phone),
       website=COALESCE($4,website),address=COALESCE($5,address),opening_hours=COALESCE($6,opening_hours),
-      shop_enabled=COALESCE($9,shop_enabled)
+      shop_enabled=COALESCE($9,shop_enabled),
+      whatsapp=CASE WHEN $10::boolean THEN $11 ELSE whatsapp END
     WHERE id=$7 AND owner_id=$8 AND hidden_at IS NULL
-    RETURNING id,about,contact_email,contact_phone,website,address,opening_hours,shop_enabled`,
+    RETURNING id,about,contact_email,contact_phone,website,address,opening_hours,shop_enabled,whatsapp`,
   [values.about, values.contact_email, values.contact_phone, values.website, values.address, values.opening_hours, pageId, req.user.id,
-    typeof body.shop_enabled === "boolean" ? body.shop_enabled : null]);
+    typeof body.shop_enabled === "boolean" ? body.shop_enabled : null, !whatsapp.skip, whatsapp.value ? whatsapp.value.replace(/\D/g, "") : null]);
   if (!result.rowCount) {
     const exists = await pool.query("SELECT 1 FROM pages WHERE id=$1 AND hidden_at IS NULL", [pageId]);
     return res.status(exists.rowCount ? 403 : 404).json({ error: exists.rowCount ? "Só a pessoa responsável pela página pode editar estas informações." : "Página não encontrada." });
@@ -2516,15 +2533,36 @@ app.post("/api/pages/:pageId/follow", auth, async (req, res) => {
 app.get("/api/pages/:pageId/offers", optionalAuth, async (req, res) => {
   const pageId = parseId(req.params.pageId);
   if (!pageId) return res.status(400).json({ error: "Página inválida." });
-  const page = await pool.query("SELECT shop_enabled FROM pages WHERE id=$1 AND hidden_at IS NULL", [pageId]);
+  const page = await pool.query("SELECT shop_enabled,whatsapp,business_verified_at IS NOT NULL AS business_verified FROM pages WHERE id=$1 AND hidden_at IS NULL", [pageId]);
   if (!page.rowCount) return res.status(404).json({ error: "Página não encontrada." });
   if (!page.rows[0].shop_enabled) return res.json({ offers: [], shop_enabled: false });
+  const shop = { whatsapp: page.rows[0].whatsapp, business_verified: page.rows[0].business_verified };
   const result = await pool.query(`
     SELECT id,page_id,title,description,price_kz::float AS price_kz,discount_percent,promo_code,expires_at,checkout_url,created_at
     FROM page_offers
     WHERE page_id=$1 AND (expires_at IS NULL OR expires_at > NOW())
     ORDER BY created_at DESC,id DESC`, [pageId]);
-  res.json({ offers: result.rows, shop_enabled: true });
+  res.json({ offers: result.rows, shop_enabled: true, ...shop });
+});
+
+// Pedido do selo "Negócio verificado": quem gere a página indica o NIF e a equipa confirma (Administração → Negócios).
+app.post("/api/pages/:pageId/business", auth, async (req, res) => {
+  const pageId = parseId(req.params.pageId);
+  if (!pageId) return res.status(400).json({ error: "Página inválida." });
+  const nif = String(req.body?.nif || "").toUpperCase().replace(/[\s.-]/g, "");
+  if (!/^[0-9A-Z]{9,14}$/.test(nif)) return res.status(400).json({ error: "Indica o NIF do negócio (9 a 14 letras e números)." });
+  const result = await pool.query(`
+    UPDATE pages SET business_nif=$3,business_requested_at=NOW(),business_rejected_reason=NULL
+    WHERE id=$1 AND owner_id=$2 AND hidden_at IS NULL AND shop_enabled AND business_verified_at IS NULL
+    RETURNING id,business_nif,business_requested_at`, [pageId, req.user.id, nif]);
+  if (!result.rowCount) {
+    const page = (await pool.query("SELECT owner_id,shop_enabled,business_verified_at FROM pages WHERE id=$1 AND hidden_at IS NULL", [pageId])).rows[0];
+    if (!page) return res.status(404).json({ error: "Página não encontrada." });
+    if (page.owner_id !== req.user.id) return res.status(403).json({ error: "Só a pessoa responsável pela página pode pedir o selo." });
+    if (page.business_verified_at) return res.status(409).json({ error: "Este negócio já está verificado." });
+    return res.status(409).json({ error: "Liga primeiro a loja da página (Editar informações)." });
+  }
+  res.status(201).json({ page: result.rows[0] });
 });
 
 app.post("/api/pages/:pageId/offers", auth, async (req, res) => {
@@ -2608,6 +2646,9 @@ app.get("/api/events", optionalAuth, async (req, res) => {
   const result = await pool.query(`
     SELECT e.id,e.page_id,p.name AS page_name,e.name,e.description,e.location,e.image_url,e.starts_at,e.created_at,
       u.id AS creator_id,u.username AS creator_username,u.display_name AS creator_name,
+      e.ticket_stars,e.tickets_total,
+      (SELECT COUNT(*) FROM event_tickets t WHERE t.event_id=e.id)::int AS tickets_sold,
+      (SELECT json_build_object('code',t.code,'stars',t.stars,'checked_in_at',t.checked_in_at) FROM event_tickets t WHERE t.event_id=e.id AND t.user_id=$1) AS my_ticket,
       (SELECT COUNT(*) FROM event_attendees a WHERE a.event_id=e.id)::int AS attendee_count,
       EXISTS(SELECT 1 FROM event_attendees a WHERE a.event_id=e.id AND a.user_id=$1) AS is_attending
     FROM events e JOIN users u ON u.id=e.creator_id LEFT JOIN pages p ON p.id=e.page_id
@@ -2643,28 +2684,36 @@ app.post("/api/events", auth, imageUpload.single("image"), optimizeUpload("event
       const page = await pool.query("SELECT 1 FROM pages WHERE id=$1 AND owner_id=$2 AND hidden_at IS NULL", [pageId, req.user.id]);
       if (!page.rowCount) return reject(403, "Só o responsável pela página pode criar eventos nela.");
     }
+    // Bilhete em estrelas (0 = grátis, com o botão "Vou").
+    const ticket = parseTicketInput(body);
+    if (ticket.error) return reject(400, ticket.error);
     const event = await transaction(async client => {
       const result = await client.query(`
-        INSERT INTO events(creator_id,page_id,name,description,location,image_url,starts_at)
-        VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id,page_id,name,description,location,image_url,starts_at,created_at`,
-      [req.user.id, pageId, name, description, location, imageUrl, startsAt.toISOString()]);
+        INSERT INTO events(creator_id,page_id,name,description,location,image_url,starts_at,ticket_stars,tickets_total)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id,page_id,name,description,location,image_url,starts_at,created_at,ticket_stars,tickets_total`,
+      [req.user.id, pageId, name, description, location, imageUrl, startsAt.toISOString(), ticket.price, ticket.total]);
       await client.query("INSERT INTO event_attendees(event_id,user_id) VALUES($1,$2)", [result.rows[0].id, req.user.id]);
       return result.rows[0];
     });
-    res.status(201).json({ event: { ...event, creator_id: req.user.id, attendee_count: 1, is_attending: true } });
+    res.status(201).json({ event: { ...event, creator_id: req.user.id, attendee_count: 1, is_attending: true, tickets_sold: 0, my_ticket: null } });
   } catch (error) {
     if (imageUrl) await removeUpload(imageUrl);
     throw error;
   }
 });
 
+registerEventTickets(app, { pool, auth, parseId, transaction, blockedBetween, appUrl });
+
 app.post("/api/events/:eventId/rsvp", auth, async (req, res) => {
   const eventId = parseId(req.params.eventId);
   if (!eventId) return res.status(400).json({ error: "Evento inválido." });
   // Eventos de um grupo: só os membros do grupo confirmam presença.
-  const event = await pool.query(`SELECT creator_id FROM events e WHERE id=$1
+  const event = await pool.query(`SELECT creator_id,ticket_stars FROM events e WHERE id=$1
     AND (e.group_id IS NULL OR EXISTS(SELECT 1 FROM group_members gm WHERE gm.group_id=e.group_id AND gm.user_id=$2))`, [eventId, req.user.id]);
   if (!event.rowCount) return res.status(404).json({ error: "Evento não encontrado." });
+  if (event.rows[0].ticket_stars > 0 && event.rows[0].creator_id !== req.user.id) {
+    return res.status(409).json({ error: "Este evento tem bilhete: compra-o para garantires o lugar." });
+  }
   const attending = await transaction(async client => {
     const existing = await client.query(
       "DELETE FROM event_attendees WHERE event_id=$1 AND user_id=$2 RETURNING event_id",
@@ -3087,6 +3136,9 @@ app.get("/api/events/:eventId", optionalAuth, async (req, res) => {
   const event = await pool.query(`
     SELECT e.id,e.page_id,p.name AS page_name,e.name,e.description,e.location,e.image_url,e.starts_at,e.created_at,
       u.id AS creator_id,u.username AS creator_username,u.display_name AS creator_name,u.avatar_url AS creator_avatar,
+      e.ticket_stars,e.tickets_total,
+      (SELECT COUNT(*) FROM event_tickets t WHERE t.event_id=e.id)::int AS tickets_sold,
+      (SELECT json_build_object('code',t.code,'stars',t.stars,'checked_in_at',t.checked_in_at) FROM event_tickets t WHERE t.event_id=e.id AND t.user_id=$2) AS my_ticket,
       (SELECT COUNT(*) FROM event_attendees a WHERE a.event_id=e.id)::int AS attendee_count,
       EXISTS(SELECT 1 FROM event_attendees a WHERE a.event_id=e.id AND a.user_id=$2) AS is_attending,
       (e.creator_id=$2 OR EXISTS(SELECT 1 FROM pages pg WHERE pg.id=e.page_id AND pg.owner_id=$2)) AS is_creator
@@ -3107,9 +3159,14 @@ app.get("/api/events/:eventId", optionalAuth, async (req, res) => {
 app.delete("/api/events/:eventId", auth, async (req, res) => {
   const eventId = parseId(req.params.eventId);
   if (!eventId) return res.status(400).json({ error: "Evento inválido." });
-  const result = await pool.query(`DELETE FROM events e
-    WHERE e.id=$1 AND (e.creator_id=$2 OR EXISTS(SELECT 1 FROM pages p WHERE p.id=e.page_id AND p.owner_id=$2))
-    RETURNING e.id,e.image_url`, [eventId, req.user.id]);
+  // Se houver bilhetes vendidos, as estrelas voltam a quem comprou antes de o evento desaparecer.
+  const result = await transaction(async client => {
+    const owned = await client.query(`SELECT e.id FROM events e
+      WHERE e.id=$1 AND (e.creator_id=$2 OR EXISTS(SELECT 1 FROM pages p WHERE p.id=e.page_id AND p.owner_id=$2)) FOR UPDATE`, [eventId, req.user.id]);
+    if (!owned.rowCount) return owned;
+    await refundEventTickets(client, eventId);
+    return client.query("DELETE FROM events WHERE id=$1 RETURNING id,image_url", [eventId]);
+  });
   if (!result.rowCount) return res.status(404).json({ error: "Evento não encontrado." });
   await removeUpload(result.rows[0].image_url);
   res.json({ deleted: true });

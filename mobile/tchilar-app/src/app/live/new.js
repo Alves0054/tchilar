@@ -51,6 +51,7 @@ export default function GoLive() {
   const [config, setConfig] = useState(null);
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState("");
+  const [entry, setEntry] = useState("0");   // direto pago: entrada em estrelas (0 = grátis)
   const [stream, setStream] = useState(null);
   const [facing, setFacing] = useState("user");
   const [micOn, setMicOn] = useState(true);
@@ -122,7 +123,7 @@ export default function GoLive() {
     setState("starting");
     let createdId = null;
     try {
-      const created = await api("/lives", { method: "POST", body: { title: title.trim(), category: category || undefined, source: "browser", ...(pageId ? { pageId: Number(pageId) } : {}) } });
+      const created = await api("/lives", { method: "POST", body: { title: title.trim(), category: category || undefined, source: "browser", entryStars: Number(entry) || 0, ...(pageId ? { pageId: Number(pageId) } : {}) } });
       createdId = created.id;
       setLiveId(created.id);
       const { whip: url } = await api(`/lives/${created.id}/publish`, { method: "POST" });
@@ -193,6 +194,7 @@ export default function GoLive() {
         <TextInput style={styles.input} placeholder="Título do direto" placeholderTextColor="rgba(255,255,255,0.6)"
           value={title} onChangeText={setTitle} maxLength={120} />
         {config?.categories?.length > 0 && <Chips options={[["", "Sem categoria"], ...config.categories.map(item => [item, CATEGORY_LABELS[item] || item])]} value={category} onChange={setCategory} />}
+        <Chips options={[["0", "Entrada grátis"], ...["10", "25", "50", "100", "250"].map(stars => [stars, `Paga: ${stars} ★`])]} value={entry} onChange={setEntry} />
         {Boolean(error) && <Text style={styles.error}>{error}</Text>}
         <Button label={state === "starting" ? "A ligar..." : "Entrar em direto"} icon="radio" busy={state === "starting"}
           disabled={!title.trim() || !stream || !config} onPress={start} />

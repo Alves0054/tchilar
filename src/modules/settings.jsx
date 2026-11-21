@@ -890,6 +890,11 @@ export function SettingsAppearance() {
       </div>
       <p className="prefs-sample">Assim fica uma publicação: «Hoje o pôr do sol na Ilha estava incrível.»</p>
     </PrefsCard>
+    <PrefsCard title="Poupar dados" note="Para quem usa dados móveis. Fica guardado neste dispositivo.">
+      <PrefsToggle icon="bolt" title="Poupar dados" checked={device.dataSaver} onChange={value => change({ dataSaver: value })}>
+        Fotos mais leves no feed (a original abre quando tocas nela) e vídeos só quando carregas no play. Gasta muito menos saldo.
+      </PrefsToggle>
+    </PrefsCard>
     <PrefsCard title="Vídeo e movimento" note="Ficam guardados neste dispositivo.">
       <PrefsToggle icon="play" title="Reproduzir vídeos automaticamente" checked={device.autoplay} onChange={value => change({ autoplay: value })}>
         Os vídeos começam sozinhos quando aparecem no ecrã. Desliga para poupar dados móveis.

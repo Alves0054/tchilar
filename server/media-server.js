@@ -52,6 +52,20 @@ function verifyPublishToken(token, userId, secret, now = Date.now()) {
   return safeEqual(signature, expected);
 }
 
+// Diretos pagos: o vídeo (HLS) só abre com um token de leitura que a API dá a quem pagou a entrada.
+// "liveId.expira.assinatura", válido 3 h. A CDN tem de passar a query (?v=) à origem nos pedidos do .m3u8.
+const READ_TOKEN_TTL_SECONDS = 3 * 60 * 60;
+function readToken(liveId, secret, now = Date.now()) {
+  const payload = `${liveId}.${Math.floor(now / 1000) + READ_TOKEN_TTL_SECONDS}`;
+  return `${payload}.${crypto.createHmac("sha256", secret).update(`read:${payload}`).digest("base64url")}`;
+}
+function verifyReadToken(token, liveId, secret, now = Date.now()) {
+  const [id, expires, signature] = String(token || "").split(".");
+  if (!signature || Number(id) !== liveId || !(Number(expires) > now / 1000)) return false;
+  const expected = crypto.createHmac("sha256", secret).update(`read:${id}.${expires}`).digest("base64url");
+  return safeEqual(signature, expected);
+}
+
 // Decide um pedido de autorização do MediaMTX.
 // lookups.publisher(userId) → { stream_key_hash, suspended_at } | null
 // lookups.liveOn(userId) → o direto aberto dessa pessoa (ou null)
@@ -70,7 +84,10 @@ async function authorizeMedia(request, secret, lookups, now = Date.now()) {
   const query = new URLSearchParams(String(request.query || ""));
 
   if (request.action === "read") {
-    return (await lookups.liveOn(userId)) ? { ok: true } : { ok: false, reason: "sem direto aberto" };
+    const live = await lookups.liveOn(userId);
+    if (!live) return { ok: false, reason: "sem direto aberto" };
+    if (live.entry_stars > 0 && !verifyReadToken(query.get("v"), live.id, secret, now)) return { ok: false, reason: "direto pago: falta o bilhete" };
+    return { ok: true };
   }
   if (request.action !== "publish") return { ok: false, reason: "ação não permitida" };
 
@@ -139,5 +156,4 @@ function createMediaClient(config, fetchImpl = fetch) {
 module.exports = {
   MEDIA_API_USER,
   PUBLISH_TOKEN_TTL_SECONDS, authorizeMedia, createMediaClient, hashStreamKey, mediaConfig, newStreamKey,
-  pathFor, publishToken, summarizePath, userFromPath, verifyPublishToken
-};
+  pathFor, publishToken, summarizePath, userFromPath, verifyPublishToken, readToken, verifyReadToken };

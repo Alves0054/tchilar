@@ -26,6 +26,42 @@ export function OfficialPageBadge({ show, tier = null }) {
   if (tier) return <VerifiedBadge show tier={tier} />;
   return show ? <span className="official-page-badge" role="img" aria-label="Página oficial do Tchilar" title="Página oficial do Tchilar"><Icon name="check" size={11} /></span> : null;
 }
+// Selo "Negócio verificado": a equipa confirmou o NIF de uma página com loja.
+export function BusinessBadge({ page }) {
+  return page?.business_verified ? <span className="business-badge" title="A equipa do Tchilar confirmou o NIF deste negócio">
+    <Icon name="shield" size={12} /> Negócio verificado</span> : null;
+}
+// Mensagem pronta para encomendar pelo WhatsApp de quem vende.
+export function whatsappOrderUrl(page, offer, price) {
+  const text = `Olá! Quero encomendar «${offer.title}» (${formatPrice(price)}) que vi na loja de ${page.name} no Tchilar: ${PUBLIC_URL}/pages/${page.id}`;
+  return `https://wa.me/${page.whatsapp}?text=${encodeURIComponent(text)}`;
+}
+// Pedido do selo dentro de Editar informações (só com a loja ligada).
+function BusinessSealRequest({ page, onSaved }) {
+  const [nif, setNif] = useState(page.business_nif || "");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  if (page.business_verified) return <p className="business-seal-state is-ok"><Icon name="shield" size={15} /> Este negócio tem o selo <strong>Negócio verificado</strong>.</p>;
+  const pending = page.business_requested_at && !page.business_rejected_reason;
+  const send = async () => {
+    setBusy(true); setError("");
+    try {
+      const result = await api(`/pages/${page.id}/business`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nif }) });
+      onSaved({ business_nif: result.page.business_nif, business_requested_at: result.page.business_requested_at, business_rejected_reason: null });
+    } catch (sendError) { setError(sendError.message); } finally { setBusy(false); }
+  };
+  return <div className="business-seal">
+    <strong>Selo «Negócio verificado»</strong>
+    <p className="muted">Mostra aos clientes que o negócio existe. Indica o NIF; a equipa confirma em poucos dias. É grátis.</p>
+    {pending ? <p className="business-seal-state"><Icon name="clock" size={15} /> Pedido enviado com o NIF {page.business_nif}. A equipa está a confirmar.</p>
+      : <div className="business-seal-row">
+        <input value={nif} onChange={event => setNif(event.target.value)} maxLength={20} placeholder="NIF do negócio" aria-label="NIF do negócio" />
+        <button className="btn secondary" type="button" disabled={busy || nif.trim().length < 9} onClick={send}>{busy ? "A enviar..." : "Pedir selo"}</button>
+      </div>}
+    {page.business_rejected_reason && <p className="error">Pedido anterior recusado: {page.business_rejected_reason}</p>}
+    {error && <p className="error" role="alert">{error}</p>}
+  </div>;
+}
 export function PageLogo({ page, size = "" }) {
   return <span className={`page-logo tone-page-${pageTone(page.category)} ${size}`} aria-hidden="true">
     {page.logo_url ? <img src={`${API_BASE}${page.logo_url}`} alt="" /> : pageMonogram(page.name)}
@@ -227,7 +263,8 @@ function ShopToggle({ checked, onChange }) {
 function PageAboutEditor({ page, onClose, onSaved }) {
   const [form, setForm] = useState({
     about: page.about || page.description || "", contact_email: page.contact_email || "", contact_phone: page.contact_phone || "",
-    website: page.website || "", address: page.address || "", opening_hours: page.opening_hours || "", shop_enabled: Boolean(page.shop_enabled)
+    website: page.website || "", address: page.address || "", opening_hours: page.opening_hours || "", shop_enabled: Boolean(page.shop_enabled),
+    whatsapp: page.whatsapp ? `+${page.whatsapp}` : ""
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -264,6 +301,11 @@ function PageAboutEditor({ page, onClose, onSaved }) {
       </div>
       <label>Horário de funcionamento<input name="opening_hours" maxLength={300} value={form.opening_hours} onChange={setField} placeholder="Segunda a sexta, 08:00–17:00" /></label>
       <ShopToggle checked={form.shop_enabled} onChange={value => setForm(current => ({ ...current, shop_enabled: value }))} />
+      {form.shop_enabled && <>
+        <label>WhatsApp para encomendas<input name="whatsapp" type="tel" maxLength={24} value={form.whatsapp} onChange={setField} placeholder="+244 9XX XXX XXX" />
+          <small className="muted">Na loja aparece «Encomendar pelo WhatsApp» com a mensagem já escrita.</small></label>
+        {page.shop_enabled && <BusinessSealRequest page={page} onSaved={changes => onSaved({ ...page, ...changes })} />}
+      </>}
       {error && <p className="error" role="alert">{error}</p>}
       <div className="modal-actions">
         <button className="btn secondary" type="button" disabled={busy} onClick={onClose}>Cancelar</button>
@@ -526,7 +568,7 @@ function PageWorkspace({ page, ownsPage, section, posts, reloadPosts, setError, 
     </>}
     {section === "offers" && page.shop_enabled && <>
       <div className="pg-section-head is-tab">
-        <div><h2>Loja</h2><p>Produtos e serviços. A compra é feita no WhatsApp ou no site do vendedor.</p></div>
+        <div><h2>Loja <BusinessBadge page={page} /></h2><p>Produtos e serviços. A encomenda é feita no WhatsApp ou no site do vendedor.</p></div>
         {ownsPage && !creatingOffer && <button className="btn" type="button" onClick={() => setCreatingOffer(true)}><Icon name="plus" size={16} /> Criar oferta</button>}
       </div>
       {creatingOffer && <PageOfferForm page={page} onClose={() => setCreatingOffer(false)} onCreated={() => {
@@ -556,7 +598,9 @@ function PageWorkspace({ page, ownsPage, section, posts, reloadPosts, setError, 
             <small className="muted">Compra e pagamento fora do Tchilar.</small>
           </div>
           <div className="page-offer-actions">
-            <a className="btn" href={offer.checkout_url} target="_blank" rel="noopener noreferrer"><Icon name="externalLink" size={15} /> Comprar/contactar</a>
+            {page.whatsapp && <a className="btn whatsapp-order" href={whatsappOrderUrl(page, offer, salePrice)} target="_blank" rel="noopener noreferrer">
+              <Icon name="messages" size={15} /> Encomendar pelo WhatsApp</a>}
+            {offer.checkout_url && <a className={`btn${page.whatsapp ? " secondary" : ""}`} href={offer.checkout_url} target="_blank" rel="noopener noreferrer"><Icon name="externalLink" size={15} /> {page.whatsapp ? "Site" : "Comprar/contactar"}</a>}
             {ownsPage && <button className="btn secondary danger-text icon-only" type="button" aria-label={`Remover ${offer.title}`} title="Remover" onClick={() => deleteOffer(offer)}><Icon name="trash" size={16} /></button>}
           </div>
         </article>;
@@ -851,6 +895,7 @@ export function Pages() {
             : <div className="pg-hero-logo"><PageLogo page={page} size="large" /></div>}
           <div className="pg-hero-id">
             <h1>{page.name}<OfficialPageBadge show={page.is_official} tier={page.verification_tier} /></h1>
+            <BusinessBadge page={page} />
             <PageKind page={page} />
             <PageStats page={page} since />
           </div>

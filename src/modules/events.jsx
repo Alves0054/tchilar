@@ -22,6 +22,8 @@ const EVENT_IMAGE_TYPES = "image/jpeg,image/png,image/webp,image/gif";
 export function CreateEventDialog({ onClose, onCreated, pageId, pageName, group = null }) {
   const { user } = useContext(UserContext);
   const [form, setForm] = useState({ name: "", startsAt: "", location: "", description: "" });
+  // Bilhete: grátis (botão "Vou") ou pago em estrelas, com lotação opcional. Os eventos de grupos são sempre grátis.
+  const [ticket, setTicket] = useState({ paid: false, stars: "50", total: "" });
   const [image, setImage] = useState(null);
   const [imagePreview, setImagePreview] = useState("");
   const [busy, setBusy] = useState(false);
@@ -46,7 +48,8 @@ export function CreateEventDialog({ onClose, onCreated, pageId, pageName, group 
     setError("");
     try {
       const body = new FormData();
-      Object.entries({ ...form, startsAt: new Date(form.startsAt).toISOString(), ...(pageId ? { pageId } : {}) })
+      Object.entries({ ...form, startsAt: new Date(form.startsAt).toISOString(), ...(pageId ? { pageId } : {}),
+        ...(!group && ticket.paid ? { ticketStars: ticket.stars, ...(ticket.total ? { ticketsTotal: ticket.total } : {}) } : {}) })
         .forEach(([key, value]) => body.append(key, value));
       if (image) body.append("image", await downscaleImage(image, 1600, 1200));
       await api(group ? `/groups/${group.id}/events` : "/events", { method: "POST", body });
@@ -91,6 +94,22 @@ export function CreateEventDialog({ onClose, onCreated, pageId, pageName, group 
             <span className="event-field-label">Detalhes <small>{form.description.length}/2000</small></span>
             <textarea rows={3} maxLength={2000} value={form.description} onChange={set("description")} placeholder="O que vai acontecer e o que as pessoas devem levar." />
           </label>
+          {!group && <div className="event-field">
+            <span className="event-field-label">Entrada</span>
+            <div className="event-ticket-choice" role="radiogroup" aria-label="Entrada">
+              <button type="button" role="radio" aria-checked={!ticket.paid} onClick={() => setTicket({ ...ticket, paid: false })}>
+                <Icon name="check" size={16} /><span><b>Grátis</b><small>As pessoas carregam em «Vou»</small></span></button>
+              <button type="button" role="radio" aria-checked={ticket.paid} onClick={() => setTicket({ ...ticket, paid: true })}>
+                <Icon name="star" size={16} /><span><b>Bilhete pago</b><small>Em estrelas, com QR à entrada</small></span></button>
+            </div>
+            {ticket.paid && <div className="event-ticket-fields">
+              <label>Preço (estrelas)<input type="number" min={1} max={100000} required value={ticket.stars}
+                onChange={event => setTicket({ ...ticket, stars: event.target.value.replace(/\D/g, "") })} /></label>
+              <label>Bilhetes <small>vazio = sem limite</small><input type="number" min={1} max={100000} value={ticket.total}
+                onChange={event => setTicket({ ...ticket, total: event.target.value.replace(/\D/g, "") })} placeholder="Sem limite" /></label>
+              <small className="muted">As estrelas dos bilhetes contam para os teus levantamentos, como os presentes. Se apagares o evento, voltam a quem comprou.</small>
+            </div>}
+          </div>}
           <div className="event-field">
             <span className="event-field-label">Imagem do evento <small>Opcional</small></span>
             <FilePicker kind="image" wide file={image} onChange={setImage} accept={EVENT_IMAGE_TYPES} maxBytes={8 * 1024 * 1024} disabled={busy}
@@ -111,7 +130,8 @@ export function CreateEventDialog({ onClose, onCreated, pageId, pageName, group 
               {form.description && <p>{form.description}</p>}
               <div className="event-poster-foot">
                 <small>{group ? <>Evento do grupo <b>{host}</b></> : <>Organizado por <b>{host}</b></>}</small>
-                <span className="event-poster-going" aria-hidden="true"><Icon name="check" size={14} /> Vou</span>
+                <span className="event-poster-going" aria-hidden="true">{ticket.paid && !group
+                  ? <><Icon name="star" size={14} /> {ticket.stars || 0} estrelas</> : <><Icon name="check" size={14} /> Vou</>}</span>
               </div>
             </div>
           </article>
@@ -155,7 +175,8 @@ export function Events() {
   };
 
   const deleteEvent = async item => {
-    if (!window.confirm(`Apagar o evento «${item.name}»? Os participantes deixam de o ver.`)) return;
+    const refund = item.tickets_sold > 0 ? ` As estrelas dos ${item.tickets_sold} bilhetes vendidos voltam a quem comprou.` : "";
+    if (!window.confirm(`Apagar o evento «${item.name}»? Os participantes deixam de o ver.${refund}`)) return;
     try {
       await api(`/events/${item.id}`, { method: "DELETE" });
       setEvents(current => current.filter(event => event.id !== item.id));
@@ -190,7 +211,7 @@ export function Events() {
       {item.image_url && <img className="event-card-cover" src={item.image_url} alt={`Imagem do evento ${item.name}`} loading="lazy" />}
       <EventDate value={item.starts_at} />
       <div className="event-card-body">
-        <h2>{item.name}</h2>
+        <h2><Link to={`/events/${item.id}`}>{item.name}</Link></h2>
         <small><Icon name="events" size={13} /> {eventWhen(item.starts_at)}</small>
         {item.location && <small><Icon name="location" size={13} /> {item.location}</small>}
         {item.description && <p>{item.description}</p>}
@@ -199,9 +220,12 @@ export function Events() {
           : <Link to={`/u/${item.creator_username}`}>{item.creator_name}</Link>}</small>
       </div>
       {user && <div className="event-card-actions">
-        <button className={`btn${item.is_attending ? " secondary page-following" : ""}`} type="button" aria-pressed={item.is_attending} onClick={() => toggleRsvp(item)}>
-          {item.is_attending ? <><Icon name="check" size={15} /><span className="when-idle">Vou</span><span className="when-hover">Já não vou</span></> : <><Icon name="plus" size={15} /> Vou participar</>}
-        </button>
+        {item.ticket_stars > 0
+          ? <Link className={`btn${item.my_ticket ? " secondary" : ""}`} to={`/events/${item.id}`}><Icon name="star" size={15} />
+            {item.my_ticket ? " O meu bilhete" : String(item.creator_id) === String(user.id) ? " Bilhetes" : ` ${formatCount(item.ticket_stars)} estrelas`}</Link>
+          : <button className={`btn${item.is_attending ? " secondary page-following" : ""}`} type="button" aria-pressed={item.is_attending} onClick={() => toggleRsvp(item)}>
+            {item.is_attending ? <><Icon name="check" size={15} /><span className="when-idle">Vou</span><span className="when-hover">Já não vou</span></> : <><Icon name="plus" size={15} /> Vou participar</>}
+          </button>}
         {String(item.creator_id) === String(user.id) && <button className="btn secondary danger-text icon-only" type="button" aria-label={`Apagar ${item.name}`} title="Apagar" onClick={() => deleteEvent(item)}><Icon name="trash" size={16} /></button>}
       </div>}
     </article>)}</div>}

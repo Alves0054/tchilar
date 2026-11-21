@@ -341,3 +341,32 @@
   color: #FFFFFF;
   background: #E30613;
 }
+
+/* Bilhetes dos eventos */
+.event-ticket-choice { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.event-ticket-choice button { display: flex; align-items: flex-start; gap: 8px; padding: 10px 12px; text-align: left; border-radius: 14px;
+  border: 1px solid var(--color-line); background: var(--color-surface); color: var(--color-text); cursor: pointer; }
+.event-ticket-choice button span { display: grid; gap: 2px; }
+.event-ticket-choice button small { color: var(--color-text-muted); font-size: 12px; }
+.event-ticket-choice button[aria-checked="true"] { border-color: var(--color-accent); box-shadow: inset 0 0 0 1px var(--color-accent); }
+.event-ticket-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+.event-ticket-fields label { display: grid; gap: 4px; font-weight: 700; font-size: 13px; }
+.event-ticket-fields > small { grid-column: 1 / -1; }
+.event-page { display: grid; gap: 16px; }
+.event-page-poster h1 { margin: 0; font-size: clamp(22px, 3vw, 28px); }
+.event-page-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 6px; }
+.ticket-price { display: inline-flex; align-items: center; gap: 6px; font-weight: 800; }
+.ticket-price small { font-weight: 600; color: var(--color-text-muted); }
+.ticket-card { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 16px; }
+.ticket-code { font: 800 22px/1.2 ui-monospace, monospace; letter-spacing: .12em; margin: 8px 0 0; }
+.ticket-qr { width: 180px; height: 180px; border-radius: 12px; background: #fff; }
+.ticket-qr.is-loading { background: var(--color-line); }
+.ticket-checkin { display: flex; gap: 8px; margin: 12px 0; }
+.ticket-checkin input { flex: 1; min-width: 0; font: 700 16px ui-monospace, monospace; letter-spacing: .08em; text-transform: uppercase; }
+.ticket-checkin-result { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-radius: 12px; font-weight: 600; }
+.ticket-checkin-result.is-ok { background: color-mix(in srgb, #34C759 18%, transparent); }
+.ticket-checkin-result.is-bad { background: color-mix(in srgb, #E30613 14%, transparent); }
+.ticket-list li { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 10px; }
+.ticket-list li span { display: grid; }
+.ticket-list small { color: var(--color-text-muted); }
+@media (max-width: 560px) { .ticket-card { grid-template-columns: 1fr; justify-items: center; text-align: center; } .event-ticket-choice, .event-ticket-fields { grid-template-columns: 1fr; } }

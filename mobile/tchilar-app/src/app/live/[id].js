@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, router, useLocalSearchParams } from "expo-router";
 import { useEffect, useRef, useState } from "react";
-import { FlatList, Linking, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Alert, FlatList, Linking, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Avatar } from "../../components/Avatar";
 import { GiftIcon, GiftSheet, GiftShow, useGiftShow } from "../../components/LiveGifts";
@@ -65,6 +65,25 @@ export default function LiveViewer() {
     };
   }, [id]);
 
+  // Direto pago: quem ainda não pagou vê o preço e paga a entrada (uma vez por direto).
+  const locked = Boolean(live && live.entry_stars > 0 && !live.has_access && live.status === "live");
+  const [paying, setPaying] = useState(false);
+  const payEntry = () => Alert.alert("Direto pago", `Entrar por ${live.entry_stars} estrelas? Vês até ao fim, com chat e presentes.`, [
+    { text: "Cancelar", style: "cancel" },
+    { text: "Entrar", onPress: async () => {
+      setPaying(true); setError("");
+      try {
+        const result = await api(`/lives/${id}/ticket`, { method: "POST" });
+        setBalance(result.balance ?? balance);
+        setLive(current => ({ ...current, has_access: true, playback: result.playback || current.playback }));
+        api(`/lives/${id}/heartbeat`, { method: "POST" }).catch(() => {});
+      } catch (payError) {
+        if (/estrelas suficientes/.test(payError.message)) Alert.alert("Estrelas", payError.message, [{ text: "Agora não" }, { text: "Comprar estrelas", onPress: () => router.push("/stars") }]);
+        else setError(payError.message);
+      } finally { setPaying(false); }
+    } }
+  ]);
+
   const send = async () => {
     const body = text.trim();
     if (!body) return;
@@ -85,7 +104,15 @@ export default function LiveViewer() {
     <Stack.Screen options={{ title: live?.title || "Direto", headerLeft: () => <Pressable onPress={() => (router.canGoBack() ? router.back() : router.replace("/live"))} hitSlop={12} accessibilityLabel="Voltar">
       <Ionicons name="chevron-back" size={28} color={colors.text} /></Pressable> }} />
     <View style={styles.video}>
-      {live?.playback?.hls && !ended ? <VideoPost uri={live.playback.hls} playing fullScreen style={StyleSheet.absoluteFill} />
+      {locked ? <View style={styles.noVideo}>
+          <Avatar user={live} size={72} />
+          <Text style={styles.paywallTitle}>Direto pago</Text>
+          <Text style={styles.paywallText}>Entrada: {live.entry_stars} estrelas. As estrelas vão para quem está em direto.</Text>
+          <Pressable style={styles.paywallButton} onPress={payEntry} disabled={paying} accessibilityRole="button">
+            <Ionicons name="star" size={16} color="#fff" /><Text style={styles.paywallButtonText}>{paying ? "A pagar..." : `Entrar por ${live.entry_stars} ★`}</Text>
+          </Pressable>
+        </View>
+        : live?.playback?.hls && !ended ? <VideoPost uri={live.playback.hls} playing fullScreen style={StyleSheet.absoluteFill} />
         : <View style={styles.noVideo}>
           {live && <Avatar user={live} size={80} />}
           <Text style={styles.noVideoText}>{ended ? "Este direto terminou." : "O vídeo deste direto ainda só se vê no site."}</Text>
@@ -126,6 +153,10 @@ export default function LiveViewer() {
 }
 
 const styles = StyleSheet.create({
+  paywallTitle: { color: "#fff", fontSize: 20, fontWeight: "800", marginTop: 10 },
+  paywallText: { color: "rgba(255,255,255,0.8)", textAlign: "center", paddingHorizontal: 24 },
+  paywallButton: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 10, paddingHorizontal: 18, paddingVertical: 12, borderRadius: 999, backgroundColor: "#E30613" },
+  paywallButtonText: { color: "#fff", fontWeight: "800", fontSize: 15 },
   screen: { flex: 1, backgroundColor: colors.surface },
   video: { width: "100%", aspectRatio: 16 / 9, backgroundColor: "#000" },
   noVideo: { flex: 1, alignItems: "center", justifyContent: "center", gap: 8, padding: 16, backgroundColor: colors.ink },

@@ -10,7 +10,7 @@ import { api, mediaUri, upload } from "../lib/api";
 import { useSession } from "../lib/session";
 import { colors } from "../lib/theme";
 import { DateTimeField, formatDateTime, localDateTime } from "./DateTimeField";
-import { Button, Field, Notice } from "./ui";
+import { Button, Chips, Field, Notice } from "./ui";
 
 const RED = "#E30613";
 const SHORT_MONTHS = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
@@ -48,6 +48,9 @@ export function EventPoster({ event, image, host, going, onGoing, onPress, compa
 export function EventComposer({ endpoint = "/events", pageId, pageName, groupName, onCreated, onCancel }) {
   const { user } = useSession();
   const [form, setForm] = useState({ name: "", startsAt: "", location: "", description: "" });
+  // Entrada: grátis ("Vou") ou bilhete pago em estrelas. Os eventos de grupos são sempre grátis.
+  const [ticket, setTicket] = useState({ paid: "free", stars: "50", total: "" });
+  const paid = !groupName && ticket.paid === "paid";
   const [image, setImage] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -62,7 +65,8 @@ export function EventComposer({ endpoint = "/events", pageId, pageName, groupNam
     setBusy(true); setError("");
     try {
       const fields = { name: form.name.trim(), description: form.description, location: form.location, startsAt: new Date(form.startsAt).toISOString(),
-        ...(pageId ? { pageId: Number(pageId) } : {}) };
+        ...(pageId ? { pageId: Number(pageId) } : {}),
+        ...(paid ? { ticketStars: Number(ticket.stars) || 0, ...(ticket.total ? { ticketsTotal: Number(ticket.total) } : {}) } : {}) };
       const result = image ? await upload(endpoint, fields, image, "image") : await api(endpoint, { method: "POST", body: fields });
       onCreated?.(result);
     } catch (createError) {
@@ -82,6 +86,20 @@ export function EventComposer({ endpoint = "/events", pageId, pageName, groupNam
     </View>
     <Field label="Onde (opcional)" value={form.location} onChangeText={set("location")} maxLength={160} placeholder="Mercado do Benfica, Luanda" />
     <Field label={`Detalhes · ${form.description.length}/2000`} value={form.description} onChangeText={set("description")} multiline maxLength={2000} placeholder="O que vai acontecer e o que as pessoas devem levar." />
+    {!groupName && <View style={{ gap: 6 }}>
+      <Text style={styles.label}>Entrada</Text>
+      <Chips value={ticket.paid} onChange={value => setTicket(current => ({ ...current, paid: value }))}
+        options={[["free", "Grátis («Vou»)"], ["paid", "Bilhete em estrelas"]]} />
+      {paid && <>
+        <View style={{ flexDirection: "row", gap: 10 }}>
+          <View style={{ flex: 1 }}><Field label="Preço (estrelas)" value={ticket.stars} keyboardType="number-pad" maxLength={6}
+            onChangeText={value => setTicket(current => ({ ...current, stars: value.replace(/\D/g, "") }))} /></View>
+          <View style={{ flex: 1 }}><Field label="Bilhetes (vazio = sem limite)" value={ticket.total} keyboardType="number-pad" maxLength={6}
+            onChangeText={value => setTicket(current => ({ ...current, total: value.replace(/\D/g, "") }))} /></View>
+        </View>
+        <Text style={styles.small}>As estrelas dos bilhetes contam para os teus levantamentos. Cada bilhete tem um QR para mostrar à entrada; se apagares o evento, as estrelas voltam a quem comprou.</Text>
+      </>}
+    </View>}
     <View style={{ gap: 6 }}>
       <Text style={styles.label}>Imagem do evento (opcional)</Text>
       {image ? <View style={styles.chosen}>
@@ -99,7 +117,7 @@ export function EventComposer({ endpoint = "/events", pageId, pageName, groupNam
     <Text style={styles.label}>Assim vão ver o teu evento</Text>
     <EventPoster event={form} image={image?.uri} host={host} going />
     <Notice error={error} />
-    <Button label={busy ? "A criar..." : "Criar evento"} icon="calendar" onPress={create} busy={busy} disabled={!form.name.trim() || !form.startsAt} />
+    <Button label={busy ? "A criar..." : "Criar evento"} icon="calendar" onPress={create} busy={busy} disabled={!form.name.trim() || !form.startsAt || (paid && !(Number(ticket.stars) > 0))} />
     {onCancel && <Button variant="ghost" label="Cancelar" onPress={onCancel} />}
   </View>;
 }

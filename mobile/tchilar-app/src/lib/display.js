@@ -5,6 +5,7 @@ import * as SecureStore from "expo-secure-store";
 
 const TEXT_KEY = "tchilar-text-size";
 const AUTOPLAY_KEY = "tchilar-autoplay";
+const DATA_SAVER_KEY = "tchilar-data-saver";
 export const TEXT_SIZES = [["normal", "Normal", 1], ["large", "Grande", 1.15], ["xlarge", "Muito grande", 1.3]];
 export const AUTOPLAY_OPTIONS = [["always", "Sempre", "Tocam sozinhos, sem som, quando aparecem"], ["never", "Só quando toco", "Poupa dados móveis"]];
 
@@ -13,10 +14,14 @@ const read = (key, allowed, fallback) => {
 };
 export const textSize = read(TEXT_KEY, TEXT_SIZES.map(([value]) => value), "normal");
 export const textScale = TEXT_SIZES.find(([value]) => value === textSize)[2];
-export const autoplay = read(AUTOPLAY_KEY, AUTOPLAY_OPTIONS.map(([value]) => value), "always");
+// "Poupar dados": fotos do feed em versão pequena (a original abre ao tocar) e vídeos só ao tocar.
+export const dataSaver = read(DATA_SAVER_KEY, ["on", "off"], "off") === "on";
+export const autoplay = dataSaver ? "never" : read(AUTOPLAY_KEY, AUTOPLAY_OPTIONS.map(([value]) => value), "always");
+export const feedImageUri = uri => (!uri || !dataSaver ? uri : `${uri}${uri.includes("?") ? "&" : "?"}size=sm`);
 
 // Tamanho de letra já com a escala escolhida.
 export const fontSize = size => Math.round(size * textScale);
 
 export async function saveTextSize(value) { await SecureStore.setItemAsync(TEXT_KEY, value); return value !== textSize; }
+export async function saveDataSaver(on) { await SecureStore.setItemAsync(DATA_SAVER_KEY, on ? "on" : "off"); return on !== dataSaver; }
 export async function saveAutoplay(value) { await SecureStore.setItemAsync(AUTOPLAY_KEY, value); return value !== autoplay; }

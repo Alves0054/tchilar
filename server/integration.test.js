@@ -1826,3 +1826,147 @@ test("email queue: account emails first, daily limit, retries and expired links"
   assert.deepEqual(await createEmailQueue({ pool, transport: null }).processBatch(), { sent: 0, failed: 0 });
   await pool.query("DELETE FROM email_queue");
 });
+
+test("data saver: post photos have a light version served with ?size=sm", { skip }, async () => {
+  const author = await makeUser(`saver_${Date.now().toString(36)}`);
+  const image = await sharp({ create: { width: 1600, height: 1200, channels: 3, background: "#E30613" } }).png().toBuffer();
+  const form = new FormData();
+  form.append("body", "Pôr do sol na Ilha");
+  form.append("media", new Blob([image], { type: "image/png" }), "foto.png");
+  const response = await fetch(`${baseUrl}/posts`, { method: "POST", headers: { Authorization: `Bearer ${author.token}` }, body: form });
+  assert.equal(response.status, 201, await response.clone().text());
+  const mediaUrl = (await pool.query("SELECT media_url FROM posts WHERE user_id=$1", [author.id])).rows[0].media_url;
+  const origin = baseUrl.replace(/\/api$/, "");
+  const full = await sharp(Buffer.from(await (await fetch(origin + mediaUrl)).arrayBuffer())).metadata();
+  const small = await sharp(Buffer.from(await (await fetch(`${origin}${mediaUrl}?size=sm`)).arrayBuffer())).metadata();
+  assert.equal(full.width, 1600);
+  assert.ok(small.width <= 480, "a versão leve tem no máximo 480 px");
+  // Apagar a publicação apaga também a versão leve.
+  const postId = (await pool.query("SELECT id FROM posts WHERE user_id=$1", [author.id])).rows[0].id;
+  assert.equal((await call("DELETE", `/posts/${postId}`, author)).status, 200);
+  const uploads = path.join(__dirname, "..", "uploads");
+  assert.equal(fs.existsSync(path.join(uploads, path.basename(mediaUrl).replace(/\.webp$/, ".sm.webp"))), false);
+});
+
+test("invites: monthly ranking, with private provinces respected", { skip }, async () => {
+  const stamp = Date.now().toString(36);
+  const open = await makeUser(`inv_open_${stamp}`);
+  const hidden = await makeUser(`inv_hidden_${stamp}`);
+  await pool.query("UPDATE users SET province='Huíla', show_province_to_brands=(id=$1) WHERE id IN ($1,$2)", [open.id, hidden.id]);
+  const invite = async (by, n) => {
+    for (let i = 0; i < n; i += 1) {
+      const friend = await makeUser(`inv_${by.username}_${i}`);
+      await pool.query("UPDATE users SET referred_by=$2,referral_rewarded_at=NOW() WHERE id=$1", [friend.id, by.id]);
+    }
+  };
+  await invite(open, 2);
+  await invite(hidden, 3);
+  const national = (await call("GET", "/referrals/ranking", open)).body;
+  const position = name => national.ranking.find(row => row.username === name)?.position;
+  assert.ok(position(hidden.username) < position(open.username), "mais amigos, melhor lugar");
+  assert.equal(national.me.invited, 2);
+  const huila = (await call("GET", `/referrals/ranking?province=${encodeURIComponent("Huíla")}`, open)).body;
+  assert.deepEqual(huila.ranking.map(row => row.username), [open.username], "quem não mostra a província não aparece na lista da província");
+  const self = (await call("GET", `/referrals/ranking?province=${encodeURIComponent("Huíla")}`, hidden)).body;
+  assert.equal(self.me.invited, 3, "a própria pessoa vê sempre a sua posição");
+  assert.equal((await call("GET", "/referrals/ranking?province=Lisboa", open)).status, 400);
+});
+
+test("shops: WhatsApp orders and the verified business seal", { skip }, async () => {
+  const stamp = Date.now().toString(36);
+  const owner = await makeUser(`shop_owner_${stamp}`);
+  const other = await makeUser(`shop_other_${stamp}`);
+  const moderator = await makeUser(`shop_mod_${stamp}`, { role: "moderation" });
+  const page = (await call("POST", "/pages", owner, { name: "Loja da Kianda", pageType: "loja", category: "negocios" })).body.page;
+  assert.equal((await call("POST", `/pages/${page.id}/business`, owner, { nif: "5417123456" })).status, 409, "sem loja não há selo");
+  assert.equal((await call("PATCH", `/pages/${page.id}/about`, owner, { shop_enabled: true, whatsapp: "923 456 789" })).body.page.whatsapp, "244923456789");
+  assert.equal((await call("PATCH", `/pages/${page.id}/about`, owner, { whatsapp: "123" })).status, 400);
+  assert.equal((await call("POST", `/pages/${page.id}/business`, other, { nif: "5417123456" })).status, 403);
+  assert.equal((await call("POST", `/pages/${page.id}/business`, owner, { nif: "12" })).status, 400);
+  assert.equal((await call("POST", `/pages/${page.id}/business`, owner, { nif: "5417 123 456" })).status, 201);
+  const pending = (await call("GET", "/admin/business", moderator)).body.requests.find(row => row.id === page.id);
+  assert.equal(pending.business_nif, "5417123456");
+  assert.equal((await call("GET", "/admin/business", owner)).status, 403);
+  assert.equal((await call("POST", `/admin/business/${page.id}`, moderator, { approve: false })).status, 400, "recusar pede motivo");
+  assert.equal((await call("POST", `/admin/business/${page.id}`, moderator, { approve: true })).status, 200);
+  const offers = (await call("GET", `/pages/${page.id}/offers`, other)).body;
+  assert.deepEqual([offers.whatsapp, offers.business_verified], ["244923456789", true]);
+  const listed = (await call("GET", "/pages", other)).body.pages.find(row => row.id === page.id);
+  assert.equal(listed.business_verified, true);
+  assert.equal(listed.business_nif, null, "o NIF só aparece a quem gere a página");
+  assert.ok((await pool.query("SELECT 1 FROM notifications WHERE user_id=$1 AND type='business'", [owner.id])).rowCount);
+});
+
+test("event tickets: paid in stars, QR check-in once, refunded when the event is deleted", { skip }, async () => {
+  const stamp = Date.now().toString(36);
+  const organizer = await makeUser(`tix_org_${stamp}`);
+  const buyer = await makeUser(`tix_buyer_${stamp}`);
+  const poor = await makeUser(`tix_poor_${stamp}`);
+  await pool.query("INSERT INTO star_ledger(user_id,amount,kind) VALUES($1,100,'purchase')", [buyer.id]);
+  const startsAt = new Date(Date.now() + 2 * 86400000).toISOString();
+  assert.equal((await call("POST", "/events", organizer, { name: "Show", startsAt, ticketStars: -5 })).status, 400);
+  const event = (await call("POST", "/events", organizer, { name: "Show de semba", startsAt, ticketStars: 60, ticketsTotal: 2 })).body.event;
+  assert.equal(event.ticket_stars, 60);
+  assert.equal((await call("POST", `/events/${event.id}/rsvp`, buyer)).status, 409, "num evento pago entra-se com bilhete");
+  assert.equal((await call("POST", `/events/${event.id}/tickets`, poor)).status, 402);
+  const bought = await call("POST", `/events/${event.id}/tickets`, buyer);
+  assert.equal(bought.status, 201, bought.body.error);
+  assert.equal(bought.body.balance, 40);
+  assert.equal((await call("POST", `/events/${event.id}/tickets`, buyer)).status, 409, "um bilhete por pessoa");
+  const code = bought.body.ticket.code;
+  assert.match(code, /^[A-Z2-9]{8}$/);
+  const detail = (await call("GET", `/events/${event.id}`, buyer)).body.event;
+  assert.equal(detail.my_ticket.code, code);
+  assert.equal(detail.tickets_sold, 1);
+  const qr = await fetch(`${baseUrl}/events/${event.id}/tickets/mine/qr`, { headers: { Authorization: `Bearer ${buyer.token}` } });
+  assert.equal(qr.headers.get("content-type"), "image/png");
+  assert.equal((await fetch(`${baseUrl}/events/${event.id}/tickets/mine/qr`, { headers: { Authorization: `Bearer ${poor.token}` } })).status, 404);
+  // Validação à entrada: só quem organiza, cada bilhete uma vez.
+  assert.equal((await call("POST", `/events/${event.id}/check-in`, buyer, { code })).status, 403);
+  assert.equal((await call("POST", `/events/${event.id}/check-in`, organizer, { code: "ZZZZZZZZ" })).status, 404);
+  const entry = await call("POST", `/events/${event.id}/check-in`, organizer, { code: code.toLowerCase() });
+  assert.equal(entry.body.person.username, buyer.username);
+  assert.equal((await call("POST", `/events/${event.id}/check-in`, organizer, { code })).status, 409, "o mesmo bilhete não entra duas vezes");
+  const list = (await call("GET", `/events/${event.id}/tickets`, organizer)).body;
+  assert.deepEqual([list.sold, list.checked_in, list.stars], [1, 1, 60]);
+  const earned = async () => (await pool.query("SELECT COALESCE(SUM(amount),0)::int AS n FROM star_ledger WHERE user_id=$1 AND kind='gift_received'", [organizer.id])).rows[0].n;
+  assert.equal(await earned(), 60, "as estrelas contam para quem organiza");
+  // Esgotado.
+  const sold = (await call("POST", "/events", organizer, { name: "Lotação 1", startsAt, ticketStars: 10, ticketsTotal: 1 })).body.event;
+  assert.equal((await call("POST", `/events/${sold.id}/tickets`, buyer)).status, 201);
+  await pool.query("INSERT INTO star_ledger(user_id,amount,kind) VALUES($1,50,'purchase')", [poor.id]);
+  assert.match((await call("POST", `/events/${sold.id}/tickets`, poor)).body.error, /esgotaram/);
+  // Apagar devolve as estrelas.
+  assert.equal((await call("DELETE", `/events/${event.id}`, organizer)).status, 200);
+  const balance = (await pool.query("SELECT COALESCE(SUM(amount) FILTER (WHERE kind <> 'gift_received'),0)::int AS n FROM star_ledger WHERE user_id=$1", [buyer.id])).rows[0].n;
+  assert.equal(balance, 90, "100 - 60 - 10 + 60 devolvidas");
+  assert.equal(await earned(), 10, "quem organiza perde as estrelas do evento apagado");
+});
+
+test("paid lives: entry in stars before video, chat and P2P signals", { skip }, async () => {
+  const stamp = Date.now().toString(36);
+  const host = await makeUser(`plive_host_${stamp}`);
+  const fan = await makeUser(`plive_fan_${stamp}`);
+  const broke = await makeUser(`plive_broke_${stamp}`);
+  await pool.query("INSERT INTO star_ledger(user_id,amount,kind) VALUES($1,80,'purchase')", [fan.id]);
+  const live = await call("POST", "/lives", host, { title: "Aula de kizomba", entryStars: 50 });
+  assert.equal(live.status, 201, live.body.error);
+  const id = live.body.id;
+  const seen = (await call("GET", `/lives/${id}`, fan)).body.live;
+  assert.deepEqual([seen.entry_stars, seen.has_access, seen.playback], [50, false, null]);
+  assert.equal((await call("GET", `/lives/${id}`, host)).body.live.has_access, true);
+  assert.equal((await call("POST", `/lives/${id}/comments`, fan, { body: "Olá" })).status, 402);
+  assert.equal((await call("POST", `/lives/${id}/heartbeat`, fan)).status, 402);
+  assert.equal((await call("POST", `/lives/${id}/signals`, fan, { to: host.id, kind: "offer", payload: "x" })).status, 402);
+  assert.equal((await call("POST", `/lives/${id}/ticket`, broke)).status, 402);
+  const paid = await call("POST", `/lives/${id}/ticket`, fan);
+  assert.equal(paid.status, 201, paid.body.error);
+  assert.equal(paid.body.balance, 30);
+  assert.equal((await call("POST", `/lives/${id}/ticket`, fan)).body.has_access, true, "paga uma vez só");
+  assert.equal((await call("GET", `/lives/${id}`, fan)).body.live.has_access, true);
+  assert.ok((await call("POST", `/lives/${id}/comments`, fan, { body: "Olá" })).status < 300);
+  assert.equal((await call("POST", `/lives/${id}/heartbeat`, fan)).status, 200);
+  const received = (await pool.query("SELECT COALESCE(SUM(amount),0)::int AS n FROM star_ledger WHERE user_id=$1 AND live_id=$2 AND kind='gift_received'", [host.id, id])).rows[0].n;
+  assert.equal(received, 50);
+  await call("POST", `/lives/${id}/end`, host);
+});

@@ -11,7 +11,7 @@ export const ThemeContext = createContext({ theme: "light", setTheme: () => {} }
 // Preferências deste dispositivo (não vão para o servidor): tamanho do texto, vídeos automáticos e animações.
 export const DEVICE_PREFS_KEY = "tchilar-device";
 const LEGACY_DEVICE_PREFS_KEY = "biva-device";
-export const DEVICE_PREFS_DEFAULTS = { textSize: "normal", autoplay: true, reduceMotion: false };
+export const DEVICE_PREFS_DEFAULTS = { textSize: "normal", autoplay: true, reduceMotion: false, dataSaver: false };
 export function readDevicePrefs() {
   try {
     const savedValue = localStorage.getItem(DEVICE_PREFS_KEY) || localStorage.getItem(LEGACY_DEVICE_PREFS_KEY);
@@ -19,7 +19,8 @@ export function readDevicePrefs() {
     return {
       textSize: ["normal", "large", "larger"].includes(saved.textSize) ? saved.textSize : DEVICE_PREFS_DEFAULTS.textSize,
       autoplay: saved.autoplay !== false,
-      reduceMotion: saved.reduceMotion === true
+      reduceMotion: saved.reduceMotion === true,
+      dataSaver: saved.dataSaver === true
     };
   } catch {
     return { ...DEVICE_PREFS_DEFAULTS };
@@ -38,6 +39,13 @@ export function saveDevicePrefs(prefs) {
   } catch { /* sem armazenamento: vale só nesta visita */ }
   applyDevicePrefs(prefs);
   return prefs;
+}
+// Modo "Poupar dados": fotos das publicações em versão pequena e vídeos só quando a pessoa carrega.
+export const dataSaverOn = () => readDevicePrefs().dataSaver;
+export function postImageSrc(url) {
+  if (!url) return "";
+  const full = `${API_BASE}${url}`;
+  return dataSaverOn() ? `${full}${full.includes("?") ? "&" : "?"}size=sm` : full;
 }
 export const token = () => localStorage.getItem("token");
 export async function api(path, options = {}) {
@@ -208,7 +216,7 @@ export function VideoPlayer({ src, edit, music = null, className = "", autoPlay 
   // Começa quando pelo menos 60% do vídeo está visível; pára quando sai do ecrã.
   useEffect(() => {
     const video = videoRef.current;
-    if (!autoPlay || !readDevicePrefs().autoplay || !video) return undefined;
+    if (!autoPlay || !readDevicePrefs().autoplay || dataSaverOn() || !video) return undefined;
     const observer = new IntersectionObserver(([entry]) => {
       // Entrar/sair do ecrã cheio muda o layout por instantes: nesse momento não se mexe no vídeo.
       if (document.fullscreenElement) return;
@@ -314,7 +322,7 @@ export function VideoPlayer({ src, edit, music = null, className = "", autoPlay 
   return <div ref={wrapRef} className={`video-player ${fullscreen ? "is-fullscreen" : ""} ${playing ? "is-playing" : "is-paused"} ${className}`}
     role="button" tabIndex={0} aria-label={`${label}. ${playing ? "Toca para pausar" : "Toca para ver"}`}
     onClick={togglePlay} onKeyDown={onKey}>
-    <video ref={videoRef} src={src} playsInline loop={false} preload="metadata"
+    <video ref={videoRef} src={src} playsInline loop={false} preload={dataSaverOn() ? "none" : "metadata"}
       style={{ filter: videoFilterCss(settings), transform: settings.mirror ? "scaleX(-1)" : undefined }}
       onLoadedMetadata={onLoaded} onTimeUpdate={onTime} onWaiting={() => setLoading(true)}
       onPlaying={() => { setLoading(false); setPlaying(true); syncMusic(true); }}

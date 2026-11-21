@@ -18,6 +18,7 @@ const Moderation = lazy(() => import("./modules/admin.jsx").then(module => ({ de
 const Create = lazy(() => import("./modules/create.jsx").then(module => ({ default: module.Create })));
 const CreatorDashboard = lazy(() => import("./modules/creator.jsx").then(module => ({ default: module.CreatorDashboard })));
 const Events = lazy(() => import("./modules/events.jsx").then(module => ({ default: module.Events })));
+const EventPage = lazy(() => import("./modules/event-tickets.jsx").then(module => ({ default: module.EventPage })));
 const Search = lazy(() => import("./modules/search.jsx").then(module => ({ default: module.Search })));
 const Friends = lazy(() => import("./modules/friends.jsx").then(module => ({ default: module.Friends })));
 const Groups = lazy(() => import("./modules/groups.jsx").then(module => ({ default: module.Groups })));
@@ -73,6 +74,7 @@ function App() {
     <Route path="/pages" element={<Pages />} />
     <Route path="/pages/:pageId" element={<Pages />} />
     <Route path="/events" element={<Events />} />
+    <Route path="/events/:eventId" element={<EventPage />} />
     <Route path="/notifications" element={<Notifications />} />
     <Route path="/settings" element={<Settings />} />
     <Route path="/settings/:section" element={<Settings />} />

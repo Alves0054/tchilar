@@ -27,6 +27,7 @@ export const ADMIN_SECTIONS = [
     ["moderacao", "shield-checkmark", "Moderação", "Esconder sem esperar denúncias", ["moderation"]],
     ["denuncias", "flag", "Denúncias", "O que as pessoas denunciaram", ["moderation"]],
     ["promocoes", "rocket", "Promoções", "Aprovar ou recusar anúncios", ["finance", "moderation"]],
+    ["negocios", "shield-checkmark", "Negócios", "Selo «Negócio verificado»", ["moderation"]],
     ["musicas", "musical-notes", "Músicas", "Biblioteca com licença", ["moderation"]]
   ]],
   ["Comunidade", [

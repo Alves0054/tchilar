@@ -294,6 +294,33 @@ function registerGrowthRoutes(app, deps) {
     });
   });
 
+  // Ranking do mês (hora de Luanda): quem trouxe mais pessoas que já confirmaram o email e publicaram.
+  // A província é privada: o ranking de uma província só mostra quem autorizou mostrar a província
+  // (Definições → Público). A própria pessoa vê sempre a sua posição.
+  app.get("/api/referrals/ranking", auth, async (req, res) => {
+    const province = req.query.province ? String(req.query.province) : null;
+    if (province && !ANGOLA_PROVINCES.includes(province)) return res.status(400).json({ error: "Província inválida." });
+    const monthStart = "(date_trunc('month', NOW() AT TIME ZONE 'Africa/Luanda') AT TIME ZONE 'Africa/Luanda')";
+    const ranked = `
+      SELECT u.id,u.username,u.display_name,u.avatar_url,COUNT(*)::int AS invited,MIN(i.referral_rewarded_at) AS first_at,
+        RANK() OVER (ORDER BY COUNT(*) DESC, MIN(i.referral_rewarded_at))::int AS position
+      FROM users i JOIN users u ON u.id=i.referred_by
+      WHERE i.referral_rewarded_at >= ${monthStart} AND u.suspended_at IS NULL
+        AND ($1::text IS NULL OR (u.province=$1 AND (u.show_province_to_brands OR u.id=$2)))
+      GROUP BY u.id`;
+    const [top, me] = await Promise.all([
+      pool.query(`SELECT * FROM (${ranked}) r ORDER BY position, first_at LIMIT 20`, [province, req.user.id]),
+      pool.query(`SELECT position,invited FROM (${ranked}) r WHERE r.id=$2`, [province, req.user.id])
+    ]);
+    res.json({
+      province,
+      provinces: ANGOLA_PROVINCES,
+      bonus: REFERRAL_BONUS_STARS,
+      ranking: top.rows.map(({ id, first_at: _first, ...row }) => ({ ...row, is_me: id === req.user.id })),
+      me: me.rows[0] || { position: null, invited: 0 }
+    });
+  });
+
   // ---------------------------------------------------------------------------------------------
   // Marketplace de marcas
   // ---------------------------------------------------------------------------------------------

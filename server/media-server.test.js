@@ -107,8 +107,10 @@ test("polling slows down as the audience grows", () => {
 });
 
 test("live details are validated", () => {
+  assert.equal(parseLiveInput({ title: "Pago", entryStars: 50 }, { mediaEnabled: true }).live.entryStars, 50);
+  assert.ok(parseLiveInput({ title: "Pago", entryStars: -1 }, { mediaEnabled: true }).error);
   assert.deepEqual(parseLiveInput({ title: "  Kizomba   ao vivo ", category: "musica", source: "obs", description: "Olá" }, { mediaEnabled: true }).live,
-    { title: "Kizomba ao vivo", description: "Olá", category: "musica", source: "obs" });
+    { title: "Kizomba ao vivo", description: "Olá", category: "musica", source: "obs", entryStars: 0 });
   assert.ok(parseLiveInput({ title: "x", source: "obs" }, { mediaEnabled: false }).error);
   assert.ok(parseLiveInput({ title: "" }, { mediaEnabled: true }).error);
   assert.ok(parseLiveInput({ title: "x", category: "hack" }, { mediaEnabled: true }).error);
@@ -150,4 +152,14 @@ test("the media client authenticates every call to the control API", async () =>
   await client.refresh();
   assert.equal(seen.length, 1);
   assert.equal(seen[0], `Basic ${Buffer.from(`tchilar-api:${"s".repeat(32)}`).toString("base64")}`);
+});
+
+test("paid lives: the video only opens with a read token for that live", async () => {
+  const { readToken, verifyReadToken } = require("./media-server");
+  const lookups = { publisher: async () => null, liveOn: async () => ({ id: 7, entry_stars: 50 }) };
+  assert.equal((await authorizeMedia({ action: "read", path: "live/u12" }, SECRET, lookups)).ok, false);
+  const token = readToken(7, SECRET);
+  assert.equal((await authorizeMedia({ action: "read", path: "live/u12", query: `v=${token}` }, SECRET, lookups)).ok, true);
+  assert.equal(verifyReadToken(token, 8, SECRET), false, "o token é só daquele direto");
+  assert.equal(verifyReadToken(readToken(7, SECRET, Date.now() - 4 * 3600 * 1000), 7, SECRET), false, "expira");
 });

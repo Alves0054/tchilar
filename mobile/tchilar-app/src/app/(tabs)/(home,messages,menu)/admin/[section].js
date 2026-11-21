@@ -58,6 +58,7 @@ function Overview() {
   const { people, money, todo } = data;
   const tasks = [
     todo.promotions_in_review > 0 && ["promocoes", "rocket", `${todo.promotions_in_review} promoções em revisão`],
+    todo.business_pending > 0 && ["negocios", "shield-checkmark", `${todo.business_pending} negócios por verificar`],
     todo.payouts_requested > 0 && ["levantamentos", "cash", `${todo.payouts_requested} levantamentos por pagar · ${kz(todo.payouts_amount)}`],
     todo.refunds_due > 0 && ["pagamentos", "return-down-back", `${todo.refunds_due} reembolsos por fazer · ${kz(todo.refunds_amount)}`],
     todo.open_reports > 0 && ["denuncias", "flag", `${todo.open_reports} denúncias abertas`],
@@ -367,6 +368,28 @@ function DataRequests({ ask }) {
   </>;
 }
 
+// Selo «Negócio verificado»: confirmar o NIF (portal da AGT) e aprovar ou recusar.
+function Business({ ask }) {
+  const { data, error, load } = useAdmin("/admin/business");
+  const [notice, run] = useAction(load);
+  if (!data) return error ? <AdminError error={error} /> : <Loading />;
+  const decide = async (page, approve) => {
+    if (approve) return run(() => post(`/admin/business/${page.id}`, { approve: true }), "Selo dado.");
+    const reason = await ask({ title: `Recusar «${page.name}»`, message: "A pessoa vai ver o motivo.", placeholder: "O NIF não corresponde a um negócio ativo." });
+    if (reason) run(() => post(`/admin/business/${page.id}`, { approve: false, reason }), "Pedido recusado.");
+  };
+  return <Card title="Negócios por verificar" subtitle={`Confirma o NIF antes de aprovar. ${data.verified} negócios já verificados.`}>
+    {data.requests.length === 0 ? <Empty text="Não há pedidos à espera." /> : data.requests.map(page => <View key={page.id} style={{ gap: 8 }}>
+      <Row icon="storefront" title={page.name} subtitle={`NIF ${page.business_nif} · @${page.owner_username || "sem dono"} · ${dateTime(page.business_requested_at)}`} />
+      <View style={{ flexDirection: "row", gap: 8 }}>
+        <View style={{ flex: 1 }}><Button label="Aprovar" onPress={() => decide(page, true)} /></View>
+        <View style={{ flex: 1 }}><Button label="Recusar" variant="secondary" onPress={() => decide(page, false)} /></View>
+      </View>
+    </View>)}
+    <Notice {...notice} />
+  </Card>;
+}
+
 function Broadcasts() {
   const { data, error, load } = useAdmin("/admin/broadcasts");
   const [form, setForm] = useState({ title: "", body: "", audience: "all", channel: "notification" });
@@ -577,7 +600,7 @@ function PromotionCodes() {
 }
 
 const SECTIONS = { painel: Overview, pagamentos: Payments, "por-resolver": Attempts, levantamentos: Payouts, financas: Finance, codigos: PromotionCodes, utilizadores: Users,
-  moderacao: Moderation, denuncias: Reports, promocoes: Promotions, musicas: Music, dados: DataRequests, avisos: Broadcasts, registo: Log,
+  moderacao: Moderation, denuncias: Reports, promocoes: Promotions, negocios: Business, musicas: Music, dados: DataRequests, avisos: Broadcasts, registo: Log,
   desafios: Challenges, cursos: Courses };
 
 export default function AdminSection() {

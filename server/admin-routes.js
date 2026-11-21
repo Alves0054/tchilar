@@ -107,6 +107,7 @@ function registerAdminRoutes(app, { pool, auth, requireAdmin, requireRole, parse
         FROM days d ORDER BY d.day`),
       pool.query(`SELECT
           (SELECT COUNT(*) FROM ads WHERE status='in_review')::int AS promotions_in_review,
+          (SELECT COUNT(*) FROM pages WHERE business_requested_at IS NOT NULL AND business_verified_at IS NULL AND business_rejected_reason IS NULL AND hidden_at IS NULL)::int AS business_pending,
           (SELECT COUNT(*) FROM payout_requests WHERE status='requested')::int AS payouts_requested,
           (SELECT COALESCE(SUM(amount),0) FROM payout_requests WHERE status='requested')::float AS payouts_amount,
           (SELECT COUNT(*) FROM reports WHERE status='open')::int AS open_reports,

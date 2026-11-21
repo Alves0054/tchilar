@@ -31,6 +31,7 @@ const ADMIN_SECTIONS = [
   { label: "Conteúdo", items: [
     { slug: "moderacao", label: "Moderação", icon: "shield", hint: "Procura e esconde conteúdo sem esperar por denúncias.", roles: ["moderation"] },
     { slug: "promocoes", label: "Promoções", icon: "ad", hint: "Aprova ou recusa anúncios pagos.", roles: ["finance", "moderation"] },
+    { slug: "negocios", label: "Negócios", icon: "shield", hint: "Confirma o NIF e dá o selo «Negócio verificado» às lojas.", roles: ["moderation"] },
     { slug: "musicas", label: "Músicas", icon: "sound", hint: "Biblioteca de músicas com licença.", roles: ["moderation"] }
   ] },
   { label: "Comunidade", items: [
@@ -84,6 +85,7 @@ export function AdminPage() {
       {tab === "dados" && <AdminDataRequests />}
       {tab === "registo" && <AdminActions />}
       {tab === "promocoes" && <AdminPromotions />}
+      {tab === "negocios" && <AdminBusiness />}
       {tab === "levantamentos" && <AdminPayouts />}
       {tab === "financas" && <AdminFinance />}
       {tab === "codigos" && <AdminPromotionCodes />}
@@ -234,6 +236,41 @@ export function AdminMusic() {
     </div>}
   </div>;
 }
+// Pedidos do selo «Negócio verificado»: confirmar o NIF (por exemplo no portal da AGT) e aprovar ou recusar.
+export function AdminBusiness() {
+  const [data, setData] = useState(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(null);
+  const load = () => api("/admin/business").then(setData).catch(loadError => setError(loadError.message));
+  useEffect(() => { load(); }, []);
+  const decide = async (page, approve) => {
+    const reason = approve ? "" : window.prompt(`Motivo da recusa para «${page.name}» (a pessoa vai ver):`, "O NIF não corresponde a um negócio ativo.");
+    if (!approve && !reason) return;
+    setBusy(page.id); setError("");
+    try {
+      await api(`/admin/business/${page.id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ approve, reason }) });
+      await load();
+    } catch (decideError) { setError(decideError.message); } finally { setBusy(null); }
+  };
+  return <section className="creator-card">
+    <div className="creator-card-head"><div><h2>Negócios por verificar</h2>
+      <p>Confirma que o NIF existe e pertence ao negócio (portal da AGT) antes de aprovar. {data ? `${data.verified} negócios já verificados.` : ""}</p></div></div>
+    {error && <p className="error" role="alert">{error}</p>}
+    {data && !data.requests.length && <p className="muted">Não há pedidos à espera.</p>}
+    {data?.requests.length > 0 && <ul className="admin-mini-list">{data.requests.map(page => <li key={page.id}>
+      <span className="muted">#{page.id}</span>
+      <span><strong><Link to={`/pages/${page.id}`}>{page.name}</Link></strong>
+        <small>NIF {page.business_nif} · @{page.owner_username || "sem dono"} · pedido {relativeTime(page.business_requested_at)}</small>
+        <small>{[page.address, page.contact_phone, page.contact_email, page.whatsapp && `WhatsApp +${page.whatsapp}`].filter(Boolean).join(" · ") || "Sem contactos na página"}</small></span>
+      <span />
+      <span className="admin-row-actions">
+        <button className="btn" type="button" disabled={busy === page.id} onClick={() => decide(page, true)}>Aprovar</button>
+        <button className="btn secondary" type="button" disabled={busy === page.id} onClick={() => decide(page, false)}>Recusar</button>
+      </span>
+    </li>)}</ul>}
+  </section>;
+}
+
 export function AdminPromotions() {
   const [status, setStatus] = useState("in_review");
   const [ads, setAds] = useState(null);

@@ -424,7 +424,7 @@ export function StartLiveDialog({ onClose, pageId, pageName }) {
   const [audioId, setAudioId] = useState("");
   const [quality, setQuality] = useState("720p30");
   const [originalAudio, setOriginalAudio] = useState(false);
-  const [details, setDetails] = useState({ title: "", description: "", category: "" });
+  const [details, setDetails] = useState({ title: "", description: "", category: "", entryStars: "0" });
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const streamRef = useRef(null);
@@ -559,6 +559,13 @@ export function StartLiveDialog({ onClose, pageId, pageName }) {
               {(config?.categories || Object.keys(LIVE_CATEGORY_LABELS)).map(key => <option key={key} value={key}>{LIVE_CATEGORY_LABELS[key] || key}</option>)}
             </Select>
           </label>
+          <label>Entrada
+            <Select value={details.entryStars} onChange={event => update("entryStars", event.target.value)}>
+              <option value="0">Grátis (toda a gente vê)</option>
+              {LIVE_ENTRY_OPTIONS.map(stars => <option key={stars} value={String(stars)}>Paga: {stars} estrelas</option>)}
+            </Select>
+          </label>
+          {details.entryStars !== "0" && <p className="muted create-page-note">Só quem pagar a entrada vê o vídeo e escreve no chat. As estrelas contam para os teus levantamentos, como os presentes.</p>}
           <p className="muted create-page-note">{config?.mode === "cdn"
             ? "Quem te segue recebe uma notificação. O vídeo chega a todas as pessoas, mesmo a quem não tem conta."
             : "Quem te segue recebe uma notificação. Neste servidor o vídeo chega diretamente a até 8 pessoas; o chat e as estrelas funcionam para todos."}</p>
@@ -574,8 +581,45 @@ export function StartLiveDialog({ onClose, pageId, pageName }) {
 }
 export function LivePage() {
   const { liveId } = useParams();
-  if (liveId) return <LiveRoom key={liveId} liveId={liveId} />;
+  if (liveId) return <PaidLiveGate key={liveId} liveId={liveId} />;
   return <LiveList />;
+}
+
+// Diretos pagos: antes da sala, quem ainda não pagou vê o preço e paga a entrada em estrelas.
+const LIVE_ENTRY_OPTIONS = [10, 25, 50, 100, 250, 500, 1000];
+function PaidLiveGate({ liveId }) {
+  const { user } = useContext(UserContext);
+  const navigate = useNavigate();
+  const [live, setLive] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [unlocked, setUnlocked] = useState(false);
+  useEffect(() => { api(`/lives/${liveId}`).then(result => setLive(result.live)).catch(() => setUnlocked(true)); }, [liveId, user?.id]);
+  if (unlocked || (live && (!live.entry_stars || live.has_access || live.status !== "live"))) return <LiveRoom liveId={liveId} />;
+  if (!live) return <div className="page narrow"><div className="empty card">A carregar...</div></div>;
+  const pay = async () => {
+    setBusy(true); setError("");
+    try {
+      await api(`/lives/${liveId}/ticket`, { method: "POST" });
+      setUnlocked(true);
+    } catch (payError) {
+      if (/estrelas suficientes/.test(payError.message) && window.confirm(`${payError.message} Queres comprar estrelas agora?`)) navigate("/estrelas");
+      else setError(payError.message);
+    } finally { setBusy(false); }
+  };
+  return <div className="page narrow">
+    <section className="creator-card live-paywall">
+      <span className="live-paywall-badge"><Icon name="live" size={16} /> Em direto</span>
+      <h1>{live.title}</h1>
+      <p className="muted">Com {live.display_name} (@{live.username}){live.viewers ? ` · ${live.viewers} a ver` : ""}</p>
+      {live.description && <p>{live.description}</p>}
+      <p className="live-paywall-price"><Icon name="star" size={18} /> Entrada: <strong>{live.entry_stars} estrelas</strong></p>
+      <p className="muted">Pagas uma vez e vês o direto até ao fim, com chat e presentes. As estrelas vão para quem está em direto.</p>
+      {error && <p className="error" role="alert">{error}</p>}
+      {user ? <button className="btn live-start-button" type="button" disabled={busy} onClick={pay}><Icon name="star" size={16} /> {busy ? "A pagar..." : `Entrar por ${live.entry_stars} estrelas`}</button>
+        : <Link className="btn" to="/login">Entrar na conta para ver</Link>}
+    </section>
+  </div>;
 }
 export function LiveList() {
   const { user } = useContext(UserContext);
@@ -617,6 +661,7 @@ export function LiveList() {
         <span className="live-card-avatar"><Avatar user={live} size="large" /></span>
         <LiveBadge small />
         <span className="live-card-viewers"><Icon name="eye" size={13} /> {formatCount(live.viewers)}</span>
+        {live.entry_stars > 0 && <span className="live-paid-pill live-card-paid"><Icon name="star" size={12} /> {live.entry_stars}</span>}
       </span>
       <span className="live-card-body">
         <strong>{live.title}</strong>

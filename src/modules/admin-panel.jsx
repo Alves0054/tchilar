@@ -87,6 +87,7 @@ export function AdminOverview() {
   const trend = change(money.last_30d, money.previous_30d);
   const tasks = [
     todo.promotions_in_review > 0 && { to: "/admin/promocoes", icon: "ad", text: `${todo.promotions_in_review} ${todo.promotions_in_review === 1 ? "promoção" : "promoções"} em revisão` },
+    todo.business_pending > 0 && { to: "/admin/negocios", icon: "shield", text: `${todo.business_pending} ${todo.business_pending === 1 ? "negócio" : "negócios"} por verificar` },
     todo.payouts_requested > 0 && { to: "/admin/levantamentos", icon: "card", text: `${todo.payouts_requested} ${todo.payouts_requested === 1 ? "levantamento" : "levantamentos"} por pagar · ${formatPrice(todo.payouts_amount)}` },
     todo.refunds_due > 0 && { to: "/admin/pagamentos?status=refund_due", icon: "previous", text: `${todo.refunds_due} ${todo.refunds_due === 1 ? "reembolso" : "reembolsos"} por fazer · ${formatPrice(todo.refunds_amount)}` },
     todo.open_reports > 0 && { to: "/moderation", icon: "flag", text: `${todo.open_reports} ${todo.open_reports === 1 ? "denúncia aberta" : "denúncias abertas"}` },

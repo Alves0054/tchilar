@@ -181,6 +181,10 @@ Cria na tua CDN (Cloudflare, Bunny, CloudFront, Akamai...) uma «pull zone» com
 Opcional: se a CDN puder enviar `Authorization: Bearer <segredo>`, põe o mesmo segredo em
 `hlsCDNSecret` no `deploy/mediamtx.yml`.
 
+**Diretos pagos:** o endereço do vídeo leva `?v=<token>` (só quem pagou a entrada o recebe; vale 3 h).
+A CDN tem de **passar a query à origem** nos pedidos das listas `.m3u8` (na Cloudflare: *Cache Key* com a
+query incluída, ou regra para não guardar `.m3u8` em cache). Os segmentos `.mp4`/`.m4s` podem continuar em cache.
+
 O chat também aguenta a escala: o endereço `/api/lives/<id>/feed` é igual para toda a gente e
 pode ficar 2 s na CDN (cabeçalho `s-maxage=2`). Se puseres a Tchilar inteira atrás da mesma CDN, 100 mil
 pessoas a ler o chat custam à base de dados cerca de um pedido por segundo por direto.

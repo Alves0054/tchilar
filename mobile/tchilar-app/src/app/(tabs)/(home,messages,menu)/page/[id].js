@@ -175,6 +175,7 @@ export default function PageScreen() {
         </Pressable>}
       </View>
       <View style={styles.nameRow}><Text style={styles.name}>{page.name}</Text><OfficialBadge show={page.is_official} tier={page.verification_tier} size={22} /></View>
+      {page.business_verified && <BusinessBadge />}
       <PageKind page={page} />
       <PageStats page={page} since />
       <View style={styles.actions}>
@@ -282,7 +283,7 @@ export default function PageScreen() {
         action={owner ? <Button small label="Criar" icon="add" onPress={() => setCreatingOffer(true)} /> : null} />
       {offers === null ? <Loading cards={2} /> : offers.length === 0
         ? emptyState("pricetag-outline", "A loja está vazia", owner ? "Mostra um produto ou serviço, com preço, desconto e o link para comprar." : "Esta página ainda não tem produtos ou serviços.")
-        : offers.map(offer => <OfferCard key={offer.id} offer={offer} owner={owner} onRemove={() => Alert.alert("Remover oferta", `Remover «${offer.title}» da loja?`, [
+        : offers.map(offer => <OfferCard key={offer.id} offer={offer} page={page} owner={owner} onRemove={() => Alert.alert("Remover oferta", `Remover «${offer.title}» da loja?`, [
           { text: "Cancelar", style: "cancel" },
           { text: "Remover", style: "destructive", onPress: () => act(`offer-${offer.id}`, async () => { await api(`/pages/${page.id}/offers/${offer.id}`, { method: "DELETE" }); await Promise.all([loadOffers(), load()]); }) }
         ])} />)}
@@ -346,7 +347,17 @@ function Fact({ icon, text, onPress }) {
   </Wrapper>;
 }
 
-function OfferCard({ offer, owner, onRemove }) {
+// Selo "Negócio verificado": a equipa confirmou o NIF de uma página com loja.
+function BusinessBadge() {
+  return <View style={styles.businessBadge}><Ionicons name="shield-checkmark" size={13} color="#0B7A3B" />
+    <Text style={styles.businessBadgeText}>Negócio verificado</Text></View>;
+}
+
+// Mensagem pronta para encomendar pelo WhatsApp de quem vende.
+const whatsappOrderUrl = (page, offer, price) => `https://wa.me/${page.whatsapp}?text=${encodeURIComponent(
+  `Olá! Quero encomendar «${offer.title}» (${kz(price)}) que vi na loja de ${page.name} no Tchilar: ${WEB_URL}/pages/${page.id}`)}`;
+
+function OfferCard({ offer, page, owner, onRemove }) {
   const [copied, setCopied] = useState(false);
   const price = offer.price_kz * (100 - offer.discount_percent) / 100;
   const copy = async () => { await Clipboard.setStringAsync(offer.promo_code); setCopied(true); setTimeout(() => setCopied(false), 2000); };
@@ -365,7 +376,11 @@ function OfferCard({ offer, owner, onRemove }) {
     {offer.expires_at ? <Text style={styles.muted}>Válido até {new Date(offer.expires_at).toLocaleDateString("pt-PT", { timeZone: "Africa/Luanda" })}</Text> : null}
     <Text style={styles.muted}>Compra e pagamento fora do Tchilar.</Text>
     <View style={styles.offerActions}>
-      <View style={{ flex: 1 }}><Button label="Comprar ou contactar" icon="open-outline" onPress={() => Linking.openURL(offer.checkout_url).catch(() => {})} /></View>
+      <View style={{ flex: 1, gap: 8 }}>
+        {page.whatsapp ? <Button label="Encomendar pelo WhatsApp" icon="logo-whatsapp" onPress={() => Linking.openURL(whatsappOrderUrl(page, offer, price)).catch(() => {})} /> : null}
+        {offer.checkout_url ? <Button label={page.whatsapp ? "Site" : "Comprar ou contactar"} icon="open-outline" variant={page.whatsapp ? "secondary" : "primary"}
+          onPress={() => Linking.openURL(offer.checkout_url).catch(() => {})} /> : null}
+      </View>
       {owner && <Pressable style={styles.iconButton} onPress={onRemove} accessibilityRole="button" accessibilityLabel={`Remover ${offer.title}`}>
         <Ionicons name="trash-outline" size={19} color={colors.danger} /></Pressable>}
     </View>
@@ -387,7 +402,8 @@ function FormSheet({ visible, title, onClose, children }) {
 
 function AboutEditor({ page, visible, onClose, onSaved }) {
   const blank = () => ({ about: page.about || page.description || "", contact_email: page.contact_email || "", contact_phone: page.contact_phone || "",
-    website: page.website || "", address: page.address || "", opening_hours: page.opening_hours || "", shop_enabled: Boolean(page.shop_enabled) });
+    website: page.website || "", address: page.address || "", opening_hours: page.opening_hours || "", shop_enabled: Boolean(page.shop_enabled),
+    whatsapp: page.whatsapp ? `+${page.whatsapp}` : "" });
   const [form, setForm] = useState(blank);
   const [state, setState] = useState({ busy: false, error: "" });
   const set = key => value => setForm(current => ({ ...current, [key]: value }));
@@ -412,9 +428,38 @@ function AboutEditor({ page, visible, onClose, onSaved }) {
     <Field label="Localização" value={form.address} onChangeText={set("address")} maxLength={240} placeholder="Luanda, Angola" />
     <Field label="Horário de funcionamento" value={form.opening_hours} onChangeText={set("opening_hours")} maxLength={300} placeholder="Segunda a sexta, 08:00–17:00" />
     <ShopSwitch value={form.shop_enabled} onChange={set("shop_enabled")} />
+    {form.shop_enabled && <Field label="WhatsApp para encomendas" value={form.whatsapp} onChangeText={set("whatsapp")} keyboardType="phone-pad" maxLength={24}
+      placeholder="+244 9XX XXX XXX" />}
+    {form.shop_enabled && page.shop_enabled && <BusinessSealRequest page={page} onSaved={changes => onSaved({ ...page, ...changes })} />}
     <Notice error={state.error} />
     <Button label="Guardar informações" onPress={save} busy={state.busy} />
   </FormSheet>;
+}
+
+// Pedido do selo "Negócio verificado": o NIF do negócio, confirmado pela equipa.
+function BusinessSealRequest({ page, onSaved }) {
+  const [nif, setNif] = useState(page.business_nif || "");
+  const [state, setState] = useState({ busy: false, error: "" });
+  if (page.business_verified) return <BusinessBadge />;
+  const pending = page.business_requested_at && !page.business_rejected_reason;
+  const send = async () => {
+    setState({ busy: true, error: "" });
+    try {
+      const result = await api(`/pages/${page.id}/business`, { method: "POST", body: { nif } });
+      onSaved({ business_nif: result.page.business_nif, business_requested_at: result.page.business_requested_at, business_rejected_reason: null });
+      setState({ busy: false, error: "" });
+    } catch (sendError) { setState({ busy: false, error: sendError.message }); }
+  };
+  return <View style={styles.panel}>
+    <Text style={styles.panelTitle}>Selo «Negócio verificado»</Text>
+    <Text style={styles.muted}>Mostra aos clientes que o negócio existe. Indica o NIF; a equipa confirma em poucos dias. É grátis.</Text>
+    {pending ? <Text style={styles.body}>Pedido enviado com o NIF {page.business_nif}. A equipa está a confirmar.</Text> : <>
+      <Field label="NIF do negócio" value={nif} onChangeText={setNif} autoCapitalize="characters" maxLength={20} />
+      <Button label="Pedir selo" variant="secondary" onPress={send} busy={state.busy} disabled={nif.trim().length < 9} />
+    </>}
+    {page.business_rejected_reason ? <Notice error={`Pedido anterior recusado: ${page.business_rejected_reason}`} /> : null}
+    <Notice error={state.error} />
+  </View>;
 }
 
 // Loja na página: só quem gere decide. Sem loja, o separador "Loja" não aparece.
@@ -470,6 +515,8 @@ function OfferEditor({ page, visible, onClose, onCreated }) {
 }
 
 const styles = StyleSheet.create({
+  businessBadge: { flexDirection: "row", alignItems: "center", gap: 4, alignSelf: "flex-start", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999, backgroundColor: "rgba(37,211,102,0.16)" },
+  businessBadgeText: { color: "#0B7A3B", fontSize: 12, fontWeight: "700" },
   layout: { flex: 1 },
   layoutWide: { flexDirection: "row", alignSelf: "center", width: "100%", maxWidth: 1180, gap: 16, paddingHorizontal: 16 },
   sideColumn: { width: 320, flexGrow: 0 },

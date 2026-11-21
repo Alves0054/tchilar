@@ -9,7 +9,7 @@ import PhoneInput from "../../../../components/PhoneInput";
 import { Badge, Button, Card, Chips, Empty, Field, Loading, Notice, Page, Row, dateOnly, dateTime, kz } from "../../../../components/ui";
 import { WEB_URL, api, downloadAndShare, saveToken, upload } from "../../../../lib/api";
 import { lockEnabled, lockMethod, setLockEnabled } from "../../../../lib/applock";
-import { AUTOPLAY_OPTIONS, TEXT_SIZES, autoplay, saveAutoplay, saveTextSize, textSize } from "../../../../lib/display";
+import { AUTOPLAY_OPTIONS, TEXT_SIZES, autoplay, dataSaver, saveAutoplay, saveDataSaver, saveTextSize, textSize } from "../../../../lib/display";
 import { registerForPush } from "../../../../lib/push";
 import { formatPhone, maskPhone, parsePhone, phoneError, splitPhone } from "../../../../lib/phones";
 import { useSession } from "../../../../lib/session";
@@ -426,6 +426,7 @@ function Appearance() {
   const [notice, setNotice] = useState({});
   const [size, setSize] = useState(textSize);
   const [play, setPlay] = useState(autoplay);
+  const [saver, setSaver] = useState(dataSaver);
   // Tal como o tema, o tamanho do texto e os vídeos aplicam-se ao abrir a app.
   const applyLater = changed => {
     if (!changed) { setNotice({}); return; }
@@ -455,11 +456,17 @@ function Appearance() {
         subtitle={<Text style={{ fontSize: Math.round(15 * scale), color: colors.muted }}>Olá Tchilar</Text>}
         right={<Ionicons name={size === value ? "radio-button-on" : "radio-button-off"} size={22} color={size === value ? colors.text : colors.muted} />} />)}
     </Card>
-    <Card title="Vídeos no Início" subtitle="Os Reels tocam sempre; isto é para os vídeos do feed.">
+    <Card title="Poupar dados" subtitle="Para quem usa dados móveis. Fica guardado neste telemóvel.">
+      <Row icon="cellular" tone={saver ? "#34C759" : undefined} title="Poupar dados"
+        subtitle="Fotos mais leves no feed (a original abre ao tocar) e vídeos só quando tocas. Gasta muito menos saldo."
+        onPress={async () => { const next = !saver; setSaver(next); applyLater(await saveDataSaver(next)); }}
+        right={<Switch value={saver} onValueChange={async next => { setSaver(next); applyLater(await saveDataSaver(next)); }} />} />
+    </Card>
+    {!saver && <Card title="Vídeos no Início" subtitle="Os Reels tocam sempre; isto é para os vídeos do feed.">
       {AUTOPLAY_OPTIONS.map(([value, label, hint]) => <Row key={value} title={label} subtitle={hint} icon={value === "always" ? "play-circle" : "cellular"}
         tone={play === value ? "#5E5CE6" : undefined} onPress={async () => { setPlay(value); applyLater(await saveAutoplay(value)); }}
         right={<Ionicons name={play === value ? "radio-button-on" : "radio-button-off"} size={22} color={play === value ? colors.text : colors.muted} />} />)}
-    </Card>
+    </Card>}
     <Notice {...notice} />
   </>;
 }

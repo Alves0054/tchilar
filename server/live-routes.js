@@ -16,8 +16,9 @@ const { GIFTS, giftByKey } = require("./live-gifts");
 const { LivePresence, pollInterval } = require("./live-presence");
 const { LiveReactions } = require("./live-reactions");
 const {
-  authorizeMedia, createMediaClient, hashStreamKey, mediaConfig, newStreamKey, pathFor, publishToken, userFromPath
+  authorizeMedia, createMediaClient, hashStreamKey, mediaConfig, newStreamKey, pathFor, publishToken, readToken, userFromPath
 } = require("./media-server");
+const MAX_ENTRY_STARS = 10_000;
 
 const HOST_TIMEOUT_SECONDS = 120;   // sem sinal de quem emite (página ou vídeo) há 2 min → o direto termina
 // Espectadores dão sinal de vida a cada 30 s; em diretos grandes com menos frequência.
@@ -64,7 +65,11 @@ function parseLiveInput(input, { mediaEnabled }) {
   if (description.length > 500) return { error: "A descrição pode ter até 500 caracteres." };
   if (category && !LIVE_CATEGORIES.includes(category)) return { error: "Categoria inválida." };
   if (source === "obs" && !mediaEnabled) return { error: "Este servidor ainda não aceita programas de transmissão (falta configurar o servidor de vídeo)." };
-  return { live: { title, description, category, source } };
+  // Direto pago: entrada em estrelas (0 = aberto a toda a gente).
+  const rawEntry = input?.entryStars ?? input?.entry_stars;
+  const entryStars = rawEntry === undefined || rawEntry === null || rawEntry === "" ? 0 : Number(rawEntry);
+  if (!Number.isInteger(entryStars) || entryStars < 0 || entryStars > MAX_ENTRY_STARS) return { error: `A entrada custa entre 0 e ${MAX_ENTRY_STARS.toLocaleString("pt-PT")} estrelas.` };
+  return { live: { title, description, category, source, entryStars } };
 }
 
 const balanceSql = "SELECT COALESCE(SUM(amount) FILTER (WHERE kind <> 'gift_received'),0)::int AS balance FROM star_ledger WHERE user_id=$1";
@@ -89,7 +94,7 @@ function registerLiveRoutes(app, deps) {
     UPDATE lives SET status='ended', ended_at=NOW()
     WHERE status='live' AND host_seen_at < NOW() - make_interval(secs => $1)`, [HOST_TIMEOUT_SECONDS]);
 
-  const LIVE_FIELDS = `l.id,l.page_id,p.name AS page_name,l.title,l.description,l.category,l.source,l.status,l.started_at,l.ended_at,l.peak_viewers,l.unique_viewers,l.current_viewers,
+  const LIVE_FIELDS = `l.id,l.page_id,p.name AS page_name,l.title,l.description,l.category,l.source,l.status,l.entry_stars,l.started_at,l.ended_at,l.peak_viewers,l.unique_viewers,l.current_viewers,
     u.id AS host_id,u.username,u.display_name,u.avatar_url,
     COALESCE(u.partner_since IS NOT NULL OR u.verification_expires_at > NOW(), FALSE) AS is_verified,
     CASE WHEN u.verification_expires_at > NOW() THEN u.verification_tier END AS verification_tier,
@@ -120,7 +125,26 @@ function registerLiveRoutes(app, deps) {
     return value;
   }
 
-  const playbackFor = live => media && live.status === "live" ? { hls: media.hlsUrl(live.host_id) } : null;
+  // Diretos pagos: o endereço do vídeo leva um token de leitura (só para quem pagou, quem emite e moderadores).
+  const playbackFor = live => {
+    if (!media || live.status !== "live") return null;
+    const hls = media.hlsUrl(live.host_id);
+    return { hls: live.entry_stars > 0 ? `${hls}${hls.includes("?") ? "&" : "?"}v=${encodeURIComponent(readToken(live.id, config.secret))}` : hls };
+  };
+  // Quem pode ver um direto pago: quem pagou a entrada, quem emite e os moderadores.
+  const accessCache = new Map(); // "liveId:userId" → { ok, at }
+  async function hasAccess(live, userId) {
+    if (!live.entry_stars || live.host_id === userId) return true;
+    if (!userId) return false;
+    const key = `${live.id}:${userId}`;
+    const cached = accessCache.get(key);
+    if (cached && (cached.ok || Date.now() - cached.at < 5000)) return cached.ok;
+    const paid = await pool.query("SELECT 1 FROM live_tickets WHERE live_id=$1 AND user_id=$2", [live.id, userId]);
+    const ok = paid.rowCount > 0 || Boolean(await moderationRole(live, userId));
+    if (accessCache.size > 200_000) accessCache.clear();
+    accessCache.set(key, { ok, at: Date.now() });
+    return ok;
+  }
   const signalFor = live => {
     const state = media?.state.get(pathFor(live.host_id));
     return state ? { ready: state.ready, width: state.width, height: state.height, kbps: state.kbps } : { ready: false };
@@ -214,12 +238,12 @@ function registerLiveRoutes(app, deps) {
       const page = await pool.query("SELECT 1 FROM pages WHERE id=$1 AND owner_id=$2 AND hidden_at IS NULL", [pageId, req.user.id]);
       if (!page.rowCount) return res.status(403).json({ error: "Só o responsável pela página pode iniciar um direto nela." });
     }
-    const { title, description, category, source } = parsed.live;
+    const { title, description, category, source, entryStars } = parsed.live;
     await endStaleLives();
     let live;
     try {
-      live = (await pool.query("INSERT INTO lives(host_id,page_id,title,description,category,source) VALUES($1,$2,$3,$4,$5,$6) RETURNING id",
-        [req.user.id, pageId, title, description, category, source])).rows[0];
+      live = (await pool.query("INSERT INTO lives(host_id,page_id,title,description,category,source,entry_stars) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id",
+        [req.user.id, pageId, title, description, category, source, entryStars])).rows[0];
     } catch (error) {
       if (error.code === "23505") return res.status(409).json({ error: "Já tens um direto a decorrer." });
       throw error;
@@ -233,7 +257,7 @@ function registerLiveRoutes(app, deps) {
         SELECT user_id FROM page_followers WHERE page_id=$3
       ) audience
       WHERE audience.user_id<>$1 LIMIT 1000`,
-    [req.user.id, `Está em direto: ${title}`, pageId]);
+    [req.user.id, entryStars ? `Está em direto (entrada: ${entryStars} estrelas): ${title}` : `Está em direto: ${title}`, pageId]);
     res.status(201).json({ id: live.id });
   });
 
@@ -248,8 +272,10 @@ function registerLiveRoutes(app, deps) {
       FROM star_ledger s JOIN users u ON u.id=s.counterpart_id
       WHERE s.live_id=$1 AND s.kind='gift_received' GROUP BY u.id ORDER BY SUM(s.amount) DESC LIMIT 5`, [id]);
     const isHost = Boolean(req.user && req.user.id === live.host_id);
+    const access = await hasAccess(live, req.user?.id);
     res.json({
-      live: { ...live, is_host: isHost, playback: playbackFor(live), ...(isHost ? { signal: signalFor(live), stats: presence.stats(id) } : {}) },
+      live: { ...live, is_host: isHost, has_access: access, playback: access ? playbackFor(live) : null,
+        ...(isHost ? { signal: signalFor(live), stats: presence.stats(id) } : {}) },
       supporters: supporters.rows
     });
   });
@@ -285,6 +311,8 @@ function registerLiveRoutes(app, deps) {
       blockChecks.set(blockKey, allowed);
     }
     if (!allowed.ok) return res.status(404).json({ error: "Direto não encontrado." });
+    const full = await loadLive(id, req.user.id);
+    if (full && !(await hasAccess(full, req.user.id))) return res.status(402).json({ error: "Este direto é pago: paga a entrada para ver.", code: "paid_live" });
     presence.touch(id, req.user.id);
     const now = presence.count(id);
     res.json({ status: live.status, viewers: now, next: viewerHeartbeatMs(now) });
@@ -390,6 +418,7 @@ function registerLiveRoutes(app, deps) {
     }
     const live = await loadLive(id, req.user.id);
     if (!live || live.status !== "live") return res.status(409).json({ error: "Este direto já terminou." });
+    if (!(await hasAccess(live, req.user.id))) return res.status(402).json({ error: "Este direto é pago: paga a entrada para escreveres no chat.", code: "paid_live" });
     const muted = await pool.query("SELECT until FROM live_mutes WHERE live_id=$1 AND user_id=$2 AND (until IS NULL OR until > NOW())", [id, req.user.id]);
     if (muted.rowCount) {
       const until = muted.rows[0].until;
@@ -497,6 +526,33 @@ function registerLiveRoutes(app, deps) {
     res.json(outcome);
   });
 
+  // ----- Diretos pagos: entrada em estrelas, paga uma vez por direto -----
+  app.post("/api/lives/:id/ticket", auth, async (req, res) => {
+    const id = parseId(req.params.id);
+    if (!id) return res.status(400).json({ error: "Direto inválido." });
+    const live = await loadLive(id, req.user.id);
+    if (!live || live.status !== "live") return res.status(409).json({ error: "Este direto já terminou." });
+    if (!live.entry_stars) return res.status(409).json({ error: "Este direto é grátis." });
+    if (await hasAccess(live, req.user.id)) return res.json({ has_access: true, playback: playbackFor(live) });
+    const outcome = await transaction(async client => {
+      await client.query("SELECT pg_advisory_xact_lock(42, $1)", [req.user.id]);
+      const balance = (await client.query(balanceSql, [req.user.id])).rows[0].balance;
+      if (balance < live.entry_stars) return { error: "Não tens estrelas suficientes.", balance, price: live.entry_stars };
+      const ticket = await client.query("INSERT INTO live_tickets(live_id,user_id,stars) VALUES($1,$2,$3) ON CONFLICT DO NOTHING RETURNING live_id",
+        [id, req.user.id, live.entry_stars]);
+      if (!ticket.rowCount) return { balance };
+      await client.query(
+        "INSERT INTO star_ledger(user_id,amount,kind,counterpart_id,live_id) VALUES($1,$2,'gift_sent',$3,$4),($3,$5,'gift_received',$1,$4)",
+        [req.user.id, -live.entry_stars, live.host_id, id, live.entry_stars]);
+      await client.query("INSERT INTO live_comments(live_id,user_id,body,stars) VALUES($1,$2,'entrou no direto',$3)", [id, req.user.id, live.entry_stars]);
+      return { balance: balance - live.entry_stars };
+    });
+    if (outcome.error) return res.status(402).json(outcome);
+    accessCache.delete(`${id}:${req.user.id}`);
+    feedCache.delete(id);
+    res.status(201).json({ ...outcome, has_access: true, playback: playbackFor(live) });
+  });
+
   // ----- Modo p2p: sinalização WebRTC entre quem emite e cada espectador -----
   app.post("/api/lives/:id/signals", auth, async (req, res) => {
     const id = parseId(req.params.id);
@@ -507,6 +563,7 @@ function registerLiveRoutes(app, deps) {
     const live = await loadLive(id, req.user.id);
     if (!live || live.status !== "live") return res.status(409).json({ error: "Este direto já terminou." });
     const fromHost = req.user.id === live.host_id;
+    if (!fromHost && !(await hasAccess(live, req.user.id))) return res.status(402).json({ error: "Este direto é pago: paga a entrada para ver.", code: "paid_live" });
     // Só há conversa entre quem emite e um espectador (nunca entre espectadores).
     if (fromHost === (to === live.host_id) || (!fromHost && kind === "answer") || (fromHost && kind === "offer")) {
       return res.status(403).json({ error: "Sinal não permitido." });
@@ -534,7 +591,7 @@ function registerLiveRoutes(app, deps) {
     liveOn: async userId => {
       const cached = liveOnCache.get(userId);
       if (cached && Date.now() - cached.at < 5000) return cached.value;
-      const value = (await pool.query("SELECT id FROM lives WHERE host_id=$1 AND status='live'", [userId])).rows[0] || null;
+      const value = (await pool.query("SELECT id,entry_stars FROM lives WHERE host_id=$1 AND status='live'", [userId])).rows[0] || null;
       liveOnCache.set(userId, { value, at: Date.now() });
       return value;
     }

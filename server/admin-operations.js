@@ -381,6 +381,42 @@ function registerAdminOperations(app, deps) {
   });
 
   // -------------------------------------------------------------------------------------------
+  // Selo "Negócio verificado" das páginas com loja (a equipa confirma o NIF)
+  // -------------------------------------------------------------------------------------------
+  app.get("/api/admin/business", auth, moderation, async (_req, res) => {
+    const result = await pool.query(`
+      SELECT p.id,p.name,p.category,p.business_nif,p.business_requested_at,p.contact_email,p.contact_phone,p.address,p.whatsapp,
+        u.username AS owner_username,u.display_name AS owner_name
+      FROM pages p LEFT JOIN users u ON u.id=p.owner_id
+      WHERE p.business_requested_at IS NOT NULL AND p.business_verified_at IS NULL AND p.business_rejected_reason IS NULL AND p.hidden_at IS NULL
+      ORDER BY p.business_requested_at LIMIT 100`);
+    const verified = await pool.query("SELECT COUNT(*)::int AS n FROM pages WHERE business_verified_at IS NOT NULL");
+    res.json({ requests: result.rows, verified: verified.rows[0].n });
+  });
+
+  app.post("/api/admin/business/:pageId", auth, moderation, async (req, res) => {
+    const pageId = parseId(req.params.pageId);
+    const approve = body(req).approve === true;
+    const reason = cleanText(body(req).reason);
+    if (!pageId) return res.status(400).json({ error: "Página inválida." });
+    if (!approve && (!reason || reason.length > 200)) return res.status(400).json({ error: "Explica o motivo da recusa (até 200 caracteres)." });
+    const done = await transaction(async client => {
+      const page = (await client.query(`
+        UPDATE pages SET business_verified_at=CASE WHEN $2 THEN NOW() END, business_rejected_reason=CASE WHEN $2 THEN NULL ELSE $3 END
+        WHERE id=$1 AND business_requested_at IS NOT NULL AND business_verified_at IS NULL
+        RETURNING id,name,owner_id`, [pageId, approve, reason || null])).rows[0];
+      if (!page) return null;
+      await notifyUser(client, page.owner_id, approve
+        ? `A página «${page.name}» tem agora o selo Negócio verificado.`
+        : `O selo Negócio verificado de «${page.name}» foi recusado: ${reason}`, "business");
+      await logAdminAction(client, req.user.id, approve ? "business_verify" : "business_reject", "page", pageId, approve ? page.name : reason);
+      return page;
+    });
+    if (!done) return res.status(404).json({ error: "Pedido não encontrado." });
+    res.json({ verified: approve });
+  });
+
+  // -------------------------------------------------------------------------------------------
   // Avisos gerais
   // -------------------------------------------------------------------------------------------
   app.get("/api/admin/broadcasts", auth, superOnly, async (_req, res) => {

@@ -32,6 +32,7 @@ export default function Lives() {
             <Avatar user={live} size={72} />
             <View style={styles.liveTag}><Text style={styles.liveText}>AO VIVO</Text></View>
             <Text style={styles.viewers}>👁 {count(live.viewers)}</Text>
+            {live.entry_stars > 0 && <Text style={styles.paid}>★ {live.entry_stars}</Text>}
           </View>
           <Text style={styles.title} numberOfLines={2}>{live.title}</Text>
           <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
@@ -49,6 +50,7 @@ const styles = StyleSheet.create({
   liveTag: { position: "absolute", top: 10, left: 10, backgroundColor: colors.accent, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
   liveText: { color: "#fff", fontWeight: "800", fontSize: 12 },
   viewers: { position: "absolute", top: 10, right: 10, color: "#fff", fontWeight: "800" },
+  paid: { position: "absolute", bottom: 10, left: 10, color: "#fff", fontWeight: "800", backgroundColor: "rgba(197,138,0,0.9)", paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999, overflow: "hidden" },
   title: { color: colors.text, fontSize: 17, fontWeight: "800" },
   host: { color: colors.text, fontWeight: "700" },
   muted: { color: colors.muted, fontSize: 13 }

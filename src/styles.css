@@ -19780,3 +19780,41 @@ h3 .level-badge { margin-right: 6px; }
     justify-items: start;
   }
 }
+
+/* Convidar: WhatsApp e ranking do mês */
+.btn.invite-whatsapp { background: #25D366; border-color: #25D366; color: #fff; text-decoration: none; }
+.btn.invite-whatsapp:hover { background: #1EBE5A; }
+.invite-ranking-filter { display: flex; align-items: center; gap: 10px; max-width: 320px; margin: 4px 0 12px; font-weight: 700; }
+.invite-ranking-filter > div { flex: 1; }
+.invite-ranking-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.invite-ranking-list li { display: grid; grid-template-columns: 32px auto 1fr auto; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 12px; }
+.invite-ranking-list li.is-me { background: var(--color-accent-soft); }
+.invite-ranking-list a { display: grid; color: inherit; text-decoration: none; min-width: 0; }
+.invite-ranking-list a strong, .invite-ranking-list a small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.invite-ranking-list small { color: var(--color-text-muted); }
+.invite-ranking-pos { font-weight: 800; font-size: 18px; text-align: center; }
+.invite-ranking-list li:nth-child(-n+3) .invite-ranking-pos { color: var(--color-accent); }
+.invite-ranking-count { font-weight: 700; white-space: nowrap; }
+.invite-ranking-me { margin: 12px 0 0; }
+
+/* Lojas: encomendar pelo WhatsApp e selo de negócio verificado */
+.business-badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 700;
+  color: #0B7A3B; background: color-mix(in srgb, #25D366 16%, transparent); vertical-align: middle; white-space: nowrap; }
+.btn.whatsapp-order { background: #25D366; border-color: #25D366; color: #fff; }
+.btn.whatsapp-order:hover { background: #1EBE5A; }
+.business-seal { display: grid; gap: 6px; padding: 12px 14px; border: 1px solid var(--color-line); border-radius: 14px; }
+.business-seal p { margin: 0; }
+.business-seal-row { display: flex; gap: 8px; }
+.business-seal-row input { flex: 1; min-width: 0; }
+.business-seal-state { display: flex; align-items: center; gap: 6px; margin: 0; }
+.business-seal-state.is-ok { color: #0B7A3B; }
+
+/* Diretos pagos */
+.live-paywall { display: grid; gap: 10px; justify-items: start; }
+.live-paywall h1 { margin: 0; font-size: clamp(22px, 3vw, 28px); }
+.live-paywall p { margin: 0; }
+.live-paywall-badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; background: #E30613; color: #fff; font-weight: 800; font-size: 13px; }
+.live-paywall-price { display: flex; align-items: center; gap: 6px; font-size: 18px; }
+.live-paid-pill { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 800;
+  background: color-mix(in srgb, #C58A00 18%, transparent); color: var(--color-text); }
+.live-card-paid { position: absolute; left: 10px; bottom: 10px; }

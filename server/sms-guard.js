@@ -10,7 +10,7 @@ const dailyLimit = () => Math.max(0, Number.parseInt(process.env.SMS_DAILY_LIMIT
 
 /**
  * Vê se pode sair mais um código para este número.
- * @returns {Promise<{ ok: true } | { ok: false, reason: "cooldown" | "phone_daily" | "daily_limit", error: string }>}
+ * @returns {Promise<{ ok: boolean, reason?: "cooldown" | "phone_daily" | "daily_limit", error?: string }>}
  */
 async function smsAllowed(pool, phone) {
   const result = await pool.query(`
