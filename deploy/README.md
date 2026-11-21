@@ -33,7 +33,7 @@ No `.env`, para produção:
 | `PAYOUT_ENCRYPTION_KEY` | `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` — **guarda uma cópia fora do servidor**: sem ela, os IBAN e a verificação em dois passos ficam ilegíveis |
 | `POSTGRES_PASSWORD` | uma palavra-passe longa e aleatória |
 | `PUBLIC_CLIENT_URL` / `PUBLIC_APP_URL` | `https://tchilar.ao` |
-| `SMTP_*` | a conta de email do alojamento **AngoWeb** (ver «Email pela AngoWeb» abaixo; obrigatório para confirmar contas) |
+| `SMTP_*` | a conta do **Resend** (ver «Email pelo Resend» abaixo; obrigatório para confirmar contas) |
 | `TRUST_PROXY` | `1` (há um nginx à frente) |
 | `PAYMENTS_DEMO` | `false` (ou apaga a linha) |
 
@@ -244,31 +244,28 @@ Em vez do PostgreSQL do docker compose:
 As fotos e vídeos continuam no disco do VPS.
 
 
-## Email pela AngoWeb
+## Email pelo Resend
 
-Os emails do Tchilar (confirmar a conta, recuperar a palavra-passe, avisos) saem pelo plano **E-mail Profissional**
-da AngoWeb (https://angoweb.ao/email-profissional.php), sem serviços externos. Planos (pagamento anual, por caixa):
-Correio Básico 553 Kz/mês (1 800 emails/dia), **Correio Essencial 833 Kz/mês (2 800 emails/dia)**,
-Correio Premium 1 330 Kz/mês (4 800 emails/dia).
+Os emails do Tchilar (confirmar a conta, recuperar a palavra-passe, avisos) saem pelo **Resend** (https://resend.com),
+por SMTP. Planos: **grátis** com 3 000 emails/mês e **100 por dia**; **Pro** a 20 USD/mês (cerca de 18 240 Kz) com
+50 000 emails/mês e sem limite diário (cerca de 0,90 USD por cada 1 000 a mais). Paga-se com cartão internacional em USD.
 
-1. Na área de cliente da AngoWeb, cria a caixa `nao-responder@tchilar.ao` com uma palavra-passe forte.
-2. Copia o servidor de saída (SMTP) e a porta. A página da AngoWeb não os indica: vê na área de cliente ou pede
-   ao suporte (o habitual é `mail.tchilar.ao`, porta `465` com SSL ou `587` com STARTTLS).
-3. No `.env` do servidor:
+1. Cria a conta no Resend e, em **Domains**, acrescenta `tchilar.ao`. Põe no DNS do domínio os registos que o Resend
+   mostra (SPF e DKIM) e espera que fique **Verified**.
+2. Acrescenta também um registo **DMARC** (`_dmarc.tchilar.ao`, `v=DMARC1; p=none; rua=mailto:...`).
+3. Em **API Keys**, cria uma chave só com permissão de envio (*Sending access*), para o domínio `tchilar.ao`.
+4. No `.env` do servidor:
 
    ```
-   SMTP_HOST=mail.tchilar.ao
+   SMTP_HOST=smtp.resend.com
    SMTP_PORT=465
-   SMTP_SECURE=true          # false se usares a porta 587
-   SMTP_USER=nao-responder@tchilar.ao
-   SMTP_PASSWORD=...         # a palavra-passe da conta de email
+   SMTP_SECURE=true          # ou porta 587 com SMTP_SECURE=false
+   SMTP_USER=resend
+   SMTP_PASSWORD=re_...      # a chave da API; nunca no git
    SMTP_FROM="Tchilar <nao-responder@tchilar.ao>"
    ```
-4. Para os emails não irem para o spam, confirma no painel (**Entregabilidade do email**) que o domínio tem
-   **SPF** e **DKIM** válidos, e acrescenta um registo **DMARC** (`v=DMARC1; p=none; rua=mailto:...`).
-5. **Limite de envios:** 2 800 emails por dia por caixa no Correio Essencial. No orçamento, o pico é de cerca de 680
-   contas novas por dia (cenário B) e 1 140 (cenário C): chega, mas em lançamentos ou campanhas grandes passa para o
-   Correio Premium (4 800/dia).
+5. **Limite do plano grátis:** 100 emails por dia. Quando os registos passarem disso (ou antes de uma campanha),
+   muda para o Pro no painel do Resend; o código não muda.
 
 ## Servidor na AngoWeb
 
