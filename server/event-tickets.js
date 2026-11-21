@@ -77,9 +77,9 @@ function registerEventTickets(app, deps) {
       if (mine?.status === "paid" && !mine.refund_status) return { status: 409, error: "Já tens bilhete para este evento." };
       if (event.tickets_total && event.taken >= event.tickets_total) return { status: 409, error: "Os bilhetes esgotaram." };
       const available = new Date(new Date(event.starts_at).getTime() + 24 * 60 * 60 * 1000);
-      // Um bilhete reembolsado fica no registo (recibo); a compra nova deixa de o ligar ao evento.
-      if (mine?.status === "pending") await client.query("DELETE FROM event_tickets WHERE id=$1", [mine.id]);
-      else if (mine) await client.query("UPDATE event_tickets SET event_id=NULL WHERE id=$1", [mine.id]);
+      // A compra anterior (à espera de pagamento ou reembolsada) fica no registo, desligada do evento. Nunca se apaga:
+      // pode haver um pagamento a caminho (ex.: Referência). Se ele chegar, o dinheiro é devolvido (ver a confirmação).
+      if (mine) await client.query("UPDATE event_tickets SET event_id=NULL WHERE id=$1", [mine.id]);
       const ticket = (await client.query(`
         INSERT INTO event_tickets(event_id,user_id,owner_id,event_name,amount_kz,status,stars,available_at)
         VALUES($1,$2,$3,$4,$5,'pending',0,$6) RETURNING id::int AS id`,
@@ -99,24 +99,42 @@ function registerEventTickets(app, deps) {
   });
 
   // Pagamento confirmado: o bilhete ganha o código e a pessoa passa a ir ao evento.
+  // Se o pagamento chegar tarde (ex.: Referência paga dias depois) e o evento já não existir, a compra tiver sido
+  // substituída por outra, ou a lotação já estiver cheia, o dinheiro fica por devolver (Administração → Pagamentos)
+  // e não conta para quem organiza.
   payments.register("event_ticket", async (ticketId, details) => {
     await transaction(async client => {
-      let paid = null;
-      for (let attempt = 0; attempt < 5 && !paid; attempt += 1) {
+      const ticket = (await client.query("SELECT id,event_id,user_id,owner_id,event_name FROM event_tickets WHERE id=$1 AND status='pending' FOR UPDATE",
+        [ticketId])).rows[0];
+      if (!ticket) return; // já confirmado (confirmação repetida) ou desconhecido
+      const event = ticket.event_id ? (await client.query(`
+        SELECT e.tickets_total,
+          (SELECT COUNT(*) FROM event_tickets t WHERE t.event_id=e.id AND t.id<>$2 AND ${VALID_TICKET})::int AS sold
+        FROM events e WHERE e.id=$1 FOR UPDATE OF e`, [ticket.event_id, ticketId])).rows[0] : null;
+      const full = event?.tickets_total && event.sold >= event.tickets_total;
+      if (!event || full) {
+        await client.query("UPDATE event_tickets SET status='paid', paid_at=NOW(), stripe_payment_intent=$2, refund_status='manual' WHERE id=$1",
+          [ticketId, details.paymentIntent || null]);
+        await client.query("INSERT INTO notifications(user_id,type,text) VALUES($1,'event_refund',$2)", [ticket.user_id, full
+          ? `Os bilhetes para «${ticket.event_name}» esgotaram antes de o teu pagamento chegar. Vamos devolver-te o dinheiro.`
+          : `O teu pagamento para «${ticket.event_name}» já não corresponde a um bilhete (o evento foi cancelado ou fizeste outra compra). Vamos devolver-te o dinheiro.`]);
+        return;
+      }
+      let code = null;
+      for (let attempt = 0; attempt < 5 && !code; attempt += 1) {
         const result = await client.query(`
           UPDATE event_tickets SET status='paid', paid_at=NOW(), code=$3, stripe_payment_intent=$2
-          WHERE id=$1 AND status='pending' AND NOT EXISTS(SELECT 1 FROM event_tickets x WHERE x.code=$3)
-          RETURNING event_id,user_id,owner_id,event_name`, [ticketId, details.paymentIntent || null, ticketCode()]);
-        paid = result.rows[0] || null;
-        if (!paid && !(await client.query("SELECT 1 FROM event_tickets WHERE id=$1 AND status='pending'", [ticketId])).rowCount) return;
+          WHERE id=$1 AND NOT EXISTS(SELECT 1 FROM event_tickets x WHERE x.code=$3) RETURNING code`,
+        [ticketId, details.paymentIntent || null, ticketCode()]);
+        code = result.rows[0]?.code || null;
       }
-      if (!paid) throw new Error("Não foi possível gerar o código do bilhete.");
-      if (paid.event_id) await client.query("INSERT INTO event_attendees(event_id,user_id) VALUES($1,$2) ON CONFLICT DO NOTHING", [paid.event_id, paid.user_id]);
+      if (!code) throw new Error("Não foi possível gerar o código do bilhete.");
+      await client.query("INSERT INTO event_attendees(event_id,user_id) VALUES($1,$2) ON CONFLICT DO NOTHING", [ticket.event_id, ticket.user_id]);
       await client.query("INSERT INTO notifications(user_id,type,text) VALUES($1,'payment',$2)",
-        [paid.user_id, `O teu bilhete para «${paid.event_name}» está pronto. Mostra o QR à entrada.`]);
-      if (paid.owner_id && paid.owner_id !== paid.user_id) {
+        [ticket.user_id, `O teu bilhete para «${ticket.event_name}» está pronto. Mostra o QR à entrada.`]);
+      if (ticket.owner_id && ticket.owner_id !== ticket.user_id) {
         await client.query("INSERT INTO notifications(user_id,actor_id,type,text) VALUES($1,$2,'event_ticket',$3)",
-          [paid.owner_id, paid.user_id, `Comprou um bilhete para «${paid.event_name}». Os teus 85% ficam disponíveis 1 dia depois do evento.`]);
+          [ticket.owner_id, ticket.user_id, `Comprou um bilhete para «${ticket.event_name}». Os teus 85% ficam disponíveis 1 dia depois do evento.`]);
       }
     });
   });

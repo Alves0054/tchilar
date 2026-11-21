@@ -1975,6 +1975,37 @@ test("event tickets: paid with money, 85% for the organizer after the event, QR 
   assert.equal((await call("DELETE", `/pages/${page.id}`, organizer)).status, 200);
   assert.equal((await pool.query("SELECT refund_status FROM event_tickets WHERE id=$1", [lateTicket])).rows[0].refund_status, "manual");
   assert.equal((await call("GET", "/payouts", organizer)).body.sources.ticketsKz, 850, "o bilhete cancelado não conta");
+
+  // Pagamento que chega depois de o evento ser cancelado (ex.: Referência paga dias depois): fica por devolver.
+  const cancelled = (await call("POST", "/events", organizer, { name: "Cancelado", startsAt, ticketPriceKz: 700 })).body.event;
+  await call("POST", `/events/${cancelled.id}/tickets`, late, {});
+  const slow = (await pool.query("SELECT id::int AS id FROM event_tickets WHERE event_id=$1 AND user_id=$2", [cancelled.id, late.id])).rows[0].id;
+  assert.equal((await call("DELETE", `/events/${cancelled.id}`, organizer)).status, 200);
+  await payments.fulfill("event_ticket", slow, {});
+  const slowRow = (await pool.query("SELECT status,refund_status,code FROM event_tickets WHERE id=$1", [slow])).rows[0];
+  assert.deepEqual([slowRow.status, slowRow.refund_status, slowRow.code], ["paid", "manual", null]);
+  await pool.query("UPDATE event_tickets SET available_at=NOW() - INTERVAL '1 day' WHERE id=$1", [slow]);
+  assert.equal((await call("GET", "/payouts", organizer)).body.sources.ticketsKz, 850, "não conta para quem organizava");
+
+  // Lotação cheia quando um pagamento atrasado chega: fica por devolver em vez de vender a mais.
+  const small = (await call("POST", "/events", organizer, { name: "Pequeno", startsAt, ticketPriceKz: 300, ticketsTotal: 1 })).body.event;
+  await call("POST", `/events/${small.id}/tickets`, late, {});
+  const slowOne = (await pool.query("SELECT id::int AS id FROM event_tickets WHERE event_id=$1 AND user_id=$2", [small.id, late.id])).rows[0].id;
+  await pool.query("UPDATE event_tickets SET created_at=NOW() - INTERVAL '1 hour' WHERE id=$1", [slowOne]); // o lugar guardado expirou
+  await call("POST", `/events/${small.id}/tickets`, buyer, {});
+  const fastOne = (await pool.query("SELECT id::int AS id FROM event_tickets WHERE event_id=$1 AND user_id=$2", [small.id, buyer.id])).rows[0].id;
+  await payments.fulfill("event_ticket", fastOne, {});
+  await payments.fulfill("event_ticket", slowOne, {});
+  assert.equal((await pool.query("SELECT refund_status FROM event_tickets WHERE id=$1", [slowOne])).rows[0].refund_status, "manual");
+  assert.equal((await call("GET", `/events/${small.id}`, organizer)).body.event.tickets_sold, 1, "nunca acima da lotação");
+
+  // Comprar de novo não apaga a compra à espera: se esse pagamento chegar, fica por devolver.
+  const again = (await call("POST", "/events", organizer, { name: "Outra vez", startsAt, ticketPriceKz: 400 })).body.event;
+  await call("POST", `/events/${again.id}/tickets`, late, {});
+  const first = (await pool.query("SELECT id::int AS id FROM event_tickets WHERE event_id=$1 AND user_id=$2", [again.id, late.id])).rows[0].id;
+  await call("POST", `/events/${again.id}/tickets`, late, {});
+  await payments.fulfill("event_ticket", first, {});
+  assert.equal((await pool.query("SELECT refund_status FROM event_tickets WHERE id=$1", [first])).rows[0].refund_status, "manual");
 });
 
 test("paid lives: entry in stars before video, chat and P2P signals", { skip }, async () => {
