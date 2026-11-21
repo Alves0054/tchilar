@@ -1,0 +1,7 @@
+file 'C:/Users/nunes/Documents/creator-social/tmp/video/clip-01.mp4'
+file 'C:/Users/nunes/Documents/creator-social/tmp/video/clip-02.mp4'
+file 'C:/Users/nunes/Documents/creator-social/tmp/video/clip-03.mp4'
+file 'C:/Users/nunes/Documents/creator-social/tmp/video/clip-04.mp4'
+file 'C:/Users/nunes/Documents/creator-social/tmp/video/clip-05.mp4'
+file 'C:/Users/nunes/Documents/creator-social/tmp/video/clip-06.mp4'
+file 'C:/Users/nunes/Documents/creator-social/tmp/video/clip-07.mp4'

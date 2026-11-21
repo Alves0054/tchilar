@@ -1,0 +1,40 @@
+{
+  "version": 2,
+  "skills": {
+    "agent-email-inbox": {
+      "source": "resend/resend-skills",
+      "sourceType": "github",
+      "skillPath": "skills/agent-email-inbox/SKILL.md",
+      "computedHash": "9c871e0fc05e31cf6fa04cfca08ae8a334dbb01d23235fd44e960a5f5293f5b7",
+      "installMode": "copy"
+    },
+    "email-best-practices": {
+      "source": "resend/resend-skills",
+      "sourceType": "github",
+      "skillPath": "skills/email-best-practices/SKILL.md",
+      "computedHash": "9618340453f52b03987949227de251a953af1d47bf505975fce1f55032fb3451",
+      "installMode": "copy"
+    },
+    "react-email": {
+      "source": "resend/resend-skills",
+      "sourceType": "github",
+      "skillPath": "skills/react-email/SKILL.md",
+      "computedHash": "51cb2479b8c98641bfd1e69e2260f53f5fad251ed2d8e7a0c3138e8899b3d4b3",
+      "installMode": "copy"
+    },
+    "resend": {
+      "source": "resend/resend-skills",
+      "sourceType": "github",
+      "skillPath": "skills/resend/SKILL.md",
+      "computedHash": "903c2a23cb6935c80deb2f62439ac99f673badecdf89d4151ebb422a09dc0015",
+      "installMode": "copy"
+    },
+    "resend-cli": {
+      "source": "resend/resend-skills",
+      "sourceType": "github",
+      "skillPath": "skills/resend-cli/SKILL.md",
+      "computedHash": "afd9e0ede1b81507c64eaf2250cf0dd417e49237512aba42b892d9121864b9e1",
+      "installMode": "copy"
+    }
+  }
+}
