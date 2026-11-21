@@ -4,3 +4,10 @@ server/migrations/*.sql text eol=lf
 # Scripts do servidor Linux: com CRLF o bash falha (": command not found").
 *.sh text eol=lf
 deploy/*.conf text eol=lf
+
+# Ficheiros binários: o git nunca muda as quebras de linha (senão os PDFs ficam estragados ao abrir noutro PC).
+*.pdf binary
+*.png binary
+*.jpg binary
+*.mp4 binary
+*.wav binary
