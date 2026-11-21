@@ -1,16 +1,24 @@
 // Temas de grupo e tipos de página: a mesma lista que o servidor valida (server/community-types.json).
 import catalog from "../../server/community-types.json";
 import storyBackgrounds from "../../server/story-backgrounds.json";
+import profileCovers from "../../server/profile-covers.json";
+
+export const PROFILE_COVERS = profileCovers.covers;
+// Capa sem foto: uma de 10 frases, sempre a mesma para cada pessoa. O número da conta é "baralhado"
+// (multiplicação de Knuth), para contas seguidas não ficarem com frases seguidas.
+export const coverFor = id => PROFILE_COVERS[Math.floor(((Number(id) || 0) * 2654435761) % 4294967296 / 4294967296 * PROFILE_COVERS.length)];
+
 
 // Fundos dos stories de texto: cores (CSS) e temas ilustrados do Tchilar (imagens em /story-backgrounds).
 export const STORY_COLORS = storyBackgrounds.colors;
 export const STORY_THEMES = storyBackgrounds.themes;
-export const DEFAULT_STORY_BACKGROUND = "biva";
+export const DEFAULT_STORY_BACKGROUND = "tchilar";
 // Estilo inline para um fundo; null quando o story não tem fundo escolhido (fica o fundo automático).
 export function storyBackgroundStyle(key) {
-  const color = STORY_COLORS.find(item => item.key === key);
+  const normalizedKey = key === "biva" ? "tchilar" : key;
+  const color = STORY_COLORS.find(item => item.key === normalizedKey);
   if (color) return { background: color.css };
-  const theme = STORY_THEMES.find(item => item.key === key);
+  const theme = STORY_THEMES.find(item => item.key === normalizedKey);
   if (theme) return { backgroundImage: `url(${theme.image})`, backgroundSize: "cover", backgroundPosition: "center" };
   return null;
 }

@@ -1,0 +1,184 @@
+/* Calendário do Tchilar (src/modules/date-picker.jsx). O campo usa o mesmo desenho da caixa de seleção. */
+.tc-date {
+  position: relative;
+  display: block;
+  min-width: 0;
+}
+
+.tc-date-trigger > svg:first-child {
+  flex: none;
+  color: var(--color-text);
+}
+
+.tc-date-panel {
+  position: fixed;
+  z-index: 1900;
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--color-line);
+  border-radius: 18px;
+  color: var(--color-text);
+  background: var(--color-surface);
+  box-shadow: 0 22px 50px -16px rgba(0, 0, 0, .42);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  animation: tc-select-in .12s ease-out;
+}
+
+.tc-date-panel.is-up {
+  animation-name: tc-select-in-up;
+}
+
+.tc-date-quick {
+  display: flex;
+  gap: 6px;
+}
+
+.tc-date-quick button {
+  flex: 1;
+  min-height: 34px;
+  border: 1px solid var(--color-line);
+  border-radius: 999px;
+  color: var(--color-text);
+  background: var(--color-surface);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.tc-date-quick button:hover {
+  border-color: var(--color-text);
+}
+
+.tc-date-quick button.is-on {
+  border-color: #0B0B0C;
+  color: #FFFFFF;
+  background: #0B0B0C;
+}
+
+.tc-date-head {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1.3fr) minmax(0, 1fr) 34px;
+  align-items: center;
+  gap: 6px;
+}
+
+.tc-date-head .tc-select-trigger,
+.tc-date-time .tc-select-trigger {
+  min-height: 36px;
+  padding: 0 10px;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.tc-date-nav {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 10px;
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-text) 6%, var(--color-surface));
+  cursor: pointer;
+}
+
+.tc-date-nav:hover {
+  background: color-mix(in srgb, var(--color-text) 12%, var(--color-surface));
+}
+
+.tc-date-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 2px;
+}
+
+.tc-date-weekday {
+  display: grid;
+  place-items: center;
+  height: 26px;
+  color: var(--color-text-muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.tc-date-weekday.is-weekend {
+  color: #E30613;
+}
+
+.tc-date-day {
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 10px;
+  color: var(--color-text);
+  background: none;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.tc-date-day:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-text) 7%, var(--color-surface));
+}
+
+.tc-date-day.is-outside {
+  color: var(--color-text-muted);
+  opacity: .55;
+}
+
+.tc-date-day.is-today {
+  box-shadow: inset 0 0 0 1.5px var(--color-text);
+  font-weight: 800;
+}
+
+.tc-date-day.is-selected,
+.tc-date-day.is-selected:hover {
+  color: #FFFFFF;
+  background: #E30613;
+  box-shadow: none;
+  font-weight: 800;
+}
+
+.tc-date-day:disabled {
+  color: var(--color-text-muted);
+  opacity: .3;
+  cursor: not-allowed;
+}
+
+.tc-date-time {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--color-line);
+}
+
+.tc-date-time-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.tc-date-colon {
+  font-weight: 800;
+}
+
+.tc-date-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.tc-date-foot .btn {
+  min-height: 38px;
+  padding-inline: 18px;
+}

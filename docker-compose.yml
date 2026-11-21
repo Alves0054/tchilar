@@ -16,7 +16,7 @@ services:
       timeout: 5s
       retries: 10
 
-  app:
+  app: &app
     build: .
     restart: unless-stopped
     environment:
@@ -26,9 +26,11 @@ services:
       PORT: 4000
       DATABASE_URL: postgresql://biva:${POSTGRES_PASSWORD}@database:5432/biva
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
-      CLIENT_URL: ${PUBLIC_CLIENT_URL:-http://localhost:4000}
-      APP_URL: ${PUBLIC_APP_URL:-http://localhost:4000}
+      CLIENT_URL: ${PUBLIC_CLIENT_URL:-http://localhost:4003}
+      APP_URL: ${PUBLIC_APP_URL:-http://localhost:4003}
       UPLOAD_DIR: /app/uploads
+      SMS_CHANNELS: ${SMS_CHANNELS:-sms}
+      SMS_DAILY_LIMIT: ${SMS_DAILY_LIMIT:-300}
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_SECURE: ${SMTP_SECURE:-false}
@@ -55,11 +57,46 @@ services:
       MEDIA_WHIP_URL: ${MEDIA_WHIP_URL:-}
       MEDIA_RTMP_URL: ${MEDIA_RTMP_URL:-}
       MEDIA_HOOK_SECRET: ${MEDIA_HOOK_SECRET:-}
-      # Várias cópias da API (docker compose --profile scale up -d --scale app=3): limites partilhados no Redis.
+      # Várias cópias da API (docker compose --profile scale up -d): limites partilhados no Redis.
       REDIS_URL: ${REDIS_URL:-}
+      # Pagamentos internacionais (PayPal e RedotPay cobram em dólares).
+      API_PUBLIC_URL: ${API_PUBLIC_URL:-}
+      PAYMENTS_KZ_PER_USD: ${PAYMENTS_KZ_PER_USD:-920}
+      PAYPAL_CLIENT_ID: ${PAYPAL_CLIENT_ID:-}
+      PAYPAL_CLIENT_SECRET: ${PAYPAL_CLIENT_SECRET:-}
+      PAYPAL_ENV: ${PAYPAL_ENV:-live}
+      PAYPAL_CURRENCY: ${PAYPAL_CURRENCY:-USD}
+      REDOTPAY_APP_KEY: ${REDOTPAY_APP_KEY:-}
+      REDOTPAY_PRIVATE_KEY: ${REDOTPAY_PRIVATE_KEY:-}
+      REDOTPAY_KEY_VERSION: ${REDOTPAY_KEY_VERSION:-1}
+      REDOTPAY_PLATFORM_PUBLIC_KEY: ${REDOTPAY_PLATFORM_PUBLIC_KEY:-}
+      # PayPay Africa (kwanzas, app PayPay).
+      PAYPAY_PARTNER_ID: ${PAYPAY_PARTNER_ID:-}
+      PAYPAY_PRIVATE_KEY: ${PAYPAY_PRIVATE_KEY:-}
+      PAYPAY_PUBLIC_KEY: ${PAYPAY_PUBLIC_KEY:-}
+      PAYPAY_SALE_PRODUCT_CODE: ${PAYPAY_SALE_PRODUCT_CODE:-}
+      PAYPAY_API_URL: ${PAYPAY_API_URL:-}
+      REDOTPAY_ENV: ${REDOTPAY_ENV:-production}
+      REDOTPAY_CURRENCY: ${REDOTPAY_CURRENCY:-USD}
+      # Notificações: app (Expo) e browser (web push, chaves VAPID).
+      # SMS (Twilio Verify): confirmar o telemóvel e recuperar a conta.
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
+      TWILIO_VERIFY_SERVICE_SID: ${TWILIO_VERIFY_SERVICE_SID:-}
+      EXPO_ACCESS_TOKEN: ${EXPO_ACCESS_TOKEN:-}
+      PUSH_NOTIFICATIONS: ${PUSH_NOTIFICATIONS:-true}
+      WEB_PUSH_PUBLIC_KEY: ${WEB_PUSH_PUBLIC_KEY:-}
+      WEB_PUSH_PRIVATE_KEY: ${WEB_PUSH_PRIVATE_KEY:-}
+      WEB_PUSH_SUBJECT: ${WEB_PUSH_SUBJECT:-}
+      CHALLENGES_AUTO: ${CHALLENGES_AUTO:-true}
+      # Dados da empresa nos recibos.
+      COMPANY_NAME: ${COMPANY_NAME:-}
+      COMPANY_NIF: ${COMPANY_NIF:-}
+      COMPANY_ADDRESS: ${COMPANY_ADDRESS:-}
+      COMPANY_EMAIL: ${COMPANY_EMAIL:-}
     ports:
-      # Uma porta por cópia (até 4); o nginx reparte por elas.
-      - "127.0.0.1:4000-4003:4000"
+      # Porta da primeira cópia; app2 e app3 usam 4004 e 4005 no perfil scale.
+      - "127.0.0.1:4003:4000"
     volumes:
       - biva-uploads:/app/uploads
     depends_on:
@@ -71,6 +108,18 @@ services:
       timeout: 5s
       retries: 10
       start_period: 20s
+
+  app2:
+    <<: *app
+    profiles: ["scale"]
+    ports:
+      - "127.0.0.1:4004:4000"
+
+  app3:
+    <<: *app
+    profiles: ["scale"]
+    ports:
+      - "127.0.0.1:4005:4000"
 
   # Servidor de vídeo dos diretos. Só arranca com: docker compose --profile live up -d
   mediamtx:

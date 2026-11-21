@@ -4,11 +4,12 @@ import { Avatar, Icon, ThemeContext, UserContext, api, token } from "./core.jsx"
 import { InfoLinks, usePolling } from "./shared.jsx";
 import { MessagesPanel, NotificationsPanel } from "./topbar-panels.jsx";
 import { IncomingCall } from "./group-call.jsx";
+import { disableWebPush, refreshWebPush } from "./web-push.js";
 
 export function Layout({ children }) {
   // Preferência guardada: "light", "dark" ou "system" (segue o telemóvel/computador).
   const [themePreference, setTheme] = useState(() => {
-    const saved = localStorage.getItem("biva-theme") || localStorage.getItem("nova-theme");
+    const saved = localStorage.getItem("tchilar-theme") || localStorage.getItem("biva-theme") || localStorage.getItem("nova-theme");
     return ["light", "dark", "system"].includes(saved) ? saved : "light";
   });
   const [systemDark, setSystemDark] = useState(() => !!window.matchMedia?.("(prefers-color-scheme: dark)").matches);
@@ -30,7 +31,8 @@ export function Layout({ children }) {
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
-    localStorage.setItem("biva-theme", themePreference);
+    localStorage.setItem("tchilar-theme", themePreference);
+    localStorage.removeItem("biva-theme");
     localStorage.removeItem("nova-theme");
   }, [theme, themePreference]);
 
@@ -46,6 +48,7 @@ export function Layout({ children }) {
       setUser(result.user);
       setAuthError("");
       await refreshBadges();
+      refreshWebPush();
     } catch (error) {
       // Sessão expirada, conta suspensa ou apagada: termina a sessão neste browser.
       if (error.status === 401 || error.status === 403 || error.status === 404) {
@@ -77,9 +80,10 @@ export function Layout({ children }) {
     <div className={`app ${authPage ? "app-public" : "app-community"}`}>
       {!authPage && <TopBar user={user} unreadCount={unreadCount} unreadMessages={unreadMessages} onBadgesChange={refreshBadges}
         onLogout={() => {
-          // Termina a sessão no servidor (o token deixa de valer) e depois limpa este browser.
-          api("/auth/logout", { method: "POST" }).catch(() => {});
+          // Limpa já este browser; com o token guardado, desliga os avisos do browser e termina a sessão no servidor.
+          const headers = token() ? { Authorization: `Bearer ${token()}` } : {};
           localStorage.removeItem("token"); setUser(null); setUnreadCount(0); setUnreadMessages(0);
+          disableWebPush({ headers }).catch(() => {}).finally(() => api("/auth/logout", { method: "POST", headers }).catch(() => {}));
         }} />}
       {authError && !authPage && <p className="global-error">{authError}</p>}
       {user && !location.pathname.startsWith("/calls/") && <IncomingCall user={user} onAnswer={call => navigateTo(`/calls/${call.id}`)} />}

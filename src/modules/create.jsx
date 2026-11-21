@@ -31,5 +31,5 @@ export function Create() {
     }
   };
 
-  return <div className="page narrow"><form className="panel card" onSubmit={submit}><div className="composer-top"><Avatar user={user} /><textarea required={!file} placeholder="Em que estás a pensar?" value={body} onChange={event => setBody(event.target.value)} /></div><label className="file-label">Fotografia/vídeo<input type="file" accept="image/*,video/*" onChange={event => setFile(event.target.files?.[0] || null)} /></label><ExclusiveToggle user={user} checked={exclusive} onChange={setExclusive} />{error && <p className="error">{error}</p>}<button className="btn" disabled={busy}>{busy ? "A publicar..." : "Publicar"}</button></form></div>;
+  return <div className="page narrow"><form className="panel card composer create-composer" onSubmit={submit}><div className="composer-top"><Avatar user={user} /><textarea required={!file} placeholder="Em que estás a pensar?" value={body} onChange={event => setBody(event.target.value)} /></div><label className="file-label">Fotografia/vídeo<input type="file" accept="image/*,video/*" onChange={event => setFile(event.target.files?.[0] || null)} /></label><ExclusiveToggle user={user} checked={exclusive} onChange={setExclusive} />{error && <p className="error">{error}</p>}<button className="btn" disabled={busy}>{busy ? "A publicar..." : "Publicar"}</button></form></div>;
 }

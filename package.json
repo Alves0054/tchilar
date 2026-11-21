@@ -7,7 +7,7 @@
     "server": "node server/index.js",
     "client": "vite --host 0.0.0.0",
     "build": "node scripts/build.mjs",
-    "test": "node --test server/index.test.js server/migrate.test.js server/subscriptions.test.js server/moderation.test.js server/images.test.js server/ads.test.js server/promotions.test.js server/growth.test.js server/payouts.test.js server/payments.test.js server/angola-payments.test.js server/totp.test.js server/video-edit.test.js server/music-routes.test.js server/media-server.test.js server/preferences.test.js server/groups.test.js server/community-types.test.js server/payment-records.test.js server/integration.test.js server/rate-limit.test.js server/push.test.js server/app-links.test.js",
+    "test": "node --test server/index.test.js server/migrate.test.js server/subscriptions.test.js server/moderation.test.js server/images.test.js server/ads.test.js server/promotions.test.js server/verification.test.js server/growth.test.js server/payouts.test.js server/payments.test.js server/angola-payments.test.js server/global-payments.test.js server/paypay-africa.test.js server/totp.test.js server/video-edit.test.js server/music-routes.test.js server/media-server.test.js server/preferences.test.js server/groups.test.js server/community-types.test.js server/payment-records.test.js server/integration.test.js server/rate-limit.test.js server/push.test.js server/app-links.test.js server/link-preview.test.js server/local-subscriptions.test.js server/phones.test.js server/sms.test.js",
     "db:setup": "powershell -ExecutionPolicy Bypass -File scripts/setup-database.ps1",
     "db:migrate": "node server/migrate-cli.js",
     "db:seed-demo": "node server/seed-demo.js",
@@ -42,7 +42,8 @@
     "react-router-dom": "^7.8.0",
     "redis": "^6.3.0",
     "sharp": "^0.35.5",
-    "stripe": "^23.1.0"
+    "stripe": "^23.1.0",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",

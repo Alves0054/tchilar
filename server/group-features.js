@@ -26,7 +26,8 @@ const DOCUMENT_TYPES = {
 };
 
 function registerGroupFeatures(app, deps) {
-  const { pool, auth, parseId, isRecord, cleanText, transaction, blockedBetween, GROUP_FIELDS, documentUpload, signProtectedMedia, removeUpload, rateLimit } = deps;
+  const { pool, auth, parseId, isRecord, cleanText, transaction, blockedBetween, GROUP_FIELDS, documentUpload, signProtectedMedia, removeUpload, rateLimit,
+    imageUpload, optimizeUpload } = deps;
 
   async function roleOf(groupId, userId) {
     if (!userId) return null;
@@ -85,7 +86,7 @@ function registerGroupFeatures(app, deps) {
       if (typeof body.name !== "string" || !name || name.length > 100) return res.status(400).json({ error: "O nome do grupo deve ter até 100 caracteres." });
       add("name", name);
     }
-    for (const [key, column, max] of [["description", "description", 2000], ["rules", "rules", 3000]]) {
+    for (const [key, column, max] of /** @type {Array<[string, string, number]>} */ ([["description", "description", 2000], ["rules", "rules", 3000]])) {
       if (body[key] === undefined) continue;
       if (typeof body[key] !== "string" || body[key].length > max) return res.status(400).json({ error: `O texto excede ${max} caracteres.` });
       add(column, cleanText(body[key]));
@@ -334,7 +335,7 @@ function registerGroupFeatures(app, deps) {
     const group = await guard(req, res);
     if (!group) return;
     const result = await pool.query(`
-      SELECT e.id,e.name,e.description,e.location,e.starts_at,e.created_at,
+      SELECT e.id,e.name,e.description,e.location,e.image_url,e.starts_at,e.created_at,
         u.id AS creator_id,u.username AS creator_username,u.display_name AS creator_name,
         (SELECT COUNT(*) FROM event_attendees a WHERE a.event_id=e.id)::int AS attendee_count,
         EXISTS(SELECT 1 FROM event_attendees a WHERE a.event_id=e.id AND a.user_id=$2) AS is_attending
@@ -343,21 +344,25 @@ function registerGroupFeatures(app, deps) {
       ORDER BY e.starts_at ASC LIMIT 100`, [group.id, req.user.id]);
     res.json({ events: result.rows });
   });
-  app.post("/api/groups/:groupId/events", auth, async (req, res) => {
+  // Aceita JSON (apps antigas) ou multipart com uma imagem opcional ("image"), como os outros eventos.
+  const eventImage = [imageUpload.single("image"), optimizeUpload("event")];
+  app.post("/api/groups/:groupId/events", auth, ...eventImage, async (req, res) => {
+    const imageUrl = req.file ? `/uploads/${req.file.filename}` : "";
+    const reject = async (status, error) => { if (imageUrl) await removeUpload(imageUrl); return res.status(status).json({ error }); };
     const group = await guard(req, res);
-    if (!group) return;
+    if (!group) { if (imageUrl) await removeUpload(imageUrl); return; }
     const body = isRecord(req.body) ? req.body : {};
     const name = cleanText(body.name);
     const description = cleanText(body.description);
     const location = cleanText(body.location);
     const startsAt = new Date(body.startsAt);
-    if (!name || name.length > 120) return res.status(400).json({ error: "O nome do evento é obrigatório e deve ter até 120 caracteres." });
-    if (!body.startsAt || Number.isNaN(startsAt.getTime()) || startsAt <= new Date()) return res.status(400).json({ error: "Indica uma data e hora no futuro." });
-    if (description.length > 2000 || location.length > 160) return res.status(400).json({ error: "A descrição ou o local excedem o limite." });
+    if (!name || name.length > 120) return reject(400, "O nome do evento é obrigatório e deve ter até 120 caracteres.");
+    if (!body.startsAt || Number.isNaN(startsAt.getTime()) || startsAt <= new Date()) return reject(400, "Indica uma data e hora no futuro.");
+    if (description.length > 2000 || location.length > 160) return reject(400, "A descrição ou o local excedem o limite.");
     const event = await transaction(async client => {
       const created = (await client.query(
-        "INSERT INTO events(creator_id,name,description,location,starts_at,group_id) VALUES($1,$2,$3,$4,$5,$6) RETURNING id,name,description,location,starts_at,created_at",
-        [req.user.id, name, description, location, startsAt.toISOString(), group.id])).rows[0];
+        "INSERT INTO events(creator_id,name,description,location,image_url,starts_at,group_id) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id,name,description,location,image_url,starts_at,created_at",
+        [req.user.id, name, description, location, imageUrl, startsAt.toISOString(), group.id])).rows[0];
       await client.query("INSERT INTO event_attendees(event_id,user_id) VALUES($1,$2)", [created.id, req.user.id]);
       await client.query(`INSERT INTO notifications(user_id,actor_id,type,text)
         SELECT m.user_id,$2,'group_join',$3 FROM group_members m WHERE m.group_id=$1 AND m.user_id<>$2`,

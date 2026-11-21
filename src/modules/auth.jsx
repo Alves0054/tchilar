@@ -1,8 +1,10 @@
 import { useContext, useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { Icon, UserContext, api } from "./core.jsx";
 import { InfoLinks, StoreButtons } from "./shared.jsx";
+import { DEFAULT_PHONE_COUNTRY, PHONE_COUNTRIES, PHONE_ERROR, PhoneInput, SMS_CHANNEL_LABELS, formatPhone, parsePhone, useSmsChannels } from "./phones.jsx";
+import { DatePicker } from "./date-picker.jsx";
 
 export const PASSWORD_MIN = 8;
 export const USERNAME_PATTERN = /^[a-z0-9._]{3,40}$/;
@@ -120,19 +122,30 @@ export function Auth({ mode }) {
   const isLogin = mode === "login";
   const navigate = useNavigate();
   const { refreshUser } = useContext(UserContext);
-  const [form, setForm] = useState({ firstName: "", lastName: "", username: "", birthDate: "", email: "", phone: "", password: "", isCreator: false });
+  const [form, setForm] = useState({ firstName: "", lastName: "", username: "", birthDate: "", email: "", phone: "", phoneCountry: DEFAULT_PHONE_COUNTRY, password: "", isCreator: false });
   const [authParams] = useSearchParams();
   const invite = (authParams.get("convite") || "").trim().toLowerCase();
   const [usernameTouched, setUsernameTouched] = useState(false);
   const [usernameStatus, setUsernameStatus] = useState("idle");
   const [fieldErrors, setFieldErrors] = useState({});
   const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
+  const location = useLocation();
+  // Mensagem vinda de outro ecrã (por exemplo, palavra-passe mudada pelo telemóvel).
+  const [notice, setNotice] = useState(() => (typeof location.state?.notice === "string" ? location.state.notice : ""));
   const [actionUrl, setActionUrl] = useState("");
   const [sentTo, setSentTo] = useState("");
   const [busy, setBusy] = useState(false);
   const [needsCode, setNeedsCode] = useState(false);
   const [twoFactorCode, setTwoFactorCode] = useState("");
+  // Entrar com email ou telemóvel: fica lembrado neste browser.
+  const [loginWith, setLoginWith] = useState(() => {
+    try { return localStorage.getItem("tchilar-login-with") === "phone" ? "phone" : "email"; } catch { return "email"; }
+  });
+  const chooseLoginWith = value => {
+    setLoginWith(value);
+    setFieldErrors({});
+    try { localStorage.setItem("tchilar-login-with", value); } catch { /* sem armazenamento: só nesta visita */ }
+  };
   const update = (key, value) => {
     if (key === "email" || key === "password") setNeedsCode(false);
     setForm(current => ({ ...current, [key]: value }));
@@ -173,15 +186,19 @@ export function Auth({ mode }) {
       if (age === null) errors.birthDate = "Indica a tua data de nascimento.";
       else if (age < MIN_SIGNUP_AGE) errors.birthDate = `Tens de ter pelo menos ${MIN_SIGNUP_AGE} anos para criar uma conta.`;
       else if (age > 120) errors.birthDate = "Confirma o ano de nascimento.";
+      if (!parsePhone(form.phone, form.phoneCountry)) errors.phone = `${PHONE_ERROR} Exemplo: ${PHONE_COUNTRIES.find(item => item.code === form.phoneCountry)?.example}.`;
       if (form.password.length < PASSWORD_MIN) errors.password = `A palavra-passe precisa de pelo menos ${PASSWORD_MIN} caracteres.`;
     } else if (!form.password) {
       errors.password = "Escreve a tua palavra-passe.";
     }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) errors.email = "Escreve um email válido, por exemplo nome@exemplo.com.";
+    // Entrar com o telemóvel: país escolhido na lista + número (só serve um número confirmado por SMS).
+    if (isLogin && loginWith === "phone") {
+      if (!parsePhone(form.phone, form.phoneCountry)) errors.phone = `${PHONE_ERROR} Exemplo: ${PHONE_COUNTRIES.find(item => item.code === form.phoneCountry)?.example}.`;
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) errors.email = "Escreve um email válido, por exemplo nome@exemplo.com.";
     setFieldErrors(errors);
-    const first = ["firstName", "username", "birthDate", "email", "password"].find(key => errors[key]);
+    const first = ["firstName", "username", "birthDate", "email", "phone", "password"].find(key => errors[key]);
     if (first) {
-      const ids = { firstName: "first-name", username: "username", birthDate: "birth-date", email: "email", password: "password" };
+      const ids = { firstName: "first-name", username: "username", birthDate: "birth-date", email: "email", phone: "phone", password: "password" };
       window.requestAnimationFrame(() => document.getElementById(ids[first])?.focus());
     }
     return !first;
@@ -198,7 +215,10 @@ export function Auth({ mode }) {
         const result = await api("/auth/login", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: form.email.trim(), password: form.password, ...(needsCode && { code: twoFactorCode }) })
+          body: JSON.stringify({
+            identifier: loginWith === "phone" ? parsePhone(form.phone, form.phoneCountry).e164 : form.email.trim(),
+            password: form.password, ...(needsCode && { code: twoFactorCode })
+          })
         });
         localStorage.setItem("token", result.token);
         await refreshUser();
@@ -214,7 +234,7 @@ export function Auth({ mode }) {
           password: form.password,
           isCreator: form.isCreator,
           birthDate: form.birthDate,
-          ...(form.phone.trim() && { phone: form.phone.trim() }),
+          ...(form.phone.trim() && { phone: form.phone.trim(), phoneCountry: form.phoneCountry }),
           ...(invite && { invite }),
           displayName: `${form.firstName} ${form.lastName}`.trim()
         })
@@ -319,25 +339,40 @@ export function Auth({ mode }) {
             </div>}
 
             {!isLogin && <div className="entry-field">
-              <EntryInput id="birth-date" label="Data de nascimento" required type="date" autoComplete="bday"
-                min="1900-01-01" max={isoDay(new Date())}
-                value={form.birthDate} onChange={event => update("birthDate", event.target.value)}
-                invalid={!!fieldErrors.birthDate} describedBy={fieldErrors.birthDate ? "birthDate-error" : "birth-date-help"} />
+              <span className="entry-static-label" id="birth-date-label">Data de nascimento</span>
+              <DatePicker id="birth-date" mode="date" required shortcuts={false} min="1900-01-01" max={isoDay(new Date())}
+                className={`entry-date${fieldErrors.birthDate ? " is-invalid" : ""}`} placeholder="Escolhe o dia, o mês e o ano"
+                value={form.birthDate} onChange={event => update("birthDate", event.target.value)} aria-label="Data de nascimento" />
               {fieldErrors.birthDate ? fieldError("birthDate")
                 : <p className="entry-hint" id="birth-date-help">Não aparece no teu perfil. Decide o acesso a conteúdos para maiores de 18 e não pode ser mudada depois.</p>}
             </div>}
 
-            <div className="entry-field">
-              <EntryInput id="email" label={isLogin ? "Email" : "Email"} required type="email" autoComplete="email" inputMode="email"
-                value={form.email} onChange={event => update("email", event.target.value)}
-                invalid={!!fieldErrors.email} describedBy={fieldErrors.email ? "email-error" : undefined} />
-              {fieldError("email")}
-            </div>
+            {isLogin && <div className="entry-switch" role="radiogroup" aria-label="Entrar com">
+              {[["email", "Email", "mail"], ["phone", "Telemóvel", "phone"]].map(([key, label, icon]) => <button key={key} type="button" role="radio"
+                aria-checked={loginWith === key} onClick={() => chooseLoginWith(key)}><Icon name={icon} size={15} /> {label}</button>)}
+            </div>}
+
+            {isLogin && loginWith === "phone"
+              ? <div className="entry-field">
+                <PhoneInput id="phone" required country={form.phoneCountry} onCountryChange={code => update("phoneCountry", code)}
+                  value={form.phone} onChange={event => update("phone", event.target.value)}
+                  invalid={!!fieldErrors.phone} describedBy={fieldErrors.phone ? "phone-error" : "login-phone-help"} />
+                {fieldErrors.phone ? fieldError("phone")
+                  : <p className="entry-hint" id="login-phone-help">Só funciona com o número confirmado (Definições → Conta).</p>}
+              </div>
+              : <div className="entry-field">
+                <EntryInput id="email" label="Email" required type="email" autoComplete={isLogin ? "username" : "email"} inputMode="email"
+                  autoCapitalize="none" spellCheck="false"
+                  value={form.email} onChange={event => update("email", event.target.value)}
+                  invalid={!!fieldErrors.email} describedBy={fieldErrors.email ? "email-error" : undefined} />
+                {fieldError("email")}
+              </div>}
 
             {!isLogin && <div className="entry-field">
-              <EntryInput id="phone" label="Telemóvel (opcional)" type="tel" autoComplete="tel-national" inputMode="tel" maxLength={16}
-                value={form.phone} onChange={event => update("phone", event.target.value)} describedBy="phone-help" />
-              <p className="entry-hint" id="phone-help">Não aparece no teu perfil. Serve para a equipa te contactar e para pagar com Multicaixa Express.</p>
+              <PhoneInput id="phone" required country={form.phoneCountry} onCountryChange={code => update("phoneCountry", code)}
+                value={form.phone} onChange={event => update("phone", event.target.value)}
+                invalid={!!fieldErrors.phone} describedBy={fieldErrors.phone ? "phone-error" : "phone-help"} />
+              {fieldErrors.phone ? fieldError("phone") : <p className="entry-hint" id="phone-help">Não aparece no teu perfil. Se quiseres entrar com o telemóvel, confirma-o depois em Definições → Conta (opcional).</p>}
             </div>}
 
             <PasswordField id="password" label="Palavra-passe" value={form.password}
@@ -370,7 +405,7 @@ export function Auth({ mode }) {
 
             {error && <div className="entry-alert" role="alert">
               <p>{error}</p>
-              {needsVerification && <button className="text-button" type="button" disabled={busy || !form.email} onClick={() => resend(form.email.trim())}>Reenviar email de confirmação</button>}
+              {needsVerification && loginWith === "email" && <button className="text-button" type="button" disabled={busy || !form.email} onClick={() => resend(form.email.trim())}>Reenviar email de confirmação</button>}
             </div>}
             {notice && <div className="entry-notice" role="status"><p>{notice}</p>{actionUrl && <a href={actionUrl}>Confirmar email agora</a>}</div>}
 
@@ -477,12 +512,24 @@ export function VerifyEmail() {
     </div>
   </section>;
 }
+// Recuperar o acesso: por email (ligação) ou pelo telemóvel confirmado (código por SMS + nova palavra-passe aqui mesmo).
 export function ForgotPassword() {
+  const navigate = useNavigate();
+  const [method, setMethod] = useState("email");
   const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState({ country: DEFAULT_PHONE_COUNTRY, number: "" });
+  const [sms, setSms] = useState(null);         // { phone } depois de pedir o código
+  const smsChannels = useSmsChannels();
+  const [chosenChannel, setSmsChannel] = useState(null);
+  const smsChannel = smsChannels.includes(chosenChannel) ? chosenChannel : smsChannels[0];
+  const [code, setCode] = useState("");
+  const [password, setPassword] = useState("");
   const [notice, setNotice] = useState("");
   const [resetUrl, setResetUrl] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const choose = value => { setMethod(value); setError(""); setNotice(""); setSms(null); setResetUrl(""); };
+  const request = async (path, body) => api(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
 
   const submit = async event => {
     event.preventDefault();
@@ -490,13 +537,22 @@ export function ForgotPassword() {
     setError("");
     setResetUrl("");
     try {
-      const result = await api("/auth/forgot-password", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email })
-      });
-      setNotice(result.message);
-      setResetUrl(result.resetUrl || "");
+      if (method === "email") {
+        const result = await request("/auth/forgot-password", { email });
+        setNotice(result.message);
+        setResetUrl(result.resetUrl || "");
+      } else if (!sms) {
+        const parsed = parsePhone(phone.number, phone.country);
+        if (!parsed) throw new Error(`${PHONE_ERROR} Exemplo: ${PHONE_COUNTRIES.find(item => item.code === phone.country)?.example}.`);
+        const result = await request("/auth/forgot-password/phone", { phone: parsed.e164, channel: smsChannel });
+        setSms({ phone: result.phone || parsed.e164 });
+        setNotice(result.message);
+        if (result.devCode) setCode(result.devCode);
+      } else {
+        if (password.length < PASSWORD_MIN) throw new Error(`A palavra-passe precisa de pelo menos ${PASSWORD_MIN} caracteres.`);
+        const result = await request("/auth/reset-password/phone", { phone: sms.phone, code: code.trim(), password });
+        navigate("/login", { replace: true, state: { notice: result.message } });
+      }
     } catch (requestError) {
       setError(requestError.message);
     } finally {
@@ -504,7 +560,40 @@ export function ForgotPassword() {
     }
   };
 
-  return <section className="auth page"><form className="auth-card" onSubmit={submit}><div className="eyebrow">TCHILAR</div><h1>Recuperar acesso.</h1><p className="muted">Indica o email da tua conta para receber uma ligação de redefinição.</p><input required type="email" placeholder="Email" value={email} onChange={event => setEmail(event.target.value)} />{error && <p className="error">{error}</p>}{notice && <p className="success">{notice}</p>}{resetUrl && <a className="btn full" href={resetUrl}>Redefinir palavra-passe</a>}<button className="btn full" disabled={busy}>{busy ? "A enviar..." : "Enviar ligação"}</button><p className="muted"><Link to="/login">Voltar ao início de sessão</Link></p></form></section>;
+  return <section className="auth page"><form className="auth-card" onSubmit={submit}>
+    <div className="eyebrow">TCHILAR</div>
+    <h1>Recuperar acesso.</h1>
+    <div className="entry-switch" role="radiogroup" aria-label="Recuperar por">
+      {[["email", "Email", "mail"], ["phone", "Telemóvel", "phone"]].map(([key, label, icon]) => <button key={key} type="button" role="radio"
+        aria-checked={method === key} onClick={() => choose(key)} disabled={busy}><Icon name={icon} size={15} /> {label}</button>)}
+    </div>
+    {method === "email" && <>
+      <p className="muted">Indica o email da tua conta para receber uma ligação de redefinição.</p>
+      <input required type="email" placeholder="Email" autoComplete="email" value={email} onChange={event => setEmail(event.target.value)} />
+    </>}
+    {method === "phone" && !sms && <>
+      <p className="muted">Enviamos um código para o número confirmado da tua conta. Se ainda tens acesso ao email, usa o email: é mais rápido.</p>
+      {smsChannels.length > 1 && <div className="entry-switch is-small" role="radiogroup" aria-label="Receber o código por">
+        {smsChannels.map(channel => <button key={channel} type="button" role="radio" aria-checked={smsChannel === channel}
+          onClick={() => setSmsChannel(channel)} disabled={busy}>{SMS_CHANNEL_LABELS[channel]}</button>)}
+      </div>}
+      <PhoneInput id="recover-phone" required country={phone.country} onCountryChange={country => setPhone(current => ({ ...current, country }))}
+        value={phone.number} onChange={event => setPhone(current => ({ ...current, number: event.target.value }))} />
+    </>}
+    {method === "phone" && sms && <>
+      <p className="muted">Escreve o código que recebeste em {formatPhone(sms.phone)} e a nova palavra-passe.</p>
+      <input required inputMode="numeric" autoComplete="one-time-code" maxLength={10} placeholder="Código do SMS" value={code}
+        onChange={event => setCode(event.target.value.replace(/\D/g, ""))} />
+      <input required type="password" autoComplete="new-password" minLength={PASSWORD_MIN} placeholder={`Nova palavra-passe (mín. ${PASSWORD_MIN})`}
+        value={password} onChange={event => setPassword(event.target.value)} />
+      <button className="text-button" type="button" disabled={busy} onClick={() => { setSms(null); setCode(""); setNotice(""); }}>Mudar de número ou pedir outro código</button>
+    </>}
+    {error && <p className="error" role="alert">{error}</p>}
+    {notice && <p className="success" role="status">{notice}</p>}
+    {resetUrl && <a className="btn full" href={resetUrl}>Redefinir palavra-passe</a>}
+    <button className="btn full" disabled={busy}>{busy ? "A enviar..." : method === "email" ? "Enviar ligação" : sms ? "Guardar nova palavra-passe" : `Enviar código por ${SMS_CHANNEL_LABELS[smsChannel] || "SMS"}`}</button>
+    <p className="muted"><Link to="/login">Voltar ao início de sessão</Link></p>
+  </form></section>;
 }
 export function ResetPassword() {
   const [searchParams] = useSearchParams();

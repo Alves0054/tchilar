@@ -4,7 +4,7 @@
 const { logAdminAction } = require("./admin-routes");
 const { ANGOLA_PROVINCES } = require("./growth");
 const { PAYMENTS_SQL, csvCell } = require("./payment-records");
-const { decrypt } = require("./payouts");
+const { PAYOUT_METHODS, decrypt } = require("./payouts");
 
 const balanceSql = "SELECT COALESCE(SUM(amount) FILTER (WHERE kind <> 'gift_received'),0)::int AS balance FROM star_ledger WHERE user_id=$1";
 const notifyUser = (db, userId, text, type = "payment") =>
@@ -12,9 +12,9 @@ const notifyUser = (db, userId, text, type = "payment") =>
 const kz = value => `${Number(value).toLocaleString("pt-PT")} Kz`;
 
 // Onde vive cada produto pago, para marcar o reembolso.
-const REFUND_TABLES = { ad: "ads", stars: "star_purchases", campaign: "brand_campaigns", group_access: "group_access_purchases", course: "course_purchases" };
+const REFUND_TABLES = { ad: "ads", stars: "star_purchases", campaign: "brand_campaigns", group_access: "group_access_purchases", course: "course_purchases", subscription: "subscription_payments" };
 
-const PURPOSE_LABELS = { ad: "Promoção", stars: "Estrelas", campaign: "Campanha", group_access: "Entrada em grupo", course: "Curso" };
+const PURPOSE_LABELS = { ad: "Promoção", stars: "Estrelas", campaign: "Campanha", group_access: "Entrada em grupo", course: "Curso", subscription: "Subscrição" };
 const ATTEMPT_FILTERS = {
   pending: "lp.status='pending' AND (lp.expires_at IS NULL OR lp.expires_at > NOW())",
   expired: "(lp.status='expired' OR (lp.status='pending' AND lp.expires_at <= NOW()))",
@@ -27,6 +27,7 @@ const PRODUCT_PAID_SQL = `CASE lp.purpose
   WHEN 'campaign' THEN EXISTS(SELECT 1 FROM brand_campaigns x WHERE x.id=lp.ref_id AND x.paid_at IS NOT NULL)
   WHEN 'group_access' THEN EXISTS(SELECT 1 FROM group_access_purchases x WHERE x.id=lp.ref_id AND x.status='paid')
   WHEN 'course' THEN EXISTS(SELECT 1 FROM course_purchases x WHERE x.id=lp.ref_id AND x.status='paid')
+  WHEN 'subscription' THEN EXISTS(SELECT 1 FROM subscription_payments x WHERE x.id=lp.ref_id AND x.status='paid')
   ELSE FALSE END`;
 
 const DATA_REQUEST_KINDS = {
@@ -94,6 +95,11 @@ function registerAdminOperations(app, deps) {
         if (row.status === "completed") return { status: 409, error: "Esta campanha já foi concluída e o criador já recebeu. Resolve com as duas partes antes de devolver." };
         await client.query("UPDATE brand_campaigns SET status='cancelled' WHERE id=$1", [id]);
         await notifyUser(client, row.creator_id, `A campanha «${row.title}» foi cancelada e o valor devolvido à marca.`, "campaign");
+      }
+      // Mês de subscrição devolvido: o acesso acaba já e não volta a pedir renovação.
+      if (kind === "subscription" && row.subscriber_id && row.creator_id) {
+        await client.query(`UPDATE subscriptions SET current_period_end=LEAST(current_period_end, NOW()), cancel_at_period_end=TRUE, updated_at=NOW()
+          WHERE subscriber_id=$1 AND creator_id=$2 AND provider<>'stripe'`, [row.subscriber_id, row.creator_id]);
       }
       if (kind === "ad" && ["in_review", "active", "paused"].includes(row.status)) {
         await client.query("UPDATE ads SET status='ended', ends_at=LEAST(ends_at, NOW()) WHERE id=$1", [id]);
@@ -329,7 +335,7 @@ function registerAdminOperations(app, deps) {
       page: `SELECT p.id, p.name AS title, LEFT(p.description,300) AS text, p.page_type, p.category, p.subcategory, p.hidden_at, p.created_at,
           u.id AS owner_id, u.username, u.display_name,
           (SELECT COUNT(*) FROM page_followers f WHERE f.page_id=p.id)::int AS followers
-        FROM pages p JOIN users u ON u.id=p.owner_id
+        FROM pages p LEFT JOIN users u ON u.id=p.owner_id
         WHERE ($1='' OR p.name ILIKE $2 OR p.description ILIKE $2 OR u.username ILIKE $2) ${onlyHidden ? "AND p.hidden_at IS NOT NULL" : ""}
         ORDER BY p.created_at DESC LIMIT 50`
     };
@@ -447,11 +453,12 @@ function registerAdminOperations(app, deps) {
   app.get("/api/admin/payouts.csv", auth, finance, async (req, res) => {
     if (!payoutKey) return res.status(503).json({ error: "Falta configurar PAYOUT_ENCRYPTION_KEY no servidor." });
     const rows = (await pool.query(`
-      SELECT r.id,r.amount::float AS amount,r.holder_name,r.bank_name,r.iban_encrypted,r.created_at,u.username
+      SELECT r.id,r.amount::float AS amount,r.method,r.holder_name,r.bank_name,r.iban_encrypted,r.created_at,u.username
       FROM payout_requests r LEFT JOIN users u ON u.id=r.user_id
-      WHERE r.status='requested' ORDER BY r.created_at ASC`)).rows;
-    const header = ["Pedido", "Beneficiário", "Banco", "IBAN", "Valor (Kz)", "Descritivo", "Utilizador", "Pedido em"];
-    const lines = rows.map(row => [row.id, row.holder_name, row.bank_name, decrypt(payoutKey, row.iban_encrypted), row.amount.toFixed(2),
+      WHERE r.status='requested' ORDER BY r.method, r.created_at ASC`)).rows;
+    // Um ficheiro com todos os métodos: "Método" diz onde pagar e "Destino" é o IBAN, telemóvel, email ou ID RedotPay.
+    const header = ["Pedido", "Método", "Beneficiário", "Banco / serviço", "Destino", "Valor (Kz)", "Descritivo", "Utilizador", "Pedido em"];
+    const lines = rows.map(row => [row.id, PAYOUT_METHODS[row.method]?.label || row.method, row.holder_name, row.bank_name, decrypt(payoutKey, row.iban_encrypted), row.amount.toFixed(2),
       `Tchilar levantamento ${row.id}`, row.username || "", new Date(row.created_at).toISOString().slice(0, 10)].map(csvCell).join(";"));
     await logAdminAction(pool, req.user.id, "payout_export", "payout", null, `${rows.length} levantamentos`);
     res.setHeader("Content-Type", "text/csv; charset=utf-8");

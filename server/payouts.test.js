@@ -45,3 +45,26 @@ test("balance subtracts withdrawals and withdrawals respect the minimum", () => 
   assert.ok(parseWithdrawal(20000, 10000).error);
   assert.ok(parseWithdrawal("abc", 10000).error);
 });
+
+test("payout destinations: bank, Express, PayPay, PayPal and RedotPay", () => {
+  const { PAYOUT_METHODS, parsePayoutDestination } = require("./payouts");
+  assert.deepEqual(Object.keys(PAYOUT_METHODS), ["iban", "express", "paypay", "paypal", "redotpay"]);
+  const iban = syntheticIban("000600000123456789012");
+  assert.equal(parsePayoutDestination("iban", iban).value, iban);
+  assert.ok(parsePayoutDestination("iban", "AO06123").error);
+  // Express e PayPay: só números angolanos, com ou sem indicativo.
+  for (const method of ["express", "paypay"]) {
+    assert.equal(parsePayoutDestination(method, "923 456 789").value, "+244923456789");
+    assert.equal(parsePayoutDestination(method, "+244 923456789").value, "+244923456789");
+    assert.ok(parsePayoutDestination(method, "+351912345678").error, "a Portuguese number cannot receive Express/PayPay");
+    assert.ok(!parsePayoutDestination(method, "923456789").hint.includes("923456789"), "the hint must not show the full number");
+  }
+  const paypal = parsePayoutDestination("paypal", " Ana.Silva@Example.com ");
+  assert.equal(paypal.value, "ana.silva@example.com");
+  assert.equal(paypal.hint, "an•••@example.com");
+  assert.ok(parsePayoutDestination("paypal", "ana@").error);
+  assert.equal(parsePayoutDestination("redotpay", "12345678").hint, "ID •••• 5678");
+  assert.equal(parsePayoutDestination("redotpay", "ana@example.com").value, "ana@example.com");
+  assert.ok(parsePayoutDestination("redotpay", "abc").error);
+  assert.ok(parsePayoutDestination("bitcoin", "x").error);
+});

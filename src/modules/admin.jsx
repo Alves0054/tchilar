@@ -2,11 +2,13 @@ import { useContext, useEffect, useRef, useState } from "react";
 import { Link, NavLink, useParams } from "react-router-dom";
 import { API_BASE, Icon, UserContext, api, formatClock, formatPrice } from "./core.jsx";
 import { relativeTime } from "./feed.jsx";
-import { MUSIC_GENRE_LABELS, audioDuration } from "./shared.jsx";
+import { MUSIC_GENRE_LABELS, PayoutLogo, audioDuration } from "./shared.jsx";
 import { AdminPayments } from "./payments.jsx";
 import { AdminActions, AdminOverview, AdminUserDetail, AdminUsers } from "./admin-panel.jsx";
 import { AdminChallenges, AdminCourses } from "./admin-academy.jsx";
 import { AdminBroadcasts, AdminContent, AdminDataRequests, PaymentAttempts, ROLE_LABELS, canSee, downloadWithSession } from "./admin-ops.jsx";
+import { Select } from "./select.jsx";
+import { DatePicker } from "./date-picker.jsx";
 
 // Áreas do painel, por grupo, e quem as vê. "super" vê todas; sem lista de funções, qualquer pessoa da equipa.
 const ADMIN_SECTIONS = [
@@ -18,7 +20,8 @@ const ADMIN_SECTIONS = [
     { slug: "pagamentos", label: "Pagamentos", icon: "card", hint: "Pagamentos confirmados, recibos e reembolsos.", roles: ["finance"] },
     { slug: "por-resolver", label: "Por resolver", icon: "help", hint: "Pagamentos que ficaram a meio.", roles: ["finance"] },
     { slug: "levantamentos", label: "Levantamentos", icon: "gift", hint: "Pagar os criadores, um a um ou em lote.", roles: ["finance"] },
-    { slug: "financas", label: "Finanças", icon: "stats", hint: "Entradas, parte do Tchilar e dívida aos criadores.", roles: ["finance"] }
+    { slug: "financas", label: "Finanças", icon: "stats", hint: "Entradas, parte do Tchilar e dívida aos criadores.", roles: ["finance"] },
+    { slug: "codigos", label: "Códigos promocionais", icon: "gift", hint: "Criar descontos para campanhas, cursos, estrelas e subscrições.", roles: ["finance"] }
   ] },
   { label: "Pessoas", items: [
     { slug: "utilizadores", label: "Utilizadores", icon: "groups", hint: "Procura uma conta e vê a ficha completa.", roles: [] },
@@ -83,12 +86,65 @@ export function AdminPage() {
       {tab === "promocoes" && <AdminPromotions />}
       {tab === "levantamentos" && <AdminPayouts />}
       {tab === "financas" && <AdminFinance />}
+      {tab === "codigos" && <AdminPromotionCodes />}
       {tab === "musicas" && <AdminMusic />}
       {tab === "desafios" && <AdminChallenges />}
       {tab === "cursos" && <AdminCourses />}
     </>}
     </div>
   </div>;
+}
+
+export function AdminPromotionCodes() {
+  const [codes, setCodes] = useState(null);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [form, setForm] = useState({ code: "", discountPercent: "10", minAmountKz: "0", maxDiscountKz: "", maxUses: "", expiresAt: "", purposes: [] });
+  const load = () => api("/admin/promotion-codes").then(result => setCodes(result.codes)).catch(loadError => setError(loadError.message));
+  useEffect(() => { load(); }, []);
+  const create = async event => {
+    event.preventDefault(); setError(""); setNotice("");
+    try {
+      await api("/admin/promotion-codes", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
+        code: form.code, discountPercent: Number(form.discountPercent), minAmountKz: Number(form.minAmountKz),
+        maxDiscountKz: form.maxDiscountKz, maxUses: form.maxUses, expiresAt: form.expiresAt, purposes: form.purposes
+      }) });
+      setNotice("Código promocional criado.");
+      setForm({ code: "", discountPercent: "10", minAmountKz: "0", maxDiscountKz: "", maxUses: "", expiresAt: "", purposes: [] });
+      load();
+    } catch (createError) { setError(createError.message); }
+  };
+  const toggle = async item => {
+    setError(""); setNotice("");
+    try { await api(`/admin/promotion-codes/${item.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ active: !item.active }) }); load(); }
+    catch (toggleError) { setError(toggleError.message); }
+  };
+  const purposeOptions = [["stars","Estrelas"],["ad","Promoções"],["campaign","Campanhas"],["course","Cursos"],["subscription","Subscrições"],["group_access","Grupos"],["verification","Verificação"]];
+  return <section className="creator-card">
+    <div className="creator-card-head"><div><h2>Criar código promocional</h2><p>Limita o desconto por compra, número de usos e data de validade.</p></div></div>
+    {error && <p className="error" role="alert">{error}</p>}
+    {notice && <p className="prefs-saved" role="status">{notice}</p>}
+    <form className="prefs-form" onSubmit={create}>
+      <label>Código<input value={form.code} onChange={event => setForm(current => ({ ...current, code: event.target.value.toUpperCase() }))} placeholder="TCHILAR20" maxLength={40} required /></label>
+      <label>Desconto (%)<input type="number" min="1" max="100" value={form.discountPercent} onChange={event => setForm(current => ({ ...current, discountPercent: event.target.value }))} required /></label>
+      <label>Valor mínimo (Kz)<input type="number" min="0" step="0.01" value={form.minAmountKz} onChange={event => setForm(current => ({ ...current, minAmountKz: event.target.value }))} /></label>
+      <label>Desconto máximo (Kz, opcional)<input type="number" min="1" step="0.01" value={form.maxDiscountKz} onChange={event => setForm(current => ({ ...current, maxDiscountKz: event.target.value }))} /></label>
+      <label>Máximo de usos (opcional)<input type="number" min="1" value={form.maxUses} onChange={event => setForm(current => ({ ...current, maxUses: event.target.value }))} /></label>
+      <label>Válido até (opcional)<DatePicker mode="datetime" defaultTime="23:59" value={form.expiresAt} onChange={event => setForm(current => ({ ...current, expiresAt: event.target.value }))}
+        placeholder="Sem data de fim" aria-label="Válido até" /></label>
+      <fieldset><legend>Aplicar a</legend><div className="admin-chips">{purposeOptions.map(([key,label]) => <button type="button" key={key} className="province-chip" aria-pressed={form.purposes.includes(key)}
+        onClick={() => setForm(current => ({ ...current, purposes: current.purposes.includes(key) ? current.purposes.filter(value => value !== key) : [...current.purposes, key] }))}>{label}</button>)}</div></fieldset>
+      <button className="btn" type="submit">Criar código</button>
+    </form>
+    <h3>Códigos existentes</h3>
+    {!codes && <p className="muted">A carregar...</p>}
+    {codes?.length === 0 && <p className="muted">Ainda não existem códigos promocionais.</p>}
+    {codes?.map(item => <div className="admin-item" key={item.id}>
+      <div className="admin-item-main"><div className="admin-item-title"><strong>{item.code}</strong><span className="muted">{item.discount_percent}% · {item.used_count}/{item.max_uses || "∞"} usos</span></div>
+        <p className="muted">{item.expires_at ? `Até ${new Date(item.expires_at).toLocaleString("pt-PT")}` : "Sem validade"} · {item.applicable_purposes?.length ? item.applicable_purposes.join(", ") : "Todas as compras"}</p></div>
+      <button className="btn secondary" type="button" onClick={() => toggle(item)}>{item.active ? "Desativar" : "Ativar"}</button>
+    </div>)}
+  </section>;
 }
 // Biblioteca de músicas: a equipa carrega faixas com licença (ou aprova músicas das pessoas),
 // esconde as que tenham problemas de direitos e organiza por género.
@@ -105,6 +161,7 @@ export function AdminMusic() {
     if (!file) return;
     setForm(current => ({ ...current, file, title: current.title || file.name.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").slice(0, 100) }));
   };
+
   const upload = async event => {
     event.preventDefault();
     setForm(current => ({ ...current, busy: true }));
@@ -147,9 +204,9 @@ export function AdminMusic() {
       <div className="admin-music-fields">
         <label>Nome<input required maxLength={100} value={form.title} onChange={event => setForm({ ...form, title: event.target.value })} /></label>
         <label>Artista<input maxLength={100} value={form.artist} onChange={event => setForm({ ...form, artist: event.target.value })} /></label>
-        <label>Género<select value={form.genre} onChange={event => setForm({ ...form, genre: event.target.value })}>
+        <label>Género<Select value={form.genre} onChange={event => setForm({ ...form, genre: event.target.value })}>
           {Object.entries(MUSIC_GENRE_LABELS).map(([id, label]) => <option key={id} value={id}>{label}</option>)}
-        </select></label>
+        </Select></label>
         <label>Licença<input required maxLength={300} value={form.license} onChange={event => setForm({ ...form, license: event.target.value })} placeholder="Ex.: Pixabay Content License" /></label>
       </div>
       <button className="btn" type="submit" disabled={form.busy || !form.file || !form.title.trim() || !form.license.trim()}>{form.busy ? "A carregar..." : "Adicionar à biblioteca"}</button>
@@ -202,9 +259,9 @@ export function AdminPromotions() {
   };
   return <section className="creator-card">
     <div className="creator-card-head"><div><h2>Promoções</h2><p>Aprova as promoções pagas antes de irem para o ar. Recusar devolve o dinheiro.</p></div>
-      <label className="period-select"><select value={status} onChange={event => setStatus(event.target.value)}>
+      <label className="period-select"><Select value={status} onChange={event => setStatus(event.target.value)}>
         <option value="in_review">Em revisão</option><option value="active">No ar</option><option value="rejected">Recusadas</option><option value="all">Todas</option>
-      </select><Icon name="chevronDown" size={16} /></label></div>
+      </Select></label></div>
     {notice && <p className="success" role="status">{notice}</p>}
     {error && <p className="error" role="alert">{error}</p>}
     {!ads && <div className="creator-loading">A carregar...</div>}
@@ -260,7 +317,7 @@ export function AdminPayouts() {
     } catch (batchError) { setError(batchError.message); }
   };
   const settle = async (payout, action) => {
-    const value = window.prompt(action === "paid" ? `Referência da transferência de ${formatPrice(payout.amount)} para ${payout.holder_name}:` : "Motivo da recusa (o criador vai ver):");
+    const value = window.prompt(action === "paid" ? `Referência do pagamento de ${formatPrice(payout.amount)} para ${payout.holder_name} (${payout.method_label}: ${payout.destination}):` : "Motivo da recusa (o criador vai ver):");
     if (!value) return;
     try {
       await api(`/admin/payouts/${payout.id}/${action}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(action === "paid" ? { reference: value } : { note: value }) });
@@ -271,11 +328,11 @@ export function AdminPayouts() {
   };
   return <section className="creator-card">
     <div className="creator-card-head"><div><h2>Levantamentos</h2><p>Faz a transferência no banco e depois marca o pedido como pago, com a referência.</p></div>
-      <label className="period-select"><select value={status} onChange={event => setStatus(event.target.value)}>
+      <label className="period-select"><Select value={status} onChange={event => setStatus(event.target.value)}>
         <option value="requested">Por pagar</option><option value="paid">Pagos</option><option value="rejected">Recusados</option>
-      </select><Icon name="chevronDown" size={16} /></label></div>
+      </Select></label></div>
     {status === "requested" && payouts?.length > 0 && <div className="admin-batch">
-      <button className="btn secondary" type="button" onClick={exportBatch}><Icon name="arrowDown" size={16} />Ficheiro para o banco</button>
+      <button className="btn secondary" type="button" onClick={exportBatch}><Icon name="arrowDown" size={16} />Ficheiro dos levantamentos</button>
       <label className="admin-check"><input type="checkbox" checked={selected.length === payouts.length}
         onChange={event => setSelected(event.target.checked ? payouts.map(payout => payout.id) : [])} />Escolher todos</label>
       <button className="btn" type="button" disabled={!selected.length} onClick={payBatch}>Marcar {selected.length || ""} como pagos</button>
@@ -289,7 +346,7 @@ export function AdminPayouts() {
         checked={selected.includes(payout.id)} onChange={() => toggle(payout.id)} />}
       <span><strong>{formatPrice(payout.amount)}</strong> para {payout.display_name ? <Link to={`/u/${payout.username}`}>{payout.display_name}</Link> : "conta apagada"}
         <small>Titular: {payout.holder_name} · {payout.bank_name}</small>
-        <small className="admin-iban">IBAN: {payout.iban}</small>
+        <small className="admin-iban"><PayoutLogo method={payout.method} size={16} /> {payout.method === "iban" ? "IBAN" : payout.method_label}: {payout.destination}</small>
         <small>Pedido {relativeTime(payout.created_at)}{payout.reference ? ` · ref. ${payout.reference}` : ""}{payout.note ? ` · ${payout.note}` : ""}</small></span>
       {payout.status === "requested" && <div className="ad-actions">
         <button className="btn" type="button" onClick={() => settle(payout, "paid")}>Marcar como pago</button>

@@ -26,14 +26,23 @@ const { registerAdminOperations } = require("./admin-operations");
 const { registerLiveRoutes, turnServer } = require("./live-routes");
 const { registerGroupCalls } = require("./group-calls");
 const { createPayments } = require("./payments");
-const { createPaybyrd, createProxyPay, normalizeAngolanPhone } = require("./angola-payments");
+const { normalizePromotionCode, resolvePromotionCode } = require("./promotion-codes");
+const { createPaybyrd, createProxyPay } = require("./angola-payments");
+const { PHONE_ERROR, parsePhoneNumber } = require("./phones");
+const { SMS_CODE_PATTERN, createSms } = require("./sms");
+const { recordSms, smsAllowed } = require("./sms-guard");
+const { createPayPal, createRedotPay } = require("./global-payments");
+const { createPayPayAfrica } = require("./paypay-africa");
+const { AsyncLocalStorage } = require("async_hooks");
 
 // Telemóvel da conta (opcional e privado). undefined = não mexer; "" ou null = apagar.
-function parsePhone(raw) {
+// Telemóvel da conta: países da CPLP, guardado em formato internacional (+244923456789). "country" (AO, BR, PT...)
+// só conta para números escritos sem indicativo; por omissão é Angola.
+function parsePhone(raw, country) {
   if (raw === undefined) return { skip: true };
   if (raw === null || (typeof raw === "string" && !raw.trim())) return { value: null };
-  const phone = typeof raw === "string" ? normalizeAngolanPhone(raw) : null;
-  return phone ? { value: phone } : { error: "Indica um telemóvel angolano válido (9 dígitos, começa por 9)." };
+  const phone = parsePhoneNumber(raw, typeof country === "string" ? country : undefined);
+  return phone ? { value: phone.e164 } : { error: PHONE_ERROR };
 }
 const { registerFinanceRoutes } = require("./finance-routes");
 const { decrypt, encrypt, loadKey } = require("./payouts");
@@ -43,17 +52,18 @@ const { canReach, onlineSql, readPreferences, updatePreferences } = require("./p
 const { POST_MUSIC_SQL, registerMusicRoutes } = require("./music-routes");
 const { parseBirthDate } = require("./growth");
 const { adultSql, parseAccessPrice, sameGroupName } = require("./groups");
-const { createPush } = require("./push");
+const { createPush, createWebPushSender } = require("./push");
 const { registerCourseRoutes } = require("./courses");
 const { registerAppLinks } = require("./app-links");
-const { createSession, deviceLabel, registerSessionRoutes, touchSession, validSession } = require("./sessions");
+const { crawlerPage, findPreview, injectPreview } = require("./link-preview");
+const { RENEWAL_WINDOW_DAYS, canRenew, registerLocalSubscriptions } = require("./local-subscriptions");
+const { SESSION_IDLE_DAYS, createSession, deviceLabel, registerSessionRoutes, touchSession, validSession } = require("./sessions");
 const { DOCUMENT_TYPES, registerGroupFeatures } = require("./group-features");
 const { parseGroupKind, parseGroupPrivacy, parsePageType, parseStoryBackground } = require("./community-types");
 const QRCode = require("qrcode");
 const { MODERATION_ACTIONS, REPORT_REASONS, blockedBetween, shouldAutoHide } = require("./moderation");
 const {
   ACTIVE_SUBSCRIPTION_SQL,
-  DEMO_PERIOD_DAYS,
   MAX_PRICE,
   MIN_PRICE,
   mapStripeStatus,
@@ -76,6 +86,13 @@ const allowedOrigins = (process.env.CLIENT_URL || "http://localhost:5173,http://
 // Só em NODE_ENV=development explícito; qualquer outro valor (ou nenhum) é tratado como produção.
 const isDevelopment = process.env.NODE_ENV === "development";
 const exposeDevAuthLinks = isDevelopment && process.env.DEV_EXPOSE_AUTH_LINKS === "true";
+// SMS (Twilio Verify): confirmar o telemóvel e recuperar a conta. Sem as chaves, só funciona em desenvolvimento
+// (código no terminal); em produção fica indisponível.
+const sms = createSms({
+  accountSid: (process.env.TWILIO_ACCOUNT_SID || "").trim(), authToken: (process.env.TWILIO_AUTH_TOKEN || "").trim(),
+  serviceSid: (process.env.TWILIO_VERIFY_SERVICE_SID || "").trim(), isProduction: !isDevelopment,
+  channels: process.env.SMS_CHANNELS
+});
 // Pagamentos de demonstração (ativam sem cobrar) precisam de DUAS coisas: desenvolvimento E pedido explícito.
 // Assim, um servidor de desenvolvimento aberto por um túnel público não oferece estrelas nem promoções grátis.
 const demoPayments = isDevelopment && process.env.PAYMENTS_DEMO === "true";
@@ -106,6 +123,17 @@ const accountSecurityRateLimit = makeRateLimit("accountSecurity", {
   legacyHeaders: false,
   message: { error: "Demasiadas tentativas. Tenta novamente daqui a 15 minutos." }
 });
+// Mudar o telemóvel: o aviso "já está noutra conta" diz se um número usa o Tchilar (sem SMS não há como evitar).
+// Por conta (não por IP), 10 mudanças por hora chegam para corrigir enganos e tornam inútil testar números em série.
+const phoneChangeRateLimit = makeRateLimit("phoneChange", {
+  windowMs: 60 * 60 * 1000,
+  limit: 10,
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+  keyGenerator: req => `user:${req.user?.id}`,
+  skip: req => !isRecord(req.body) || req.body.phone === undefined,
+  message: { error: "Mudaste o telemóvel demasiadas vezes. Tenta novamente daqui a uma hora." }
+});
 const recoveryRateLimit = makeRateLimit("recovery", {
   windowMs: 60 * 60 * 1000,
   limit: 5,
@@ -125,8 +153,37 @@ const proxypay = process.env.PROXYPAY_API_KEY && process.env.PROXYPAY_ENTITY_ID
   ? createProxyPay({ apiKey: process.env.PROXYPAY_API_KEY, entityId: process.env.PROXYPAY_ENTITY_ID, environment: process.env.PROXYPAY_ENV === "production" ? "production" : "sandbox" })
   : null;
 const paybyrd = process.env.PAYBYRD_API_KEY ? createPaybyrd({ apiKey: process.env.PAYBYRD_API_KEY, currency: subscriptionCurrency.toUpperCase() }) : null;
-const payments = createPayments({ stripe, isProduction: !demoPayments, appUrl, currency: subscriptionCurrency, pool, proxypay, paybyrd, allowSimulation: demoPayments });
+// PayPal e RedotPay cobram em dólares: PAYMENTS_KZ_PER_USD diz quantos kwanzas vale 1 dólar (a equipa atualiza).
+const paypalEnvironment = String(process.env.PAYPAL_ENV || "live").trim().toLowerCase() === "live" ? "live" : "sandbox";
+const paypal = process.env.PAYPAL_CLIENT_ID && process.env.PAYPAL_CLIENT_SECRET
+  ? createPayPal({ clientId: process.env.PAYPAL_CLIENT_ID, clientSecret: process.env.PAYPAL_CLIENT_SECRET, environment: paypalEnvironment,
+    currency: (process.env.PAYPAL_CURRENCY || "USD").toUpperCase(), kzPerUnit: process.env.PAYMENTS_KZ_PER_USD })
+  : null;
+const redotpayCredentials = {
+  appKey: (process.env.REDOTPAY_APP_KEY || "").trim(),
+  privateKey: (process.env.REDOTPAY_PRIVATE_KEY || "").trim(),
+  platformPublicKey: (process.env.REDOTPAY_PLATFORM_PUBLIC_KEY || "").trim()
+};
+const redotpayExchangeRate = Number(process.env.PAYMENTS_KZ_PER_USD);
+const redotpay = Object.values(redotpayCredentials).every(Boolean) && Number.isFinite(redotpayExchangeRate) && redotpayExchangeRate > 0
+  ? createRedotPay({ ...redotpayCredentials, keyVersion: process.env.REDOTPAY_KEY_VERSION || "1",
+    environment: process.env.REDOTPAY_ENV === "production" ? "production" : "sandbox", currency: (process.env.REDOTPAY_CURRENCY || "USD").toUpperCase(),
+    kzPerUnit: redotpayExchangeRate })
+  : null;
+// PayPay Africa (kwanzas): dados pela equipa comercial da PayPay + o nosso par de chaves RSA.
+const paypay = process.env.PAYPAY_PARTNER_ID && process.env.PAYPAY_PRIVATE_KEY && process.env.PAYPAY_SALE_PRODUCT_CODE
+  ? createPayPayAfrica({ partnerId: process.env.PAYPAY_PARTNER_ID, privateKey: process.env.PAYPAY_PRIVATE_KEY, paypayPublicKey: process.env.PAYPAY_PUBLIC_KEY,
+    saleProductCode: process.env.PAYPAY_SALE_PRODUCT_CODE, ...(process.env.PAYPAY_API_URL && { apiUrl: process.env.PAYPAY_API_URL }) })
+  : null;
+// O IP de quem paga (a PayPay pede-o em cada pagamento), guardado durante cada pedido à API.
+const requestContext = new AsyncLocalStorage();
+// Endereço público da API (para o PayPal saber para onde devolver a pessoa). Sem API_PUBLIC_URL, usa o do site (/api passa por lá).
+const apiPublicUrl = process.env.API_PUBLIC_URL || appUrl;
+const payments = createPayments({ stripe, isProduction: !demoPayments, appUrl, apiUrl: apiPublicUrl, currency: subscriptionCurrency, pool, proxypay, paybyrd, paypal, redotpay, paypay,
+  payerIp: () => requestContext.getStore()?.ip || null, qrCode: text => QRCode.toDataURL(text, { margin: 1, width: 240 }), allowSimulation: demoPayments });
 payments.register("ad", (adId, details) => activatePaidAd(pool, adId, details));
+// Subscrições pagas mês a mês (Express, Referência, PayPal, RedotPay).
+const localSubscriptions = registerLocalSubscriptions({ pool, transaction, payments });
 
 // Atrás do nginx (ou outro proxy), o IP real vem em X-Forwarded-For. Sem isto, os limites de tentativas
 // contariam todas as pessoas como uma só (o IP do proxy). TRUST_PROXY = número de proxies à frente.
@@ -229,8 +286,55 @@ app.post("/api/webhooks/paybyrd", express.json({ limit: "100kb" }), async (req, 
   res.json({ received: true });
 });
 
+// RedotPay: só aceita avisos assinados pela RedotPay (chave pública deles, por ambiente) e com menos de 5 minutos.
+app.post("/api/webhooks/redotpay", express.raw({ type: "*/*", limit: "100kb" }), async (req, res) => {
+  const raw = Buffer.isBuffer(req.body) ? req.body.toString("utf8") : "";
+  let payload = {};
+  try { payload = JSON.parse(raw || "{}"); } catch { payload = {}; }
+  const requestId = typeof payload.requestId === "string" ? payload.requestId : crypto.randomUUID();
+  if (!redotpay) return res.status(503).json({ code: "FAIL", requestId, msg: "RedotPay não configurado." });
+  if (!redotpay.verifyWebhook(raw, req.headers)) return res.status(401).json({ code: "FAIL", requestId, msg: "Assinatura inválida." });
+  try {
+    await payments.handleRedotPayNotification(payload);
+    res.json({ code: "SUCCESS", requestId });
+  } catch (error) {
+    console.error("RedotPay webhook:", error.message);
+    res.status(500).json({ code: "FAIL", requestId, msg: "Erro ao processar." });
+  }
+});
+
+// PayPay Africa: aviso assinado pela PayPay (formulário, não JSON). Só serve para perguntar o estado
+// à PayPay; a resposta tem de ser exatamente "success" (senão a PayPay repete o aviso).
+app.post("/api/webhooks/paypay", express.urlencoded({ extended: false, limit: "100kb" }), async (req, res) => {
+  if (!paypay) return res.status(503).type("text/plain").send("fail");
+  const params = req.body && typeof req.body === "object" ? req.body : {};
+  if (!paypay.verifyNotification(params)) return res.status(401).type("text/plain").send("fail");
+  try {
+    await payments.refreshPayPayByTradeNo(typeof params.out_trade_no === "string" ? params.out_trade_no : null);
+    res.type("text/plain").send("success");
+  } catch (error) {
+    console.error("PayPay webhook:", error.message);
+    res.status(500).type("text/plain").send("fail");
+  }
+});
+
+// PayPal: a pessoa volta aqui depois de aprovar. Capturamos o pagamento e mandamo-la para a página certa.
+app.get("/api/payments/paypal/return", async (req, res) => {
+  const id = parseId(req.query.payment);
+  let target = "/";
+  try {
+    const result = id ? await payments.capturePayPal(id, typeof req.query.token === "string" ? req.query.token : null) : { path: "/" };
+    target = result.path || "/";
+  } catch (error) {
+    console.error("PayPal return:", error.message);
+  }
+  // Só caminhos do próprio site (nunca endereços de fora).
+  res.redirect(303, new URL(target.startsWith("/") && !target.startsWith("//") ? target : "/", appUrl).toString());
+});
+
 app.use(express.json({ limit: "2mb" }));
 app.use(express.urlencoded({ extended: false, limit: "2mb" }));
+app.use((req, _res, next) => requestContext.run({ ip: req.ip }, next));
 
 const mimeExtensions = {
   "image/jpeg": ".jpg",
@@ -288,7 +392,7 @@ const documentUpload = multer({
 });
 
 // Campos da própria conta devolvidos ao cliente (nunca inclui password_hash nem auth_version).
-const OWN_ACCOUNT_FIELDS = "id,username,email,display_name,bio,avatar_url,cover_url,cover_position,location,website,profession,is_creator,subscription_price,email_verified,is_admin,admin_role,phone,created_at";
+const OWN_ACCOUNT_FIELDS = "id,username,email,display_name,bio,avatar_url,cover_url,cover_position,location,website,profession,is_creator,subscription_price,email_verified,is_admin,admin_role,phone,phone_verified_at,created_at";
 
 // Apaga um ficheiro de /uploads de forma segura (ignora valores vazios e ficheiros já removidos).
 async function removeUpload(mediaUrl) {
@@ -423,7 +527,7 @@ const JWT_VERIFY = { algorithms: ["HS256"] };
 // Sessões sem prazo: uma sessão (no site ou na app) dura até a pessoa terminar sessão, usar "Terminar outras
 // sessões", mudar a palavra-passe ou a conta ser suspensa. Esses casos sobem auth_version e cortam todos os tokens
 // antigos de uma vez (ver auth()). O campo "app" fica no token só para se saber de onde veio a sessão.
-function sign(user, { app = false, sid } = {}) {
+function sign(user, { app = false, sid = undefined } = {}) {
   return jwt.sign(
     { id: user.id, username: user.username, version: Number(user.auth_version || 0), ...(app && { app: true }), ...(sid && { sid }) },
     JWT_SECRET);
@@ -515,19 +619,23 @@ function serializePost(post) {
   if (post.shared_post_id !== undefined && post.shared_post_id !== null && "shared_id" in post) {
     const {
       shared_id, shared_body, shared_media_url, shared_media_type, shared_created_at,
-      shared_username, shared_display_name, shared_avatar_url, shared_visible, ...rest
+      shared_username, shared_display_name, shared_avatar_url, shared_page_id, shared_page_name,
+      shared_page_logo_url, shared_page_category, shared_page_official, shared_visible, ...rest
     } = post;
     // Só publicações públicas podem ser partilhadas, por isso o ficheiro não precisa de assinatura.
     post = {
       ...rest,
       shared: shared_visible ? {
         id: shared_id, body: shared_body, media_url: shared_media_url, media_type: shared_media_type,
-        created_at: shared_created_at, username: shared_username, display_name: shared_display_name, avatar_url: shared_avatar_url
+        created_at: shared_created_at, username: shared_username, display_name: shared_display_name, avatar_url: shared_avatar_url,
+        page_id: shared_page_id, page_name: shared_page_name, page_logo_url: shared_page_logo_url,
+        page_category: shared_page_category, page_is_official: shared_page_official
       } : { unavailable: true }
     };
   } else if ("shared_id" in post) {
     const { shared_id, shared_body, shared_media_url, shared_media_type, shared_created_at,
-      shared_username, shared_display_name, shared_avatar_url, shared_visible, ...rest } = post;
+      shared_username, shared_display_name, shared_avatar_url, shared_page_id, shared_page_name,
+      shared_page_logo_url, shared_page_category, shared_page_official, shared_visible, ...rest } = post;
     post = rest;
   }
   return {
@@ -538,9 +646,11 @@ function serializePost(post) {
   };
 }
 
-// Conta + estado da sessão do token (session_ok: a sessão existe e não foi terminada; null se o token não tem sid).
+// Conta + estado da sessão do token (session_ok: a sessão existe, não foi terminada e foi usada nos últimos 6 meses;
+// null se o token não tem sid).
 const SESSION_SQL = `SELECT u.auth_version,u.suspended_at,u.is_admin,u.admin_role,
-  CASE WHEN $2::text IS NULL THEN NULL ELSE EXISTS(SELECT 1 FROM user_sessions s WHERE s.id=$2 AND s.user_id=u.id AND s.revoked_at IS NULL) END AS session_ok
+  CASE WHEN $2::text IS NULL THEN NULL ELSE EXISTS(SELECT 1 FROM user_sessions s WHERE s.id=$2 AND s.user_id=u.id AND s.revoked_at IS NULL
+    AND s.last_seen_at > NOW() - INTERVAL '${SESSION_IDLE_DAYS} days') END AS session_ok
   FROM users u WHERE u.id=$1`;
 const sessionParams = claims => [claims.id, typeof claims.sid === "string" ? claims.sid : null];
 
@@ -699,8 +809,10 @@ app.get("/uploads/:filename", optionalAuth, async (req, res, next) => {
         }
         const profileImage = await pool.query(
           `SELECT 1 FROM users WHERE avatar_url=$1 OR cover_url=$1
+           UNION ALL SELECT 1 FROM pages WHERE logo_url=$1 OR cover_url=$1
            UNION ALL SELECT 1 FROM courses WHERE cover_url=$1
            UNION ALL SELECT 1 FROM ads WHERE image_url=$1
+           UNION ALL SELECT 1 FROM events WHERE image_url=$1
            UNION ALL SELECT 1 FROM music_tracks WHERE audio_url=$1 AND hidden_at IS NULL LIMIT 1`,
           [`/uploads/${filename}`]);
         if (!profileImage.rowCount) return res.status(404).json({ error: "Ficheiro não encontrado." });
@@ -751,6 +863,23 @@ app.get("/uploads/:filename", optionalAuth, async (req, res, next) => {
   }
 });
 
+app.post("/api/promotion-codes/validate", auth, async (req, res) => {
+  const body = isRecord(req.body) ? req.body : {};
+  const purpose = typeof body.purpose === "string" ? body.purpose : "";
+  const amount = Number(body.amountKz);
+  if (!purpose || !Number.isFinite(amount) || amount <= 0) return res.status(400).json({ error: "Indica a compra a validar." });
+  const result = await resolvePromotionCode(pool, { code: body.code, purpose, amountKz: amount, userId: req.user.id });
+  if ("error" in result) return res.status(400).json({ error: result.error });
+  res.json({
+    valid: Boolean(result.code),
+    code: result.code?.code || null,
+    discountPercent: result.code?.discount_percent || 0,
+    originalAmount: result.original,
+    discountAmount: result.discount,
+    amount: result.paid
+  });
+});
+
 app.post("/api/auth/register", authRateLimit, async (req, res) => {
   try {
     const body = isRecord(req.body) ? req.body : {};
@@ -783,8 +912,9 @@ app.post("/api/auth/register", authRateLimit, async (req, res) => {
     if (!body.birthDate) return res.status(400).json({ error: "Indica a tua data de nascimento." });
     const birth = parseBirthDate(body.birthDate);
     if (birth.error) return res.status(400).json({ error: birth.error });
-    const phone = parsePhone(body.phone);
+    const phone = parsePhone(body.phone, body.phoneCountry);
     if (phone.error) return res.status(400).json({ error: phone.error });
+    if (phone.skip || !phone.value) return res.status(400).json({ error: "O número de telemóvel é obrigatório." });
     const hash = await bcrypt.hash(password, 12);
     // Convite: o nome de utilizador de quem convidou (opcional; ignorado se não existir).
     const invite = typeof body.invite === "string" ? body.invite.trim().toLowerCase().slice(0, 40) : "";
@@ -828,12 +958,16 @@ app.get("/api/auth/username-available", usernameCheckRateLimit, async (req, res)
 
 app.post("/api/auth/login", authRateLimit, async (req, res) => {
   const body = isRecord(req.body) ? req.body : {};
-  const email = cleanText(body.email).toLowerCase();
+  // "identifier" (ou "email", nas apps antigas): o email ou o número de telemóvel da conta.
+  const identifier = cleanText(typeof body.identifier === "string" ? body.identifier : body.email);
   const password = typeof body.password === "string" ? body.password : "";
-  if (!email || !password) return res.status(400).json({ error: "Email e palavra-passe são obrigatórios." });
+  if (!identifier || !password) return res.status(400).json({ error: "Indica o email ou o telemóvel e a palavra-passe." });
+  const byEmail = identifier.includes("@");
+  const phone = byEmail ? null : parsePhoneNumber(identifier, typeof body.phoneCountry === "string" ? body.phoneCountry : undefined);
+  if (!byEmail && !phone) return res.status(400).json({ error: `Não reconhecemos esse email ou número. ${PHONE_ERROR}` });
   const result = await pool.query(`
     SELECT ${OWN_ACCOUNT_FIELDS},auth_version,password_hash,suspended_at,totp_secret,totp_enabled_at,totp_last_step
-    FROM users WHERE email=$1`, [email]);
+    FROM users WHERE ${byEmail ? "email=$1" : "phone=$1 AND phone_verified_at IS NOT NULL"}`, [byEmail ? identifier.toLowerCase() : phone.e164]);
   const user = result.rows[0];
   if (!user || !(await bcrypt.compare(password, user.password_hash))) {
     return res.status(401).json({ error: "Credenciais inválidas." });
@@ -943,6 +1077,107 @@ app.post("/api/auth/reset-password", recoveryRateLimit, async (req, res) => {
   });
   if (!reset) return res.status(400).json({ error: "Ligação inválida ou expirada." });
   res.json({ reset: true, message: "Palavra-passe atualizada. Já podes iniciar sessão." });
+});
+
+// ----- Telemóvel por SMS (Twilio Verify) -----
+// Confirmar o número da conta: envia um código para o número guardado e confere-o. Só um número confirmado serve
+// para entrar e para recuperar a conta. Se outra conta tinha esse número confirmado (o operador pode ter passado o
+// número a outra pessoa), perde-o: o número fica com quem provou agora que o tem.
+const SMS_UNAVAILABLE = "O envio de SMS ainda não está disponível. Tenta mais tarde.";
+const smsSendRateLimit = makeRateLimit("smsSend", {
+  windowMs: 15 * 60 * 1000,
+  limit: 5,
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+  message: { error: "Pediste vários códigos seguidos. Espera 15 minutos e tenta outra vez." }
+});
+const smsReply = sent => ({ sent: true, ...(sent.devCode && exposeDevAuthLinks && { devCode: sent.devCode }) });
+
+// Por onde podem ir os códigos (SMS e/ou WhatsApp, pela ordem do .env). O site e a app mostram um botão por canal.
+app.get("/api/auth/phone/channels", (_req, res) => res.json({ channels: sms ? sms.channels : [] }));
+const pickChannel = value => (sms.channels.includes(value) ? value : sms.channels[0]);
+
+app.post("/api/auth/phone/send-code", auth, smsSendRateLimit, async (req, res) => {
+  if (!sms) return res.status(503).json({ error: SMS_UNAVAILABLE });
+  const account = (await pool.query("SELECT phone,phone_verified_at FROM users WHERE id=$1", [req.user.id])).rows[0];
+  if (!account?.phone) return res.status(400).json({ error: "Guarda primeiro o teu número de telemóvel." });
+  if (account.phone_verified_at) return res.status(409).json({ error: "Este número já está confirmado." });
+  const allowed = await smsAllowed(pool, account.phone);
+  if (!allowed.ok) return res.status(429).json({ error: allowed.error, reason: allowed.reason });
+  const channel = pickChannel(req.body?.channel);
+  const sent = await sms.send(account.phone, channel);
+  if (sent.error) return res.status(400).json({ error: sent.error });
+  await recordSms(pool, { phone: account.phone, userId: req.user.id, channel, purpose: "confirm" });
+  res.json({ ...smsReply(sent), phone: account.phone, channel });
+});
+
+app.post("/api/auth/phone/verify", auth, accountSecurityRateLimit, async (req, res) => {
+  if (!sms) return res.status(503).json({ error: SMS_UNAVAILABLE });
+  const code = typeof req.body?.code === "string" ? req.body.code.trim() : "";
+  if (!SMS_CODE_PATTERN.test(code)) return res.status(400).json({ error: "Escreve o código que recebeste por SMS." });
+  const account = (await pool.query("SELECT phone,phone_verified_at FROM users WHERE id=$1", [req.user.id])).rows[0];
+  if (!account?.phone) return res.status(400).json({ error: "Guarda primeiro o teu número de telemóvel." });
+  if (account.phone_verified_at) return res.status(409).json({ error: "Este número já está confirmado." });
+  if (!(await sms.check(account.phone, code))) return res.status(400).json({ error: "Código errado ou expirado. Pede um novo." });
+  const user = await transaction(async client => {
+    const previous = await client.query(
+      "UPDATE users SET phone_verified_at=NULL WHERE phone=$1 AND id<>$2 AND phone_verified_at IS NOT NULL RETURNING id",
+      [account.phone, req.user.id]);
+    for (const row of previous.rows) {
+      await client.query("INSERT INTO notifications(user_id,type,text) VALUES($1,'privacy',$2)", [row.id,
+        "O teu número de telemóvel foi confirmado noutra conta (por exemplo, se o operador o passou a outra pessoa). Deixou de servir para entrar na tua: indica e confirma outro em Definições → Conta."]);
+    }
+    return (await client.query(`UPDATE users SET phone_verified_at=NOW() WHERE id=$1 AND phone=$2 RETURNING ${OWN_ACCOUNT_FIELDS}`,
+      [req.user.id, account.phone])).rows[0];
+  });
+  if (!user) return res.status(409).json({ error: "O número mudou entretanto. Pede um novo código." });
+  res.json({ user, message: "Número confirmado. Já podes usá-lo para entrar." });
+});
+
+// Recuperar a conta pelo telemóvel: código por SMS para um número CONFIRMADO, depois nova palavra-passe.
+// A resposta é sempre a mesma, exista ou não uma conta com esse número.
+app.post("/api/auth/forgot-password/phone", recoveryRateLimit, smsSendRateLimit, async (req, res) => {
+  if (!sms) return res.status(503).json({ error: SMS_UNAVAILABLE });
+  const body = isRecord(req.body) ? req.body : {};
+  const phone = parsePhoneNumber(typeof body.phone === "string" ? body.phone : "", typeof body.phoneCountry === "string" ? body.phoneCountry : undefined);
+  if (!phone) return res.status(400).json({ error: PHONE_ERROR });
+  const user = await pool.query("SELECT id FROM users WHERE phone=$1 AND phone_verified_at IS NOT NULL AND suspended_at IS NULL", [phone.e164]);
+  let sent = {};
+  if (user.rowCount) {
+    // Limites por número: se já se pediram códigos a mais, a resposta é igual (não revela se o número tem conta).
+    // O teto diário do Tchilar é dito às claras, porque não revela nada sobre ninguém.
+    const allowed = await smsAllowed(pool, phone.e164);
+    if (!allowed.ok && allowed.reason === "daily_limit") return res.status(429).json({ error: allowed.error, reason: allowed.reason });
+    if (allowed.ok) {
+      const channel = pickChannel(body.channel);
+      sent = await sms.send(phone.e164, channel);
+      if (sent.error) return res.status(400).json({ error: sent.error });
+      await recordSms(pool, { phone: phone.e164, userId: user.rows[0].id, channel, purpose: "recover" });
+    }
+  }
+  res.json({
+    phone: phone.e164,
+    message: "Se existir uma conta com este número confirmado, enviámos um código por SMS.",
+    ...(sent.devCode && exposeDevAuthLinks && { devCode: sent.devCode })
+  });
+});
+
+app.post("/api/auth/reset-password/phone", recoveryRateLimit, async (req, res) => {
+  if (!sms) return res.status(503).json({ error: SMS_UNAVAILABLE });
+  const body = isRecord(req.body) ? req.body : {};
+  const phone = parsePhoneNumber(typeof body.phone === "string" ? body.phone : "", typeof body.phoneCountry === "string" ? body.phoneCountry : undefined);
+  const code = typeof body.code === "string" ? body.code.trim() : "";
+  const password = typeof body.password === "string" ? body.password : "";
+  if (!phone || !SMS_CODE_PATTERN.test(code)) return res.status(400).json({ error: "Código errado ou expirado. Pede um novo." });
+  const passwordError = passwordProblem(password);
+  if (passwordError) return res.status(400).json({ error: passwordError });
+  const found = await pool.query("SELECT id FROM users WHERE phone=$1 AND phone_verified_at IS NOT NULL AND suspended_at IS NULL", [phone.e164]);
+  // Sem conta não foi enviado nenhum código: a resposta é a mesma de um código errado.
+  if (!found.rowCount || !(await sms.check(phone.e164, code))) return res.status(400).json({ error: "Código errado ou expirado. Pede um novo." });
+  const passwordHash = await bcrypt.hash(password, 12);
+  await pool.query("UPDATE users SET password_hash=$1,auth_version=auth_version+1 WHERE id=$2", [passwordHash, found.rows[0].id]);
+  await pool.query("DELETE FROM auth_tokens WHERE user_id=$1 AND purpose='reset_password'", [found.rows[0].id]);
+  res.json({ reset: true, message: "Palavra-passe atualizada. Já podes entrar com o teu número." });
 });
 
 app.get("/api/auth/me", auth, async (req, res) => {
@@ -1080,7 +1315,7 @@ function normalizeWebsite(value) {
   }
 }
 
-app.patch("/api/auth/me", auth, async (req, res) => {
+app.patch("/api/auth/me", auth, phoneChangeRateLimit, async (req, res) => {
   const body = isRecord(req.body) ? req.body : {};
   const hasDisplayName = body.displayName !== undefined;
   const hasBio = body.bio !== undefined;
@@ -1094,7 +1329,7 @@ app.patch("/api/auth/me", auth, async (req, res) => {
   }
   const website = websiteText.value === undefined ? undefined : normalizeWebsite(websiteText.value);
   if (website === null) return res.status(400).json({ error: "Indica um endereço de site válido (por exemplo, https://exemplo.ao)." });
-  const phone = parsePhone(body.phone);
+  const phone = parsePhone(body.phone, body.phoneCountry);
   if (phone.error) return res.status(400).json({ error: phone.error });
   const hasExtra = [location.value, profession.value, website].some(value => value !== undefined) || !phone.skip;
   if (!hasDisplayName && !hasBio && !hasPrice && !hasExtra) return res.status(400).json({ error: "Indica pelo menos um campo para atualizar." });
@@ -1112,15 +1347,30 @@ app.patch("/api/auth/me", auth, async (req, res) => {
     if (!account.rowCount) return res.status(404).json({ error: "Conta não encontrada." });
     if (!account.rows[0].is_creator) return res.status(403).json({ error: "Só contas de criador podem definir um preço de subscrição." });
   }
+  // Alterar ou remover um telemóvel já guardado pede a palavra-passe (quem tiver a sessão aberta noutro
+  // aparelho não o pode trocar). Guardar o primeiro número não pede.
+  if (!phone.skip) {
+    const current = (await pool.query("SELECT phone,password_hash FROM users WHERE id=$1", [req.user.id])).rows[0];
+    if (!current) return res.status(404).json({ error: "Conta não encontrada." });
+    if (current.phone && current.phone !== (phone.value ?? null)) {
+      const password = typeof body.password === "string" ? body.password : "";
+      const ok = password && current.password_hash ? await bcrypt.compare(password, current.password_hash).catch(() => false) : false;
+      if (!ok) {
+        return res.status(403).json({ error: password ? "A palavra-passe não está certa." : "Para alterar ou remover o telemóvel, confirma a tua palavra-passe.", code: "password_required" });
+      }
+    }
+  }
+  // Um número novo fica por confirmar (código por SMS em POST /auth/phone/send-code).
   const result = await pool.query(`
       UPDATE users SET display_name=COALESCE($1,display_name),bio=COALESCE($2,bio),
         subscription_price=COALESCE($3,subscription_price),
         location=COALESCE($5,location),profession=COALESCE($6,profession),website=COALESCE($7,website),
-        phone=CASE WHEN $8::boolean THEN $9 ELSE phone END
+        phone=CASE WHEN $8::boolean THEN $9 ELSE phone END,
+        phone_verified_at=CASE WHEN $8::boolean AND $9::text IS DISTINCT FROM phone THEN NULL ELSE phone_verified_at END
       WHERE id=$4
       RETURNING ${OWN_ACCOUNT_FIELDS}`,
-    [hasDisplayName ? body.displayName.trim() : null, hasBio ? body.bio.trim() : null, subscriptionPrice, req.user.id,
-      location.value ?? null, profession.value ?? null, website ?? null, !phone.skip, phone.value ?? null]);
+  [hasDisplayName ? body.displayName.trim() : null, hasBio ? body.bio.trim() : null, subscriptionPrice, req.user.id,
+    location.value ?? null, profession.value ?? null, website ?? null, !phone.skip, phone.value ?? null]);
   if (!result.rowCount) return res.status(404).json({ error: "Conta não encontrada." });
   res.json({ user: result.rows[0] });
 });
@@ -1221,16 +1471,22 @@ async function listPosts(req, res, onlyId = null) {
     if (!membership.rowCount) return res.status(403).json({ error: "Tens de pertencer ao grupo para ver as publicações." });
   }
   const r = await pool.query(`
-    SELECT p.*, u.username, u.display_name, u.avatar_url, u.is_creator, u.partner_since IS NOT NULL AS is_verified,
+    SELECT p.*, u.username, u.display_name, u.avatar_url, u.is_creator,
+      COALESCE(u.partner_since IS NOT NULL OR u.verification_expires_at > NOW(), FALSE) AS is_verified,
+      CASE WHEN u.verification_expires_at > NOW() THEN u.verification_tier END AS verification_tier,
       p.star_count::int AS stars,
-      g.name AS group_name, pg.name AS page_name,
+      g.name AS group_name, pg.name AS page_name, pg.logo_url AS page_logo_url,
+      pg.category AS page_category, pg.is_official AS page_is_official,
+      CASE WHEN pg.verification_expires_at > NOW() THEN pg.verification_tier END AS page_verification_tier,
       p.like_count AS likes,
       EXISTS(SELECT 1 FROM likes l WHERE l.post_id=p.id AND l.user_id=$1) AS liked,
+      (SELECT l.reaction FROM likes l WHERE l.post_id=p.id AND l.user_id=$1) AS user_reaction,
       p.comment_count AS comments,
       p.share_count AS shares,
       sp.id AS shared_id, sp.body AS shared_body, sp.media_url AS shared_media_url, sp.media_type AS shared_media_type,
       sp.created_at AS shared_created_at, su.username AS shared_username, su.display_name AS shared_display_name,
-      su.avatar_url AS shared_avatar_url,
+      su.avatar_url AS shared_avatar_url, sp.page_id AS shared_page_id, spg.name AS shared_page_name,
+      spg.logo_url AS shared_page_logo_url, spg.category AS shared_page_category, spg.is_official AS shared_page_official,
       (sp.id IS NOT NULL AND sp.hidden_at IS NULL AND NOT ${blockedBetween("$1", "sp.user_id")}) AS shared_visible,
       ${POST_MUSIC_SQL}
     FROM posts p JOIN users u ON u.id=p.user_id
@@ -1238,6 +1494,7 @@ async function listPosts(req, res, onlyId = null) {
     LEFT JOIN pages pg ON pg.id=p.page_id
     LEFT JOIN posts sp ON sp.id=p.shared_post_id
     LEFT JOIN users su ON su.id=sp.user_id
+    LEFT JOIN pages spg ON spg.id=sp.page_id
     WHERE ($2::text IS NULL OR u.username=$2)
       AND ($3::int IS NULL OR p.group_id=$3)
       AND ($4::int IS NULL OR p.page_id=$4)
@@ -1402,26 +1659,45 @@ app.delete("/api/posts/:id", auth, async (req, res) => {
 app.post("/api/posts/:id/like", auth, async (req, res) => {
   const id = parseId(req.params.id);
   if (!id) return res.status(400).json({ error: "Publicação inválida." });
+  const body = isRecord(req.body) ? req.body : {};
+  const supportedReactions = ["like", "love", "haha", "wow", "sad", "angry"];
+  const reaction = Object.hasOwn(body, "reaction") ? body.reaction : "like";
+  if (reaction !== null && !supportedReactions.includes(reaction)) {
+    return res.status(400).json({ error: "Reação inválida." });
+  }
   const access = await canAccessPost(id, req.user.id);
   if (!access.exists) return res.status(404).json({ error: "Publicação não encontrada." });
   if (!access.allowed) return res.status(403).json({ error: "Não tens acesso a esta publicação." });
-  const liked = await transaction(async client => {
-    const removed = await client.query(
-      "DELETE FROM likes WHERE user_id=$1 AND post_id=$2 RETURNING post_id",
+  const savedReaction = await transaction(async client => {
+    const current = await client.query(
+      "SELECT reaction FROM likes WHERE user_id=$1 AND post_id=$2 FOR UPDATE",
       [req.user.id, id]);
-    if (removed.rowCount) return false;
-    const inserted = await client.query(
-      "INSERT INTO likes(user_id,post_id) VALUES($1,$2) ON CONFLICT DO NOTHING RETURNING post_id",
-      [req.user.id, id]);
-    if (inserted.rowCount && access.post.user_id !== req.user.id) {
+    const existing = current.rows[0]?.reaction || (current.rowCount ? "like" : null);
+    const next = existing === reaction ? null : reaction;
+    if (next === null && current.rowCount) {
+      await client.query("DELETE FROM likes WHERE user_id=$1 AND post_id=$2", [req.user.id, id]);
+    } else if (next && current.rowCount) {
+      await client.query("UPDATE likes SET reaction=$3 WHERE user_id=$1 AND post_id=$2", [req.user.id, id, next]);
+    } else if (next) {
+      await client.query("INSERT INTO likes(user_id,post_id,reaction) VALUES($1,$2,$3)", [req.user.id, id, next]);
+    }
+    if (!existing && next && access.post.user_id !== req.user.id) {
       await client.query(`
         INSERT INTO notifications(user_id,actor_id,type,text,post_id)
         VALUES($1,$2,'like','Gostou da tua publicação.',$3)`, [access.post.user_id, req.user.id, id]);
     }
-    return true;
+    return next;
   });
-  const count = await pool.query("SELECT like_count AS count FROM posts WHERE id=$1", [id]);
-  res.json({ liked, likes: count.rows[0].count });
+  const [count, distribution] = await Promise.all([
+    pool.query("SELECT like_count AS count FROM posts WHERE id=$1", [id]),
+    pool.query("SELECT reaction,COUNT(*)::int AS count FROM likes WHERE post_id=$1 GROUP BY reaction", [id])
+  ]);
+  res.json({
+    liked: Boolean(savedReaction),
+    reaction: savedReaction,
+    likes: count.rows[0].count,
+    reaction_counts: Object.fromEntries(distribution.rows.map(row => [row.reaction || "like", row.count]))
+  });
 });
 
 app.get("/api/posts/:id/comments", optionalAuth, async (req, res) => {
@@ -1496,7 +1772,9 @@ app.get("/api/search", auth, searchRateLimit, async (req, res) => {
   const like = likePattern(term.replace(/^#/, ""));
   const [users, groups, pages, hashtags] = await Promise.all([
     pool.query(`
-      SELECT id,username,display_name,avatar_url,is_creator,partner_since IS NOT NULL AS is_verified
+      SELECT id,username,display_name,avatar_url,is_creator,
+        COALESCE(partner_since IS NOT NULL OR verification_expires_at > NOW(), FALSE) AS is_verified,
+        CASE WHEN verification_expires_at > NOW() THEN verification_tier END AS verification_tier
       FROM users
       WHERE id<>$1 AND suspended_at IS NULL AND NOT ${blockedBetween("$1", "users.id")}
         AND (username ILIKE $2 ESCAPE '\\' OR display_name ILIKE $2 ESCAPE '\\')
@@ -1509,7 +1787,8 @@ app.get("/api/search", auth, searchRateLimit, async (req, res) => {
       WHERE g.hidden_at IS NULL AND NOT g.is_secret AND (g.name ILIKE $2 ESCAPE '\\' OR g.description ILIKE $2 ESCAPE '\\')
       ORDER BY member_count DESC, g.created_at DESC LIMIT 20`, [req.user.id, like]),
     pool.query(`
-      SELECT p.id,p.name,p.page_type,p.category,p.subcategory,p.description,
+      SELECT p.id,p.name,p.page_type,p.category,p.subcategory,p.description,p.is_official,
+        CASE WHEN p.verification_expires_at > NOW() THEN p.verification_tier END AS verification_tier,
         (SELECT COUNT(*) FROM page_followers f WHERE f.page_id=p.id)::int AS follower_count
       FROM pages p
       WHERE p.hidden_at IS NULL AND (p.name ILIKE $1 ESCAPE '\\' OR p.description ILIKE $1 ESCAPE '\\' OR p.category ILIKE $1 ESCAPE '\\')
@@ -1648,7 +1927,9 @@ app.post("/api/friends/requests/:requestId/reject", auth, async (req, res) => {
 app.get("/api/users/:username", optionalAuth, async (req, res) => {
   const r = await pool.query(`
     SELECT u.id,u.username,u.display_name,u.bio,u.avatar_url,u.cover_url,u.cover_position,u.location,u.website,u.profession,
-      u.is_creator,u.subscription_price,u.created_at,u.partner_since IS NOT NULL AS is_verified,
+      u.is_creator,u.subscription_price,u.created_at,
+      COALESCE(u.partner_since IS NOT NULL OR u.verification_expires_at > NOW(), FALSE) AS is_verified,
+      CASE WHEN u.verification_expires_at > NOW() THEN u.verification_tier END AS verification_tier,
       (SELECT COUNT(*) FROM follows f WHERE f.following_id=u.id)::int AS followers,
       (SELECT COUNT(*) FROM follows f WHERE f.follower_id=u.id)::int AS following,
       (SELECT COUNT(*) FROM friendships f WHERE f.user_a_id=u.id OR f.user_b_id=u.id)::int AS friends,
@@ -1673,6 +1954,7 @@ app.get("/api/users/:username", optionalAuth, async (req, res) => {
         WHERE (f.user_a_id=$2 AND f.user_b_id=u.id) OR (f.user_a_id=u.id AND f.user_b_id=$2))) AS online,
       s.current_period_end AS subscription_period_end,
       s.cancel_at_period_end AS subscription_canceling,
+      s.provider AS subscription_provider,
       (s.subscriber_id IS NOT NULL AND ${ACTIVE_SUBSCRIPTION_SQL}) AS is_subscribed
     FROM users u
     LEFT JOIN subscriptions s ON s.creator_id=u.id AND s.subscriber_id=$2
@@ -1680,6 +1962,10 @@ app.get("/api/users/:username", optionalAuth, async (req, res) => {
   // Quem me bloqueou ou está suspenso aparece como inexistente.
   if (!r.rows[0] || r.rows[0].blocked_me || r.rows[0].suspended) return res.status(404).json({ error: "Utilizador não encontrado." });
   const { blocked_me: _blockedMe, suspended: _suspended, ...user } = r.rows[0];
+  // Paga mês a mês (sem Stripe): não renova sozinha; can_renew diz se já pode pagar o mês seguinte.
+  user.subscription_manual = user.is_subscribed && user.subscription_provider !== "stripe";
+  user.subscription_can_renew = user.is_subscribed && canRenew({ provider: user.subscription_provider, current_period_end: user.subscription_period_end, cancel_at_period_end: user.subscription_canceling });
+  delete user.subscription_provider;
   if (!user.is_subscribed) {
     user.subscription_period_end = null;
     user.subscription_canceling = false;
@@ -1747,7 +2033,7 @@ app.get("/api/auth/me/stats", auth, async (req, res) => {
     pool.query(`
       SELECT u.is_creator,u.subscription_price,
         (SELECT COUNT(*) FROM subscriptions s WHERE s.creator_id=u.id AND ${ACTIVE_SUBSCRIPTION_SQL})::int AS active_subscribers,
-        (SELECT COUNT(*) FROM subscriptions s WHERE s.creator_id=u.id AND ${ACTIVE_SUBSCRIPTION_SQL} AND s.provider='stripe')::int AS paying_subscribers,
+        (SELECT COUNT(*) FROM subscriptions s WHERE s.creator_id=u.id AND ${ACTIVE_SUBSCRIPTION_SQL} AND s.provider IN ('stripe','local'))::int AS paying_subscribers,
         (SELECT COUNT(*) FROM subscriptions s WHERE s.creator_id=u.id AND ${ACTIVE_SUBSCRIPTION_SQL} AND s.cancel_at_period_end)::int AS canceling_subscribers
       FROM users u WHERE u.id=$1`, [id])
   ]);
@@ -1761,7 +2047,7 @@ app.get("/api/auth/me/stats", auth, async (req, res) => {
       active_subscribers: creatorRow.active_subscribers,
       paying_subscribers: creatorRow.paying_subscribers,
       canceling_subscribers: creatorRow.canceling_subscribers,
-      // Estimativa bruta: assinantes pagos × preço atual (antes de taxas da Stripe e impostos).
+      // Estimativa bruta: assinantes pagos × preço atual (antes da parte do Tchilar, das taxas e dos impostos).
       estimated_monthly_revenue: Math.round(creatorRow.paying_subscribers * Number(creatorRow.subscription_price) * 100) / 100
     } : null
   });
@@ -1792,55 +2078,63 @@ app.post("/api/users/:id/follow", auth, async (req, res) => {
   res.json({ following });
 });
 
+// Subscrever (ou renovar) um criador. Cartão com a Stripe = subscrição que se cobra sozinha todos os meses.
+// Express, Referência, PayPal e RedotPay = paga-se um mês de cada vez (ver local-subscriptions.js).
 app.post("/api/subscriptions/:creatorId", auth, async (req, res) => {
   const creatorId = parseId(req.params.creatorId);
   if (!creatorId || creatorId === req.user.id) return res.status(400).json({ error: "Criador inválido." });
   if (await isBlocked(req.user.id, creatorId)) return res.status(403).json({ error: BLOCKED_ERROR });
-  if (!stripe && !demoPayments) {
+  if (payments.mode === "off") {
     return res.status(503).json({ error: "Os pagamentos ainda não estão disponíveis." });
   }
+  const body = isRecord(req.body) ? req.body : {};
+  const method = typeof body.method === "string" ? body.method : "";
   const [creatorResult, subscriberResult, existingResult] = await Promise.all([
     pool.query("SELECT id,username,display_name,is_creator,subscription_price FROM users WHERE id=$1", [creatorId]),
     pool.query("SELECT email FROM users WHERE id=$1", [req.user.id]),
     pool.query(`
-      SELECT s.provider,s.provider_subscription_id,s.cancel_at_period_end,(${ACTIVE_SUBSCRIPTION_SQL}) AS active
+      SELECT s.provider,s.provider_subscription_id,s.cancel_at_period_end,s.current_period_end,(${ACTIVE_SUBSCRIPTION_SQL}) AS active
       FROM subscriptions s WHERE s.subscriber_id=$1 AND s.creator_id=$2`, [req.user.id, creatorId])
   ]);
   const creator = creatorResult.rows[0];
   if (!creator || !creator.is_creator) return res.status(404).json({ error: "Criador não encontrado." });
   const price = Number(creator.subscription_price);
   if (!(price >= MIN_PRICE)) return res.status(409).json({ error: "Este criador ainda não definiu um preço de subscrição." });
+  const email = subscriberResult.rows[0]?.email;
+  const payMonth = async () => {
+    const result = await localSubscriptions.startPayment({ subscriberId: req.user.id, email, creator, method: method || undefined, phone: body.phone, promoCode: body.promoCode });
+    if (result.error) return res.status(result.methods ? 400 : 503).json(result);
+    return res.status(201).json(result);
+  };
 
   const existing = existingResult.rows[0];
   if (existing?.active) {
+    // Paga mês a mês: com um método escolhido, paga o mês seguinte (nos últimos 7 dias, ou depois de cancelar).
+    if (existing.provider !== "stripe" && method) {
+      if (!canRenew(existing)) return res.status(409).json({ error: `Já tens este mês pago. Podes renovar nos últimos ${RENEWAL_WINDOW_DAYS} dias.` });
+      return payMonth();
+    }
     if (!existing.cancel_at_period_end) return res.status(409).json({ error: "Já tens uma subscrição ativa." });
     // Retomar uma subscrição que ia terminar no fim do período.
     if (existing.provider === "stripe") {
       await applyStripeSubscription(await stripe.subscriptions.update(existing.provider_subscription_id, { cancel_at_period_end: false }));
-    } else {
-      await pool.query(
-        "UPDATE subscriptions SET cancel_at_period_end=FALSE,updated_at=NOW() WHERE subscriber_id=$1 AND creator_id=$2",
-        [req.user.id, creatorId]);
+      return res.json({ subscribed: true, message: "A tua subscrição vai continuar a renovar." });
     }
-    return res.json({ subscribed: true, message: "A tua subscrição vai continuar a renovar." });
+    await pool.query(
+      "UPDATE subscriptions SET cancel_at_period_end=FALSE,updated_at=NOW() WHERE subscriber_id=$1 AND creator_id=$2",
+      [req.user.id, creatorId]);
+    return res.json({ subscribed: true, message: "Vamos avisar-te antes do fim do mês para renovares." });
   }
 
-  if (!stripe) {
-    await pool.query(`
-      INSERT INTO subscriptions(subscriber_id,creator_id,status,current_period_end,cancel_at_period_end,provider,provider_subscription_id,updated_at)
-      VALUES($1,$2,'active',NOW() + make_interval(days => $3::int),FALSE,'demo',NULL,NOW())
-      ON CONFLICT(subscriber_id,creator_id) DO UPDATE SET
-        status='active',current_period_end=EXCLUDED.current_period_end,cancel_at_period_end=FALSE,
-        provider='demo',provider_subscription_id=NULL,updated_at=NOW()`,
-    [req.user.id, creatorId, DEMO_PERIOD_DAYS]);
-    return res.json({ subscribed: true, demo: true, message: `Subscrição de demonstração ativa durante ${DEMO_PERIOD_DAYS} dias (sem pagamento).` });
-  }
+  // Sem método escolhido (app antiga): cartão se houver Stripe; senão, o único método que existir.
+  const useStripe = stripe && (method === "card" || (!method && !payments.methods.some(id => id !== "card")));
+  if (!useStripe) return payMonth();
 
   const metadata = { subscriber_id: String(req.user.id), creator_id: String(creatorId) };
   const profileUrl = new URL(`/u/${encodeURIComponent(creator.username)}`, appUrl);
   const session = await stripe.checkout.sessions.create({
     mode: "subscription",
-    customer_email: subscriberResult.rows[0]?.email,
+    customer_email: email,
     client_reference_id: String(req.user.id),
     line_items: [{
       quantity: 1,
@@ -2039,7 +2333,7 @@ app.post("/api/groups/:groupId/access", auth, async (req, res) => {
   const id = purchase.rows[0].id;
   const result = await payments.start({
     purpose: "group_access", refId: id, amountKz: Number(found.access_price), userId: req.user.id, email: user.rows[0]?.email,
-    method: body.method, phone: body.phone, name: `Entrada no grupo ${found.name}`,
+    method: body.method, phone: body.phone, promoCode: body.promoCode, name: `Entrada no grupo ${found.name}`,
     successPath: `/groups/${groupId}?pagamento=sucesso`, cancelPath: "/groups?pagamento=cancelado",
     onSession: sessionId => pool.query("UPDATE group_access_purchases SET stripe_session_id=$2 WHERE id=$1", [id, sessionId])
   });
@@ -2066,15 +2360,119 @@ payments.register("group_access", async (purchaseId, details) => {
 
 app.get("/api/pages", optionalAuth, async (req, res) => {
   const result = await pool.query(`
-    SELECT p.id,p.name,p.page_type,p.category,p.subcategory,p.description,p.created_at,u.username AS owner_username,
+    SELECT p.id,p.name,p.page_type,p.category,p.subcategory,p.description,p.about,p.contact_email,p.contact_phone,p.website,p.address,p.opening_hours,
+      p.logo_url,p.cover_url,p.cover_position,p.is_official,p.shop_enabled,p.created_at,u.username AS owner_username,
+      CASE WHEN p.verification_expires_at > NOW() THEN p.verification_tier END AS verification_tier,
       u.display_name AS owner_name,u.avatar_url AS owner_avatar,
       (SELECT COUNT(*) FROM page_followers f WHERE f.page_id=p.id)::int AS follower_count,
       (SELECT COUNT(*) FROM posts po WHERE po.page_id=p.id AND po.hidden_at IS NULL)::int AS post_count,
-      (p.owner_id=$1 OR EXISTS(SELECT 1 FROM page_followers f WHERE f.page_id=p.id AND f.user_id=$1)) AS is_following
-    FROM pages p JOIN users u ON u.id=p.owner_id
+      (COALESCE(p.owner_id=$1,FALSE) OR EXISTS(SELECT 1 FROM page_followers f WHERE f.page_id=p.id AND f.user_id=$1)) AS is_following
+    FROM pages p LEFT JOIN users u ON u.id=p.owner_id
     WHERE p.hidden_at IS NULL
     ORDER BY p.created_at DESC LIMIT 100`, [req.user?.id || 0]);
   res.json({ pages: result.rows });
+});
+
+app.patch("/api/pages/:pageId/about", auth, async (req, res) => {
+  const pageId = parseId(req.params.pageId);
+  if (!pageId) return res.status(400).json({ error: "Página inválida." });
+  const body = isRecord(req.body) ? req.body : {};
+  const fields = ["about", "contact_email", "contact_phone", "website", "address", "opening_hours"];
+  if (fields.some(field => body[field] !== undefined && typeof body[field] !== "string")) {
+    return res.status(400).json({ error: "Preenche os campos de texto corretamente." });
+  }
+  // Campo que não vem no pedido fica como está (null → COALESCE); "" apaga.
+  const values = Object.fromEntries(fields.map(field => [field, body[field] === undefined ? null : cleanText(body[field])]));
+  const limits = { about: 3000, contact_email: 254, contact_phone: 40, website: 300, address: 240, opening_hours: 300 };
+  const oversized = fields.find(field => values[field] !== null && values[field].length > limits[field]);
+  if (oversized) return res.status(400).json({ error: `O campo excede o limite de ${limits[oversized]} caracteres.` });
+  if (values.contact_email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(values.contact_email)) {
+    return res.status(400).json({ error: "Indica um endereço de email válido." });
+  }
+  // Loja: só existe se quem gere a página a ligar (sem loja, o separador "Loja" não aparece).
+  if (body.shop_enabled !== undefined && typeof body.shop_enabled !== "boolean") return res.status(400).json({ error: "Indica se a página tem loja." });
+  if (values.website) {
+    try {
+      const url = new URL(values.website);
+      if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) throw new Error("invalid");
+    } catch {
+      return res.status(400).json({ error: "Indica um endereço web válido, começado por https://." });
+    }
+  }
+  const result = await pool.query(`
+    UPDATE pages SET about=COALESCE($1,about),contact_email=COALESCE($2,contact_email),contact_phone=COALESCE($3,contact_phone),
+      website=COALESCE($4,website),address=COALESCE($5,address),opening_hours=COALESCE($6,opening_hours),
+      shop_enabled=COALESCE($9,shop_enabled)
+    WHERE id=$7 AND owner_id=$8 AND hidden_at IS NULL
+    RETURNING id,about,contact_email,contact_phone,website,address,opening_hours,shop_enabled`,
+  [values.about, values.contact_email, values.contact_phone, values.website, values.address, values.opening_hours, pageId, req.user.id,
+    typeof body.shop_enabled === "boolean" ? body.shop_enabled : null]);
+  if (!result.rowCount) {
+    const exists = await pool.query("SELECT 1 FROM pages WHERE id=$1 AND hidden_at IS NULL", [pageId]);
+    return res.status(exists.rowCount ? 403 : 404).json({ error: exists.rowCount ? "Só a pessoa responsável pela página pode editar estas informações." : "Página não encontrada." });
+  }
+  res.json({ page: result.rows[0] });
+});
+
+async function pageImageOwner(req, res, next) {
+  const pageId = parseId(req.params.pageId);
+  if (!pageId) return res.status(400).json({ error: "Página inválida." });
+  const result = await pool.query(
+    "SELECT id,owner_id,logo_url,cover_url FROM pages WHERE id=$1 AND hidden_at IS NULL", [pageId]);
+  if (!result.rowCount) return res.status(404).json({ error: "Página não encontrada." });
+  if (result.rows[0].owner_id !== req.user.id) return res.status(403).json({ error: "Só a pessoa responsável pela página pode alterar as imagens." });
+  req.page = result.rows[0];
+  next();
+}
+
+function savePageImage(kind) {
+  const column = kind === "logo" ? "logo_url" : "cover_url";
+  return async (req, res) => {
+    if (!req.file) return res.status(400).json({ error: "Escolhe uma imagem para carregar." });
+    const position = kind === "cover" ? parseCoverPosition(req.body?.position) : null;
+    if (kind === "cover" && position === null) {
+      await removeUpload(`/uploads/${req.file.filename}`);
+      return res.status(400).json({ error: "Posição da capa inválida." });
+    }
+    const url = `/uploads/${req.file.filename}`;
+    const result = await pool.query(kind === "cover"
+      ? "UPDATE pages SET cover_url=$1,cover_position=$4 WHERE id=$2 AND owner_id=$3 RETURNING id,cover_position"
+      : `UPDATE pages SET ${column}=$1 WHERE id=$2 AND owner_id=$3 RETURNING id`,
+    kind === "cover" ? [url, req.page.id, req.user.id, position] : [url, req.page.id, req.user.id]);
+    if (!result.rowCount) {
+      await removeUpload(url);
+      return res.status(404).json({ error: "Página não encontrada." });
+    }
+    await removeUpload(req.page[column]);
+    res.json({ kind, url, ...(kind === "cover" && { position: result.rows[0].cover_position }) });
+  };
+}
+
+app.post("/api/pages/:pageId/logo", auth, pageImageOwner, imageUpload.single("image"), optimizeUpload("avatar"), savePageImage("logo"));
+app.post("/api/pages/:pageId/cover", auth, pageImageOwner, imageUpload.single("image"), optimizeUpload("cover"), savePageImage("cover"));
+app.delete("/api/pages/:pageId/logo", auth, pageImageOwner, async (req, res) => {
+  const result = await pool.query("UPDATE pages SET logo_url='' WHERE id=$1 AND owner_id=$2 RETURNING id",
+    [req.page.id, req.user.id]);
+  if (!result.rowCount) return res.status(404).json({ error: "Página não encontrada." });
+  await removeUpload(req.page.logo_url);
+  res.json({ removed: true });
+});
+app.patch("/api/pages/:pageId/cover-position", auth, pageImageOwner, async (req, res) => {
+  const position = parseCoverPosition(req.body?.position);
+  if (req.body?.position === undefined || position === null) return res.status(400).json({ error: "Posição da capa inválida." });
+  if (!req.page.cover_url) return res.status(400).json({ error: "Esta página ainda não tem uma capa para posicionar." });
+  const result = await pool.query(
+    "UPDATE pages SET cover_position=$1 WHERE id=$2 AND owner_id=$3 RETURNING cover_position",
+    [position, req.page.id, req.user.id]);
+  if (!result.rowCount) return res.status(404).json({ error: "Página não encontrada." });
+  res.json({ position: result.rows[0].cover_position });
+});
+app.delete("/api/pages/:pageId/cover", auth, pageImageOwner, async (req, res) => {
+  const result = await pool.query("UPDATE pages SET cover_url='',cover_position=50 WHERE id=$1 AND owner_id=$2 RETURNING id",
+    [req.page.id, req.user.id]);
+  if (!result.rowCount) return res.status(404).json({ error: "Página não encontrada." });
+  await removeUpload(req.page.cover_url);
+  res.json({ removed: true });
 });
 
 app.post("/api/pages", auth, async (req, res) => {
@@ -2087,11 +2485,12 @@ app.post("/api/pages", auth, async (req, res) => {
   if ((body.description !== undefined && typeof body.description !== "string") || description.length > 2000) {
     return res.status(400).json({ error: "A descrição excede 2000 caracteres." });
   }
+  if (body.shopEnabled !== undefined && typeof body.shopEnabled !== "boolean") return res.status(400).json({ error: "Indica se a página tem loja." });
   const page = await transaction(async client => {
     const result = await client.query(`
-      INSERT INTO pages(owner_id,name,page_type,category,subcategory,description) VALUES($1,$2,$3,$4,$5,$6)
-      RETURNING id,name,page_type,category,subcategory,description,created_at`,
-    [req.user.id, name, kind.type, kind.category, kind.subcategory, description]);
+      INSERT INTO pages(owner_id,name,page_type,category,subcategory,description,shop_enabled) VALUES($1,$2,$3,$4,$5,$6,$7)
+      RETURNING id,name,page_type,category,subcategory,description,is_official,shop_enabled,created_at`,
+    [req.user.id, name, kind.type, kind.category, kind.subcategory, description, body.shopEnabled === true]);
     await client.query("INSERT INTO page_followers(page_id,user_id) VALUES($1,$2)", [result.rows[0].id, req.user.id]);
     return result.rows[0];
   });
@@ -2115,41 +2514,149 @@ app.post("/api/pages/:pageId/follow", auth, async (req, res) => {
   res.json({ following: true });
 });
 
-app.get("/api/events", optionalAuth, async (req, res) => {
+app.get("/api/pages/:pageId/offers", optionalAuth, async (req, res) => {
+  const pageId = parseId(req.params.pageId);
+  if (!pageId) return res.status(400).json({ error: "Página inválida." });
+  const page = await pool.query("SELECT shop_enabled FROM pages WHERE id=$1 AND hidden_at IS NULL", [pageId]);
+  if (!page.rowCount) return res.status(404).json({ error: "Página não encontrada." });
+  if (!page.rows[0].shop_enabled) return res.json({ offers: [], shop_enabled: false });
   const result = await pool.query(`
-    SELECT e.id,e.name,e.description,e.location,e.starts_at,e.created_at,
+    SELECT id,page_id,title,description,price_kz::float AS price_kz,discount_percent,promo_code,expires_at,checkout_url,created_at
+    FROM page_offers
+    WHERE page_id=$1 AND (expires_at IS NULL OR expires_at > NOW())
+    ORDER BY created_at DESC,id DESC`, [pageId]);
+  res.json({ offers: result.rows, shop_enabled: true });
+});
+
+app.post("/api/pages/:pageId/offers", auth, async (req, res) => {
+  const pageId = parseId(req.params.pageId);
+  if (!pageId) return res.status(400).json({ error: "Página inválida." });
+  const body = isRecord(req.body) ? req.body : {};
+  const title = cleanText(body.title);
+  const description = typeof body.description === "string" ? cleanText(body.description) : "";
+  const price = Number(body.priceKz);
+  const discountPercent = body.discountPercent === "" || body.discountPercent == null ? 0 : Number(body.discountPercent);
+  const promoCode = body.promoCode ? normalizePromotionCode(body.promoCode) : null;
+  const hasExpiry = body.expiresAt !== undefined && body.expiresAt !== null && body.expiresAt !== "";
+  const expiresAt = hasExpiry ? new Date(body.expiresAt) : null;
+  const checkoutUrl = typeof body.checkoutUrl === "string" && body.checkoutUrl.length <= 2000 ? normalizeWebsite(body.checkoutUrl.trim()) : null;
+  if (!title || title.length > 120) return res.status(400).json({ error: "Indica o nome da oferta (até 120 caracteres)." });
+  if (body.description !== undefined && typeof body.description !== "string") return res.status(400).json({ error: "A descrição é inválida." });
+  if (description.length > 2000) return res.status(400).json({ error: "A descrição deve ter até 2000 caracteres." });
+  if (!Number.isFinite(price) || price < 1 || price > 1000000000) return res.status(400).json({ error: "O preço deve estar entre 1 e 1 000 000 000 Kz." });
+  if (!Number.isInteger(discountPercent) || discountPercent < 0 || discountPercent > 100) return res.status(400).json({ error: "O desconto deve estar entre 0% e 100%." });
+  if (promoCode && !/^[A-Z0-9_-]{3,40}$/.test(promoCode)) return res.status(400).json({ error: "O código deve ter 3 a 40 letras, números, hífen ou underscore." });
+  if (body.promoCode && !promoCode) return res.status(400).json({ error: "Indica um código promocional válido." });
+  if (promoCode && discountPercent === 0) return res.status(400).json({ error: "Define um desconto para usar um código promocional." });
+  if (hasExpiry && typeof body.expiresAt !== "string") return res.status(400).json({ error: "A validade é inválida." });
+  if (expiresAt && (Number.isNaN(expiresAt.getTime()) || expiresAt <= new Date())) return res.status(400).json({ error: "A validade deve ser uma data futura." });
+  if (!checkoutUrl || !checkoutUrl.startsWith("https://")) return res.status(400).json({ error: "Indica uma ligação HTTPS válida para o WhatsApp ou site de compra." });
+  const checkout = new URL(checkoutUrl);
+  if (checkout.username || checkout.password) return res.status(400).json({ error: "A ligação de compra não pode conter credenciais." });
+  const page = await pool.query("SELECT owner_id,name,shop_enabled FROM pages WHERE id=$1 AND hidden_at IS NULL", [pageId]);
+  if (!page.rowCount) return res.status(404).json({ error: "Página não encontrada." });
+  if (page.rows[0].owner_id !== req.user.id) return res.status(403).json({ error: "Só o responsável pela página pode criar ofertas." });
+  if (!page.rows[0].shop_enabled) return res.status(409).json({ error: "Esta página não tem loja. Liga a loja em Editar informações." });
+  const postBody = [
+    `Oferta em ${page.rows[0].name}: ${title}`,
+    description,
+    `Preço: ${price.toLocaleString("pt-AO")} Kz`,
+    discountPercent > 0 ? `Desconto: ${discountPercent}%${promoCode ? ` · Código: ${promoCode}` : ""}` : "",
+    expiresAt ? `Válido até: ${expiresAt.toLocaleDateString("pt-PT", { timeZone: "Africa/Luanda" })}` : "",
+    `Comprar/contactar: ${checkoutUrl}`
+  ].filter(Boolean).join("\n\n");
+  if (postBody.length > 5000) return res.status(400).json({ error: "A oferta é demasiado longa para publicar no feed da página." });
+  try {
+    const offer = await transaction(async client => {
+      const post = await client.query("INSERT INTO posts(user_id,body,page_id) VALUES($1,$2,$3) RETURNING id",
+        [req.user.id, postBody, pageId]);
+      const result = await client.query(`
+        INSERT INTO page_offers(page_id,title,description,price_kz,discount_percent,promo_code,expires_at,promo_post_id,checkout_url)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)
+        RETURNING id,page_id,title,description,price_kz::float AS price_kz,discount_percent,promo_code,expires_at,checkout_url,created_at`,
+      [pageId, title, description, price, discountPercent, promoCode, expiresAt, post.rows[0].id, checkoutUrl]);
+      return result.rows[0];
+    });
+    res.status(201).json({ offer });
+  } catch (error) {
+    if (error.code === "23505") return res.status(409).json({ error: "Esta página já tem uma oferta com esse código." });
+    throw error;
+  }
+});
+
+app.delete("/api/pages/:pageId/offers/:offerId", auth, async (req, res) => {
+  const pageId = parseId(req.params.pageId);
+  const offerId = parseId(req.params.offerId);
+  if (!pageId || !offerId) return res.status(400).json({ error: "Oferta ou página inválida." });
+  const result = await transaction(async client => {
+    const removed = await client.query(`
+      DELETE FROM page_offers o USING pages p
+      WHERE o.id=$1 AND o.page_id=$2 AND p.id=o.page_id AND p.owner_id=$3
+      RETURNING o.id,o.promo_post_id`, [offerId, pageId, req.user.id]);
+    if (removed.rows[0]?.promo_post_id) {
+      await client.query("UPDATE posts SET hidden_at=NOW() WHERE id=$1 AND page_id=$2 AND hidden_at IS NULL",
+        [removed.rows[0].promo_post_id, pageId]);
+    }
+    return removed;
+  });
+  if (!result.rowCount) return res.status(404).json({ error: "Oferta não encontrada." });
+  res.json({ deleted: true });
+});
+
+app.get("/api/events", optionalAuth, async (req, res) => {
+  const pageId = req.query.pageId === undefined ? null : parseId(req.query.pageId);
+  if (req.query.pageId !== undefined && !pageId) return res.status(400).json({ error: "Página inválida." });
+  const result = await pool.query(`
+    SELECT e.id,e.page_id,p.name AS page_name,e.name,e.description,e.location,e.image_url,e.starts_at,e.created_at,
       u.id AS creator_id,u.username AS creator_username,u.display_name AS creator_name,
       (SELECT COUNT(*) FROM event_attendees a WHERE a.event_id=e.id)::int AS attendee_count,
       EXISTS(SELECT 1 FROM event_attendees a WHERE a.event_id=e.id AND a.user_id=$1) AS is_attending
-    FROM events e JOIN users u ON u.id=e.creator_id
+    FROM events e JOIN users u ON u.id=e.creator_id LEFT JOIN pages p ON p.id=e.page_id
     WHERE e.starts_at >= NOW() - INTERVAL '1 day' AND e.group_id IS NULL
-    ORDER BY e.starts_at ASC LIMIT 100`, [req.user?.id || 0]);
+      AND ($2::int IS NULL OR e.page_id=$2)
+    ORDER BY e.starts_at ASC LIMIT 100`, [req.user?.id || 0, pageId]);
   res.json({ events: result.rows });
 });
 
-app.post("/api/events", auth, async (req, res) => {
+app.post("/api/events", auth, imageUpload.single("image"), optimizeUpload("event"), async (req, res) => {
   const body = isRecord(req.body) ? req.body : {};
-  if (typeof body.name !== "string") return res.status(400).json({ error: "O nome do evento é obrigatório." });
-  const name = cleanText(body.name);
-  const description = cleanText(body.description);
-  const location = cleanText(body.location);
-  const startsAt = new Date(body.startsAt);
-  if (!name || name.length > 120) return res.status(400).json({ error: "O nome do evento é obrigatório e deve ter até 120 caracteres." });
-  if (!body.startsAt || Number.isNaN(startsAt.getTime())) return res.status(400).json({ error: "Indica uma data e hora válidas." });
-  if (startsAt <= new Date()) return res.status(400).json({ error: "O evento deve começar no futuro." });
-  if ((body.description !== undefined && (typeof body.description !== "string" || body.description.length > 2000))
-    || (body.location !== undefined && (typeof body.location !== "string" || body.location.length > 160))) {
-    return res.status(400).json({ error: "A descrição ou localização excede o limite permitido." });
+  const imageUrl = req.file ? `/uploads/${req.file.filename}` : "";
+  const reject = async (status, error) => {
+    if (imageUrl) await removeUpload(imageUrl);
+    return res.status(status).json({ error });
+  };
+  try {
+    if (typeof body.name !== "string") return reject(400, "O nome do evento é obrigatório.");
+    const name = cleanText(body.name);
+    const description = cleanText(body.description);
+    const location = cleanText(body.location);
+    const startsAt = new Date(body.startsAt);
+    if (!name || name.length > 120) return reject(400, "O nome do evento é obrigatório e deve ter até 120 caracteres.");
+    if (!body.startsAt || Number.isNaN(startsAt.getTime())) return reject(400, "Indica uma data e hora válidas.");
+    if (startsAt <= new Date()) return reject(400, "O evento deve começar no futuro.");
+    if ((body.description !== undefined && (typeof body.description !== "string" || body.description.length > 2000))
+      || (body.location !== undefined && (typeof body.location !== "string" || body.location.length > 160))) {
+      return reject(400, "A descrição ou localização excede o limite permitido.");
+    }
+    const pageId = body.pageId === undefined || body.pageId === null || body.pageId === "" ? null : parseId(body.pageId);
+    if (body.pageId !== undefined && body.pageId !== null && body.pageId !== "" && !pageId) return reject(400, "Página inválida.");
+    if (pageId) {
+      const page = await pool.query("SELECT 1 FROM pages WHERE id=$1 AND owner_id=$2 AND hidden_at IS NULL", [pageId, req.user.id]);
+      if (!page.rowCount) return reject(403, "Só o responsável pela página pode criar eventos nela.");
+    }
+    const event = await transaction(async client => {
+      const result = await client.query(`
+        INSERT INTO events(creator_id,page_id,name,description,location,image_url,starts_at)
+        VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id,page_id,name,description,location,image_url,starts_at,created_at`,
+      [req.user.id, pageId, name, description, location, imageUrl, startsAt.toISOString()]);
+      await client.query("INSERT INTO event_attendees(event_id,user_id) VALUES($1,$2)", [result.rows[0].id, req.user.id]);
+      return result.rows[0];
+    });
+    res.status(201).json({ event: { ...event, creator_id: req.user.id, attendee_count: 1, is_attending: true } });
+  } catch (error) {
+    if (imageUrl) await removeUpload(imageUrl);
+    throw error;
   }
-  const event = await transaction(async client => {
-    const result = await client.query(`
-      INSERT INTO events(creator_id,name,description,location,starts_at)
-      VALUES($1,$2,$3,$4,$5) RETURNING id,name,description,location,starts_at,created_at`,
-    [req.user.id, name, description, location, startsAt.toISOString()]);
-    await client.query("INSERT INTO event_attendees(event_id,user_id) VALUES($1,$2)", [result.rows[0].id, req.user.id]);
-    return result.rows[0];
-  });
-  res.status(201).json({ event: { ...event, creator_id: req.user.id, attendee_count: 1, is_attending: true } });
 });
 
 app.post("/api/events/:eventId/rsvp", auth, async (req, res) => {
@@ -2558,8 +3065,14 @@ app.delete("/api/pages/:pageId/follow", auth, async (req, res) => {
 app.delete("/api/pages/:pageId", auth, async (req, res) => {
   const pageId = parseId(req.params.pageId);
   if (!pageId) return res.status(400).json({ error: "Página inválida." });
+  const owned = await pool.query("SELECT is_official FROM pages WHERE id=$1 AND owner_id=$2", [pageId, req.user.id]);
+  if (!owned.rowCount) return res.status(404).json({ error: "Página não encontrada." });
+  if (owned.rows[0].is_official) return res.status(403).json({ error: "A página oficial do Tchilar não pode ser apagada." });
   const media = await pool.query(
-    "SELECT p.media_url FROM posts p JOIN pages pg ON pg.id=p.page_id WHERE pg.id=$1 AND pg.owner_id=$2",
+    `SELECT p.media_url FROM posts p JOIN pages pg ON pg.id=p.page_id WHERE pg.id=$1 AND pg.owner_id=$2
+     UNION ALL SELECT logo_url AS media_url FROM pages WHERE id=$1 AND owner_id=$2 AND logo_url<>''
+     UNION ALL SELECT cover_url AS media_url FROM pages WHERE id=$1 AND owner_id=$2 AND cover_url<>''
+     UNION ALL SELECT e.image_url AS media_url FROM events e WHERE e.page_id=$1 AND e.image_url<>''`,
     [pageId, req.user.id]);
   const result = await pool.query("DELETE FROM pages WHERE id=$1 AND owner_id=$2 RETURNING id", [pageId, req.user.id]);
   if (!result.rowCount) return res.status(404).json({ error: "Página não encontrada." });
@@ -2573,12 +3086,12 @@ app.get("/api/events/:eventId", optionalAuth, async (req, res) => {
   if (!eventId) return res.status(400).json({ error: "Evento inválido." });
   const viewer = req.user?.id || 0;
   const event = await pool.query(`
-    SELECT e.id,e.name,e.description,e.location,e.starts_at,e.created_at,
+    SELECT e.id,e.page_id,p.name AS page_name,e.name,e.description,e.location,e.image_url,e.starts_at,e.created_at,
       u.id AS creator_id,u.username AS creator_username,u.display_name AS creator_name,u.avatar_url AS creator_avatar,
       (SELECT COUNT(*) FROM event_attendees a WHERE a.event_id=e.id)::int AS attendee_count,
       EXISTS(SELECT 1 FROM event_attendees a WHERE a.event_id=e.id AND a.user_id=$2) AS is_attending,
-      (e.creator_id=$2) AS is_creator
-    FROM events e JOIN users u ON u.id=e.creator_id
+      (e.creator_id=$2 OR EXISTS(SELECT 1 FROM pages pg WHERE pg.id=e.page_id AND pg.owner_id=$2)) AS is_creator
+    FROM events e JOIN users u ON u.id=e.creator_id LEFT JOIN pages p ON p.id=e.page_id
     WHERE e.id=$1 AND NOT ${blockedBetween("$2", "e.creator_id")}
       AND (e.group_id IS NULL OR EXISTS(SELECT 1 FROM group_members gm WHERE gm.group_id=e.group_id AND gm.user_id=$2))`, [eventId, viewer]);
   if (!event.rowCount) return res.status(404).json({ error: "Evento não encontrado." });
@@ -2595,8 +3108,11 @@ app.get("/api/events/:eventId", optionalAuth, async (req, res) => {
 app.delete("/api/events/:eventId", auth, async (req, res) => {
   const eventId = parseId(req.params.eventId);
   if (!eventId) return res.status(400).json({ error: "Evento inválido." });
-  const result = await pool.query("DELETE FROM events WHERE id=$1 AND creator_id=$2 RETURNING id", [eventId, req.user.id]);
+  const result = await pool.query(`DELETE FROM events e
+    WHERE e.id=$1 AND (e.creator_id=$2 OR EXISTS(SELECT 1 FROM pages p WHERE p.id=e.page_id AND p.owner_id=$2))
+    RETURNING e.id,e.image_url`, [eventId, req.user.id]);
   if (!result.rowCount) return res.status(404).json({ error: "Evento não encontrado." });
+  await removeUpload(result.rows[0].image_url);
   res.json({ deleted: true });
 });
 
@@ -2679,7 +3195,9 @@ async function deleteAccount(userId, profile) {
       user_id=$1
       OR group_id IN (SELECT id FROM social_groups WHERE owner_id=$1)
       OR page_id IN (SELECT id FROM pages WHERE owner_id=$1))
-    UNION SELECT media_url FROM stories WHERE user_id=$1 AND media_url<>''`, [userId]);
+    UNION SELECT media_url FROM stories WHERE user_id=$1 AND media_url<>''
+    UNION SELECT image_url AS media_url FROM events WHERE image_url<>'' AND (
+      creator_id=$1 OR page_id IN (SELECT id FROM pages WHERE owner_id=$1))`, [userId]);
   await pool.query("DELETE FROM users WHERE id=$1", [userId]);
   await Promise.all([
     ...files.rows.map(row => removeUpload(row.media_url)),
@@ -2708,20 +3226,42 @@ app.delete("/api/auth/me", accountSecurityRateLimit, auth, async (req, res) => {
 // Ficheiros que fazem os links do site abrir a app (quando o domínio do site é servido por esta API).
 registerAppLinks(app);
 
+// Pré-visualização dos links (WhatsApp, Facebook...). Endereços: a página no site e as fotos na API.
+// O endereço da página fica sempre no site: só um perfil, publicação ou curso reconhecido (caminhos /u/, /posts/,
+// /academia/) mantém o seu caminho; tudo o resto vai para a página inicial. Assim "/api/share//outro-site.com"
+// nunca leva ninguém para fora do Tchilar.
+const previewUrls = (pathname, preview) => {
+  const siteOrigin = new URL(appUrl).origin;
+  const page = preview ? new URL(pathname, siteOrigin) : new URL("/", siteOrigin);
+  return { pageUrl: page.origin === siteOrigin ? page.toString() : `${siteOrigin}/`, siteUrl: appUrl, mediaUrl: apiPublicUrl };
+};
+// Site numa hospedagem à parte (cPanel): o .htaccess manda os robôs para aqui (ex.: /api/share/u/ana).
+app.get("/api/share/*path", async (req, res) => {
+  const pathname = req.path.slice("/api/share".length) || "/";
+  const preview = await findPreview(pool, pathname);
+  res.set("Cache-Control", "public, max-age=300").type("html").send(crawlerPage(preview, previewUrls(pathname, preview)));
+});
+
 // O servidor entrega também o site, a menos que o site esteja numa hospedagem à parte (SERVE_CLIENT=false).
 if ((process.env.NODE_ENV === "production" && process.env.SERVE_CLIENT !== "false") || process.env.SERVE_CLIENT === "true") {
   const clientBuild = path.join(__dirname, "..", "dist");
   app.use(express.static(clientBuild, { index: false }));
-  app.use((req, res, next) => {
+  let indexHtml = null;
+  app.use(async (req, res, next) => {
     if (req.method !== "GET" || req.path.startsWith("/api/") || req.path.startsWith("/uploads/")) return next();
-    res.sendFile(path.join(clientBuild, "index.html"), error => {
-      if (error) next(error);
-    });
+    try {
+      indexHtml ??= await fs.promises.readFile(path.join(clientBuild, "index.html"), "utf8");
+      // Perfis, publicações e cursos levam a sua foto e o seu texto; as outras páginas, os do Tchilar.
+      const preview = await findPreview(pool, req.path);
+      res.set("Cache-Control", "no-cache").type("html").send(injectPreview(indexHtml, preview, previewUrls(req.path, preview)));
+    } catch (error) {
+      next(error);
+    }
   });
 }
 
 // Métodos disponíveis e estado de um pagamento por Express/Referência (o ecrã de pagamento vai perguntando).
-app.get("/api/payments/methods", (_req, res) => res.json({ methods: payments.methods, mode: payments.mode }));
+app.get("/api/payments/methods", (_req, res) => res.json({ methods: payments.methods, upcoming: payments.upcoming, mode: payments.mode }));
 app.get("/api/payments/:id", auth, async (req, res) => {
   const id = parseId(req.params.id);
   if (!id) return res.status(400).json({ error: "Pagamento inválido." });
@@ -2755,7 +3295,7 @@ const groupActionRateLimit = makeRateLimit("groupAction", {
 });
 registerGroupFeatures(app, {
   pool, auth, optionalAuth, parseId, isRecord, cleanText, transaction, blockedBetween, GROUP_FIELDS, documentUpload,
-  signProtectedMedia, removeUpload, parseGroupKind, rateLimit: groupActionRateLimit
+  signProtectedMedia, removeUpload, parseGroupKind, rateLimit: groupActionRateLimit, imageUpload, optimizeUpload
 });
 
 // Chamadas de voz e vídeo nos grupos (até 8 pessoas, ligações diretas; TURN dos diretos se houver).
@@ -2768,7 +3308,9 @@ registerCourseRoutes(app, {
 });
 
 // Notificações push para a app (via Expo). O envio só arranca em startServer (os testes não enviam nada).
-const push = createPush({ pool, accessToken: process.env.EXPO_ACCESS_TOKEN || "" });
+// Avisos no browser: precisam das chaves VAPID (npx web-push generate-vapid-keys). Sem elas, só a app recebe push.
+const webPush = createWebPushSender({ publicKey: process.env.WEB_PUSH_PUBLIC_KEY, privateKey: process.env.WEB_PUSH_PRIVATE_KEY, subject: process.env.WEB_PUSH_SUBJECT });
+const push = createPush({ pool, accessToken: process.env.EXPO_ACCESS_TOKEN || "", webPush });
 push.registerRoutes(app, { auth, isRecord });
 
 const music = registerMusicRoutes(app, { pool, auth, optionalAuth, requireAdmin: requireRole("moderation"), parseId, isRecord, uploadDir, removeUpload, rateLimit: options => makeRateLimit("music", options) });
@@ -2843,6 +3385,9 @@ async function startServer() {
   if (!isDevelopment && !process.env.PAYOUT_ENCRYPTION_KEY) {
     throw new Error("Fora de NODE_ENV=development, define PAYOUT_ENCRYPTION_KEY (32 bytes) para cifrar os dados bancários dos criadores.");
   }
+  if (!isDevelopment && redotpay && redotpay.environment !== "production") {
+    throw new Error("Fora de NODE_ENV=development, REDOTPAY_ENV tem de ser production.");
+  }
   // Uma ProxyPay em sandbox aceita pagamentos falsos: fora de desenvolvimento, isso daria estrelas
   // (levantáveis) sem dinheiro real. O mesmo vale para chaves de teste da Stripe.
   if (!isDevelopment && proxypay && proxypay.environment !== "production") {
@@ -2864,6 +3409,10 @@ async function startServer() {
   }
   await initDb();
   if (process.env.PUSH_NOTIFICATIONS !== "false") push.start();
+  // Aviso de renovação das subscrições pagas mês a mês (3 dias antes do fim), de hora a hora.
+  const renewals = () => localSubscriptions.remindRenewals().catch(error => console.error("Avisos de renovação:", error.message));
+  renewals();
+  setInterval(renewals, 60 * 60 * 1000).unref();
   // Desafios do mês automáticos (CHALLENGES_AUTO=false desliga: a equipa lança à mão).
   if (process.env.CHALLENGES_AUTO !== "false") {
     const monthly = () => launchMonthlyChallenges({ pool, transaction })
@@ -2886,4 +3435,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { app, initDb, launchMonthlyChallenges: () => launchMonthlyChallenges({ pool, transaction }), payments, pool, startServer };
+module.exports = { app, initDb, launchMonthlyChallenges: () => launchMonthlyChallenges({ pool, transaction }), payments, pool, sms, startServer };

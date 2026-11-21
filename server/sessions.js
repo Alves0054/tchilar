@@ -1,7 +1,12 @@
 // Sessões por aparelho. Cada início de sessão cria uma linha em user_sessions e o token leva o id (sid).
-// Uma sessão sem prazo só deixa de valer quando é terminada (revoked_at), quando a palavra-passe muda,
+// Uma sessão só deixa de valer quando fica 6 meses sem ser usada (SESSION_IDLE_DAYS), quando é terminada
+// (revoked_at), quando a palavra-passe muda,
 // quando se terminam as outras sessões (auth_version) ou quando a conta é suspensa.
 const crypto = require("node:crypto");
+
+// Sessão sem uso há mais de 6 meses termina sozinha (quem usa a app ou o site nunca é posto fora:
+// cada pedido atualiza o "visto agora" da sessão).
+const SESSION_IDLE_DAYS = 180;
 
 // Nome do aparelho: a app manda "X-Tchilar-Device" (ex.: "iPhone 15 · iOS 18"); o site deduz do browser.
 function deviceLabel(req) {
@@ -41,7 +46,8 @@ function registerSessionRoutes(app, { pool, auth, parseId }) {
   app.get("/api/auth/sessions", auth, async (req, res) => {
     const result = await pool.query(`
       SELECT id,client,device,created_at,last_seen_at FROM user_sessions
-      WHERE user_id=$1 AND revoked_at IS NULL ORDER BY last_seen_at DESC LIMIT 50`, [req.user.id]);
+      WHERE user_id=$1 AND revoked_at IS NULL AND last_seen_at > NOW() - INTERVAL '${SESSION_IDLE_DAYS} days'
+      ORDER BY last_seen_at DESC LIMIT 50`, [req.user.id]);
     res.json({ sessions: result.rows.map(row => ({ ...row, current: row.id === req.user.sid })) });
   });
   // Terminar um aparelho (pode ser este: é o mesmo que sair).
@@ -60,4 +66,4 @@ function registerSessionRoutes(app, { pool, auth, parseId }) {
   void parseId;
 }
 
-module.exports = { createSession, deviceLabel, registerSessionRoutes, touchSession, validSession };
+module.exports = { SESSION_IDLE_DAYS, createSession, deviceLabel, registerSessionRoutes, touchSession, validSession };

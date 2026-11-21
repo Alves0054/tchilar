@@ -3,16 +3,25 @@ import { createPortal } from "react-dom";
 import { Link, useLocation, useParams, useSearchParams } from "react-router-dom";
 import { AvatarEditor, CoverEditor, downscaleImage } from "../PhotoEditors.jsx";
 import { API_BASE, Avatar, Icon, UserContext, api, formatCount, formatDate, formatPrice, token } from "./core.jsx";
+import { coverFor } from "./community-types.js";
 import { Composer, PostCard, ReportDialog } from "./feed.jsx";
 import { useDismiss } from "./layout.jsx";
-import { SupportersCard, VerifiedBadge } from "./shared.jsx";
+import { PaymentDialog, SupportersCard, VerifiedBadge } from "./shared.jsx";
 
-export function SubscriptionPanel({ profile, isOwnProfile, busy, onSubscribe, onCancel }) {
+export function SubscriptionPanel({ profile, isOwnProfile, busy, onSubscribe, onRenew, onCancel }) {
   const price = `${formatPrice(profile.subscription_price)}/mês`;
   let status;
   let action = null;
   if (isOwnProfile) {
     status = <>A tua subscrição custa <strong>{price}</strong>. As publicações marcadas como exclusivas só são visíveis para subscritores.</>;
+  } else if (profile.is_subscribed && profile.subscription_manual) {
+    // Paga mês a mês (Express, Referência...): não se cobra sozinha. Renova-se nos últimos 7 dias.
+    status = profile.subscription_canceling
+      ? <>A tua subscrição termina a <strong>{formatDate(profile.subscription_period_end)}</strong>. Paga mais um mês para continuares.</>
+      : <>Subscrito até <strong>{formatDate(profile.subscription_period_end)}</strong>. Avisamos-te 3 dias antes para renovares ({price}).</>;
+    action = profile.subscription_can_renew
+      ? <button className="btn" type="button" disabled={busy} onClick={onRenew}>Renovar por {price}</button>
+      : <button className="btn secondary" type="button" disabled={busy} onClick={onCancel}>{busy ? "A atualizar..." : "Não quero renovar"}</button>;
   } else if (profile.is_subscribed && profile.subscription_canceling) {
     status = <>A tua subscrição termina a <strong>{formatDate(profile.subscription_period_end)}</strong> e não vai renovar.</>;
     action = <button className="btn" type="button" disabled={busy} onClick={onSubscribe}>{busy ? "A atualizar..." : "Retomar subscrição"}</button>;
@@ -115,7 +124,7 @@ export function ProfileMediaGrid({ username }) {
     {current && createPortal(<div className="modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setOpen(null); }}>
       <div className="profile-media-viewer" role="dialog" aria-modal="true" aria-label="Publicação">
         <button className="round-button profile-media-close" type="button" aria-label="Fechar" onClick={() => setOpen(null)}><Icon name="close" size={18} /></button>
-        <PostCard post={current} onChanged={load} />
+        <PostCard post={current} onChanged={load} startWithImage onImageViewerClose={() => setOpen(null)} />
       </div>
     </div>, document.body)}
   </section>;
@@ -251,6 +260,7 @@ export function Profile() {
   const [message, setMessage] = useState("");
   const [searchParams, setSearchParams] = useSearchParams();
   const [subscriptionBusy, setSubscriptionBusy] = useState(false);
+  const [paying, setPaying] = useState(false);
   const isAboutPage = location.pathname === `/u/${username}/about`;
   const isMediaPage = location.pathname === `/u/${username}/media`;
   const isOwnProfile = user?.username === username;
@@ -268,8 +278,11 @@ export function Profile() {
     }
   }, [searchParams]);
 
+  // Novo subscritor ou renovação: escolhe o método (Express, Referência, cartão...) na janela de pagamento.
+  // Retomar uma subscrição cancelada da Stripe continua a ser só um clique.
   const subscribe = async () => {
     if (!token()) return setMessage("Entra na tua conta para subscrever.");
+    if (!profile.is_subscribed) return setPaying(true);
     setSubscriptionBusy(true);
     try {
       const result = await api(`/subscriptions/${profile.id}`, { method: "POST" });
@@ -384,7 +397,7 @@ export function Profile() {
         {profile.cover_url && <img className="profile-cover-image" src={`${API_BASE}${profile.cover_url}`} alt="" style={{ objectPosition: `50% ${profile.cover_position ?? 50}%` }} />}
         {!isAboutPage && !profile.cover_url && <>
           <span className="profile-cover-kicker">TCHILAR <i /> ESPAÇO DE CRIAÇÃO</span>
-          <span className="profile-cover-message">Histórias que<br /><em>nos aproximam.</em></span>
+          <span className="profile-cover-message">{coverFor(profile.id).first}<br /><em>{coverFor(profile.id).accent}</em></span>
           <img className="profile-cover-mark" src="/tchilar-logo.png" alt="" aria-hidden="true" />
           <span className="profile-cover-orbit profile-cover-orbit-one" />
           <span className="profile-cover-orbit profile-cover-orbit-two" />
@@ -398,7 +411,7 @@ export function Profile() {
           {isOwnProfile && <ProfilePhotoControl kind="avatar" profile={profile} onUpdated={photoUpdated} />}
         </div>
         <div className="profile-identity-copy">
-          <h1>{profile.display_name}<VerifiedBadge show={profile.is_verified} /></h1>
+          <h1>{profile.display_name}<VerifiedBadge show={profile.is_verified} tier={profile.verification_tier} /></h1>
           <p className="handle">@{profile.username}
             {profile.is_creator && <span className="profile-role-chip"><Icon name="spark" size={12} /> Criador</span>}
             {profile.online && <span className="profile-online-chip">Online agora</span>}
@@ -431,11 +444,15 @@ export function Profile() {
         {profile.bio && <p className="profile-intro-bio">{profile.bio}</p>}
         <ProfileMeta profile={profile} />
       </div>}
+      {paying && <PaymentDialog title={`Subscrição de ${profile.display_name} (1 mês)`} amountKz={profile.subscription_price} purpose="subscription"
+        onPay={choice => api(`/subscriptions/${profile.id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(choice) })}
+        onDone={() => load()} onClose={() => { setPaying(false); load(); }} />}
       {!isAboutPage && profile.is_creator && Number(profile.subscription_price) > 0 && <SubscriptionPanel
         profile={profile}
         isOwnProfile={isOwnProfile}
         busy={subscriptionBusy}
         onSubscribe={subscribe}
+        onRenew={() => setPaying(true)}
         onCancel={cancelSubscription}
       />}
       {profile.is_blocked && <div className="blocked-banner">

@@ -51,6 +51,7 @@ const storyBackgrounds = require("./story-backgrounds.json");
 const storyBackgroundKeys = new Set([...storyBackgrounds.colors, ...storyBackgrounds.themes].map(item => item.key));
 function parseStoryBackground(value) {
   if (value === undefined || value === null || value === "") return { value: null };
+  if (value === "biva") return { value: "tchilar" };
   return storyBackgroundKeys.has(value) ? { value } : { error: "Escolhe um fundo da lista." };
 }
 

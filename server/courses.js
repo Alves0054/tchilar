@@ -180,13 +180,22 @@ function registerCourseRoutes(app, deps) {
     res.json({ updated: true, status: backToReview ? "review" : course.status });
   });
 
+  // Qualquer mudança num curso de um criador já à venda (capa, aulas) volta a passar pela revisão da equipa,
+  // como mudar o título ou a descrição. Os cursos da equipa Tchilar continuam publicados.
+  async function changed(course) {
+    const backToReview = course.status === "published" && !course.by_team;
+    await pool.query(`UPDATE courses SET updated_at=NOW()${backToReview ? ", status='review'" : ""} WHERE id=$1`, [course.id]);
+    return backToReview ? "review" : course.status;
+  }
+
   app.post("/api/courses/:id/cover", auth, imageUpload.single("image"), optimizeUpload("cover"), async (req, res) => {
     const course = await editable(req, res);
     if (!course) { if (req.file) await removeUpload(`/uploads/${req.file.filename}`); return; }
     if (!req.file) return res.status(400).json({ error: "Escolhe uma imagem." });
-    await pool.query("UPDATE courses SET cover_url=$2, updated_at=NOW() WHERE id=$1", [course.id, `/uploads/${req.file.filename}`]);
+    await pool.query("UPDATE courses SET cover_url=$2 WHERE id=$1", [course.id, `/uploads/${req.file.filename}`]);
+    const status = await changed(course);
     await removeUpload(course.cover_url);
-    res.json({ cover_url: `/uploads/${req.file.filename}` });
+    res.json({ cover_url: `/uploads/${req.file.filename}`, status });
   });
 
   app.post("/api/courses/:id/lessons", auth, upload.single("video"), async (req, res) => {
@@ -204,8 +213,7 @@ function registerCourseRoutes(app, deps) {
       INSERT INTO course_lessons(course_id,position,title,body,video_url,is_preview)
       VALUES($1,COALESCE($2,(SELECT COALESCE(MAX(position),0)+1 FROM course_lessons WHERE course_id=$1)),$3,$4,$5,$6) RETURNING id`,
     [course.id, l.position ?? null, l.title, l.body, fileUrl, l.is_preview]);
-    await pool.query("UPDATE courses SET updated_at=NOW() WHERE id=$1", [course.id]);
-    res.status(201).json({ id: result.rows[0].id });
+    res.status(201).json({ id: result.rows[0].id, status: await changed(course) });
   });
 
   app.patch("/api/courses/:id/lessons/:lessonId", auth, async (req, res) => {
@@ -219,7 +227,7 @@ function registerCourseRoutes(app, deps) {
     const result = await pool.query(`UPDATE course_lessons SET ${fields.map((key, index) => `${key}=$${index + 3}`).join(",")}
       WHERE id=$1 AND course_id=$2 RETURNING id`, [lessonId, course.id, ...fields.map(key => parsed.lesson[key])]);
     if (!result.rowCount) return res.status(404).json({ error: "Aula não encontrada." });
-    res.json({ updated: true });
+    res.json({ updated: true, status: await changed(course) });
   });
 
   app.delete("/api/courses/:id/lessons/:lessonId", auth, async (req, res) => {
@@ -228,8 +236,9 @@ function registerCourseRoutes(app, deps) {
     const lessonId = parseId(req.params.lessonId);
     const result = await pool.query("DELETE FROM course_lessons WHERE id=$1 AND course_id=$2 RETURNING video_url", [lessonId, course.id]);
     if (!result.rowCount) return res.status(404).json({ error: "Aula não encontrada." });
+    const status = await changed(course);
     await removeUpload(result.rows[0].video_url);
-    res.json({ deleted: true });
+    res.json({ deleted: true, status });
   });
 
   // Enviar para a loja: os cursos da equipa publicam logo; os dos criadores vão para revisão.
@@ -272,7 +281,7 @@ function registerCourseRoutes(app, deps) {
     const purchaseId = purchase.rows[0].id;
     const result = await payments.start({
       purpose: "course", refId: purchaseId, amountKz: course.price_kz, userId: req.user.id, email: user.rows[0]?.email,
-      method: body.method, phone: body.phone, name: `Curso «${course.title}»`,
+      method: body.method, phone: body.phone, promoCode: body.promoCode, name: `Curso «${course.title}»`,
       successPath: `/academia/cursos/${id}?pagamento=sucesso`, cancelPath: `/academia/cursos/${id}?pagamento=cancelado`,
       onSession: sessionId => pool.query("UPDATE course_purchases SET stripe_session_id=$2 WHERE id=$1", [purchaseId, sessionId])
     });

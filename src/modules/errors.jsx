@@ -30,8 +30,8 @@ export function isStaleChunkError(error) {
 
 function reloadOnceForNewVersion() {
   try {
-    if (sessionStorage.getItem("biva-reloaded-for-version")) return false;
-    sessionStorage.setItem("biva-reloaded-for-version", "1");
+    if (sessionStorage.getItem("tchilar-reloaded-for-version") || sessionStorage.getItem("biva-reloaded-for-version")) return false;
+    sessionStorage.setItem("tchilar-reloaded-for-version", "1");
   } catch { return false; }
   window.location.reload();
   return true;

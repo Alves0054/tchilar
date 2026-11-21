@@ -4,6 +4,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { Avatar, Icon, UserContext, api, formatCount, formatPrice, PUBLIC_URL } from "./core.jsx";
 import { relativeTime } from "./feed.jsx";
 import { PaymentDialog, PersonLine, VerifiedBadge } from "./shared.jsx";
+import { Select } from "./select.jsx";
 
 export function StarsPage() {
   const { user, authReady } = useContext(UserContext);
@@ -40,13 +41,15 @@ export function StarsPage() {
     challenge_prize: "Prémio de um desafio"
   })[item.kind] || "Movimento";
   return <div className="page narrow growth-page">
-    <header className="growth-hero card">
-      <span className="growth-hero-icon tone-star"><Icon name="star" size={28} /></span>
-      <div><p className="feed-section-kicker">Estrelas Tchilar</p><h1>Apoia quem gostas</h1>
-        <p>Oferece estrelas nas publicações dos teus criadores favoritos. Cada estrela vale {data ? formatPrice(data.price_kz) : "10 Kz"}; o criador recebe 70% e o Tchilar fica com 30%.</p></div>
-      <div className="growth-balance"><small>O teu saldo</small><strong><Icon name="star" size={20} /> {data ? formatCount(data.balance) : "…"}</strong></div>
+    <header className="tc-head">
+      <div className="tc-head-text">
+        <p className="tc-head-kicker">Estrelas</p>
+        <h1>Apoia quem gostas</h1>
+        <p>Oferece estrelas nas publicações dos teus criadores favoritos. Cada estrela vale {data ? formatPrice(data.price_kz) : "10 Kz"}; o criador recebe 70% e o Tchilar fica com 30%.</p>
+      </div>
+      <p className="tc-head-figure"><small>O teu saldo</small><strong><Icon name="star" size={20} /> {data ? formatCount(data.balance) : "…"}</strong></p>
     </header>
-    {paying && <PaymentDialog title={`Comprar ${formatCount(paying.pack.stars + paying.pack.bonus)} estrelas`} amountKz={paying.pack.price} onPay={paying.onPay}
+    {paying && <PaymentDialog title={`Comprar ${formatCount(paying.pack.stars + paying.pack.bonus)} estrelas`} amountKz={paying.pack.price} purpose="stars" onPay={paying.onPay}
       onDone={() => { setNotice(`${paying.pack.stars + paying.pack.bonus} estrelas adicionadas ao teu saldo.`); load(); }}
       onClose={() => { setPaying(null); load(); }} />}
     {notice && <p className="success" role="status">{notice}</p>}
@@ -92,20 +95,22 @@ export function BrandsPage() {
     return () => window.clearTimeout(timer);
   }, [filters.province, filters.area, filters.minFollowers]);
   return <div className="page growth-page brands-page">
-    <header className="growth-hero card">
-      <span className="growth-hero-icon tone-brand"><Icon name="brand" size={28} /></span>
-      <div><p className="feed-section-kicker">Marketplace de marcas</p><h1>Encontra criadores para a tua marca</h1>
-        <p>Filtra por província, área e número de seguidores e envia uma proposta de campanha. Pagas pelo Tchilar quando o criador aceitar; o Tchilar fica com 15%.</p></div>
+    <header className="tc-head">
+      <div className="tc-head-text">
+        <p className="tc-head-kicker">Marketplace de marcas</p>
+        <h1>Encontra criadores para a tua marca</h1>
+        <p>Filtra por província, área e número de seguidores e envia uma proposta de campanha. Pagas pelo Tchilar quando o criador aceitar; o Tchilar fica com 15%.</p>
+      </div>
     </header>
     <div className="brand-filters card" role="search">
-      <label>Província<select value={filters.province} onChange={event => setFilters({ ...filters, province: event.target.value })}>
+      <label>Província<Select value={filters.province} onChange={event => setFilters({ ...filters, province: event.target.value })}>
         <option value="">Todas</option>
         {(data?.provinces || []).map(province => <option key={province}>{province}</option>)}
-      </select></label>
+      </Select></label>
       <label>Área<input type="search" placeholder="Ex.: moda, música, culinária" value={filters.area} onChange={event => setFilters({ ...filters, area: event.target.value })} /></label>
-      <label>Seguidores<select value={filters.minFollowers} onChange={event => setFilters({ ...filters, minFollowers: event.target.value })}>
+      <label>Seguidores<Select value={filters.minFollowers} onChange={event => setFilters({ ...filters, minFollowers: event.target.value })}>
         <option value="0">Qualquer número</option><option value="1000">1 000 ou mais</option><option value="10000">10 000 ou mais</option><option value="100000">100 000 ou mais</option>
-      </select></label>
+      </Select></label>
     </div>
     {notice && <p className="success" role="status">{notice}</p>}
     {error && <p className="error" role="alert">{error}</p>}
@@ -113,8 +118,10 @@ export function BrandsPage() {
     {data && !data.creators.length && <div className="empty card">Nenhum criador corresponde aos filtros.</div>}
     {data && data.creators.length > 0 && <div className="creator-grid">{data.creators.map(creator => <article className="creator-tile card" key={creator.id}>
       <Link to={`/u/${creator.username}`} aria-label={`Perfil de ${creator.display_name}`}><Avatar user={creator} size="large" /></Link>
-      <h2><Link to={`/u/${creator.username}`}>{creator.display_name}</Link><VerifiedBadge show={creator.is_verified} /></h2>
+      <h2><Link to={`/u/${creator.username}`}>{creator.display_name}</Link><VerifiedBadge show={creator.is_verified} tier={creator.verification_tier} /></h2>
       <small>@{creator.username}{creator.province ? ` · ${creator.province}` : ""}</small>
+      {creator.verification_tier === "bolado" && <span className="verification-feature-label">Destaque</span>}
+      {creator.verification_tier === "benga" && <span className="verification-feature-label is-premium">Prioridade máxima</span>}
       {creator.profession && <span className="content-tag">{creator.profession}</span>}
       <p>{creator.bio || "Ainda sem biografia."}</p>
       <div className="creator-tile-stats"><span><strong>{formatCount(creator.followers)}</strong> seguidores</span><span><strong>{formatCount(creator.posts)}</strong> publicações</span></div>
@@ -170,10 +177,12 @@ export function InvitePage() {
   };
   const share = () => navigator.share?.({ title: "Vem para o Tchilar", text: "Junta-te a mim no Tchilar!", url: link }).catch(() => {});
   return <div className="page narrow growth-page">
-    <header className="growth-hero card">
-      <span className="growth-hero-icon tone-gift"><Icon name="gift" size={28} /></span>
-      <div><p className="feed-section-kicker">Convidar amigos</p><h1>Traz os teus amigos e ganha estrelas</h1>
-        <p>Por cada pessoa que entrar com o teu convite, confirmar o email e fizer a primeira publicação, ganhas {data?.bonus ?? 50} estrelas.</p></div>
+    <header className="tc-head">
+      <div className="tc-head-text">
+        <p className="tc-head-kicker">Convidar amigos</p>
+        <h1>Traz os teus amigos e ganha estrelas</h1>
+        <p>Por cada pessoa que entrar com o teu convite, confirmar o email e fizer a primeira publicação, ganhas {data?.bonus ?? 50} estrelas.</p>
+      </div>
     </header>
     <section className="creator-card">
       <h2>O teu convite</h2>

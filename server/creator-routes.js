@@ -4,7 +4,7 @@ const { groupAudience, impressionCost, parseAdInput } = require("./ads");
 const { TARGETING_SURCHARGE, parseTargeting } = require("./growth");
 const { POST_MUSIC_SQL } = require("./music-routes");
 const {
-  MIN_PAYOUT_KZ, PARTNER_RPM_KZ, PARTNER_RULES, partnerEarnings, partnerEligibility, pickPromotions
+  MIN_PAYOUT_KZ, PARTNER_PROGRAM_OPEN, PARTNER_RPM_KZ, PARTNER_RULES, partnerEligibility, partnerPayout, pickPromotions
 } = require("./promotions");
 
 const PERIODS = [7, 28, 90];
@@ -37,6 +37,18 @@ function registerCreatorRoutes(app, deps) {
       SELECT p.id,$1 FROM posts p WHERE p.id = ANY($2::int[]) AND p.user_id <> $1
       ON CONFLICT DO NOTHING`, [req.user.id, ids]);
     res.json({ recorded: result.rowCount });
+  });
+
+  // Vídeo visto até ao fim (é o que conta para a monetização por vídeos). O site e a app só chamam isto quando a
+  // pessoa viu pelo menos 90% do vídeo e chegou ao fim; conta uma vez por pessoa, por vídeo e por dia, nunca o próprio.
+  app.post("/api/posts/:id/watched", auth, async (req, res) => {
+    const id = parseId(req.params.id);
+    if (!id) return res.status(400).json({ error: "Publicação inválida." });
+    const result = await pool.query(`
+      INSERT INTO video_full_views(post_id,viewer_id)
+      SELECT p.id,$1 FROM posts p WHERE p.id=$2 AND p.media_type='video' AND p.user_id <> $1 AND p.hidden_at IS NULL
+      ON CONFLICT DO NOTHING`, [req.user.id, id]);
+    res.json({ recorded: result.rowCount === 1 });
   });
 
   // ---------------------------------------------------------------------------------------------
@@ -223,7 +235,7 @@ function registerCreatorRoutes(app, deps) {
     const account = await pool.query(`
       SELECT u.partner_since,u.suspended_at,u.email_verified,
         (SELECT COUNT(*) FROM follows f WHERE f.following_id=u.id)::int AS followers,
-        (SELECT COUNT(*) FROM post_views v JOIN posts p ON p.id=v.post_id
+        (SELECT COUNT(*) FROM video_full_views v JOIN posts p ON p.id=v.post_id
           WHERE p.user_id=u.id AND v.viewed_on > CURRENT_DATE - $2::int)::int AS views
       FROM users u WHERE u.id=$1`, [userId, PARTNER_RULES.viewsWindowDays]);
     const row = account.rows[0];
@@ -238,15 +250,17 @@ function registerCreatorRoutes(app, deps) {
     const { row, eligibility } = status;
     let months = [];
     if (row.partner_since) {
-      // Visualizações qualificadas por mês, desde a adesão (as próprias nunca contam: ver /api/posts/views).
+      // Vídeos vistos até ao fim por mês, desde a adesão (os próprios nunca contam: ver /api/posts/:id/watched).
       const result = await pool.query(`
         SELECT to_char(date_trunc('month', v.viewed_on), 'YYYY-MM') AS month, COUNT(*)::int AS views
-        FROM post_views v JOIN posts p ON p.id=v.post_id
+        FROM video_full_views v JOIN posts p ON p.id=v.post_id
         WHERE p.user_id=$1 AND v.viewed_on >= $2::date
         GROUP BY 1 ORDER BY 1 DESC LIMIT 12`, [req.user.id, row.partner_since]);
-      months = result.rows.map(month => ({ ...month, amount: partnerEarnings(month.views) }));
+      months = result.rows.map(month => ({ ...month, amount: partnerPayout(month.views) }));
     }
     res.json({
+      // Brevemente: o programa ainda não paga (o Tchilar ainda não tem verba). As regras e o progresso já se mostram.
+      open: PARTNER_PROGRAM_OPEN,
       rules: PARTNER_RULES,
       rpm: PARTNER_RPM_KZ,
       min_payout: MIN_PAYOUT_KZ,
@@ -262,6 +276,7 @@ function registerCreatorRoutes(app, deps) {
   app.post("/api/creator/partner/join", auth, async (req, res) => {
     const status = await partnerStatus(req.user.id);
     if (!status) return res.status(404).json({ error: "Conta não encontrada." });
+    if (!PARTNER_PROGRAM_OPEN) return res.status(409).json({ error: "O Programa de Parceiros abre brevemente. Vamos avisar-te quando puderes aderir." });
     if (!status.eligibility.eligible) {
       const missing = status.eligibility.checks.filter(check => !check.met).map(check => check.label.toLowerCase());
       return res.status(403).json({ error: `Ainda não cumpres as regras do programa: ${missing.join(", ")}.` });
@@ -284,7 +299,7 @@ function registerCreatorRoutes(app, deps) {
 
   // Abre o pagamento (Stripe, ou demonstração sem Stripe em desenvolvimento). Ver payments.js.
   const startAdPayment = (ad, ownerEmail, choice = {}) => payments.start({
-    method: choice.method, phone: choice.phone,
+    method: choice.method, phone: choice.phone, promoCode: choice.promoCode,
     purpose: "ad", refId: ad.id, amountKz: ad.budget, userId: ad.owner_id, email: ownerEmail,
     name: ad.post_id ? `Impulsionar publicação no Tchilar (${ad.days} dias)` : `Anúncio no Tchilar: ${ad.title} (${ad.days} dias)`,
     successPath: "/creator/anuncios?pagamento=sucesso", cancelPath: "/creator/anuncios?pagamento=cancelado",
@@ -444,7 +459,9 @@ function registerCreatorRoutes(app, deps) {
     const picked = pickPromotions(candidates.rows, placement === "stories" ? 1 : 2);
     if (!picked.length) return res.json({ posts: [] });
     const posts = await pool.query(`
-      SELECT p.*, u.username, u.display_name, u.avatar_url, u.is_creator, u.partner_since IS NOT NULL AS is_verified,
+      SELECT p.*, u.username, u.display_name, u.avatar_url, u.is_creator,
+        COALESCE(u.partner_since IS NOT NULL OR u.verification_expires_at > NOW(), FALSE) AS is_verified,
+        CASE WHEN u.verification_expires_at > NOW() THEN u.verification_tier END AS verification_tier,
         p.star_count::int AS stars,
         p.like_count AS likes,
         EXISTS(SELECT 1 FROM likes l WHERE l.post_id=p.id AND l.user_id=$1) AS liked,

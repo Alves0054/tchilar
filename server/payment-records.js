@@ -8,9 +8,10 @@ const KINDS = {
   stars: { prefix: "E", label: "Estrelas" },
   campaign: { prefix: "C", label: "Campanha" },
   group_access: { prefix: "G", label: "Entrada em grupo" },
-  course: { prefix: "K", label: "Curso" }
+  course: { prefix: "K", label: "Curso" },
+  subscription: { prefix: "S", label: "Subscrição" }
 };
-const METHODS = { card: "Cartão", express: "Multicaixa Express", reference: "Pagamento por Referência", demo: "Demonstração (sem cobrança)" };
+const METHODS = { card: "Cartão", express: "Multicaixa Express", reference: "Pagamento por Referência", paypal: "PayPal", redotpay: "RedotPay", paypay: "PayPay Africa", demo: "Demonstração (sem cobrança)" };
 const STATUSES = { paid: "Pago", refunded: "Reembolsado", refund_due: "Reembolso por fazer" };
 
 // Número do recibo: estável (vem do tipo, do ano do pagamento e do id), por isso o mesmo pagamento tem
@@ -54,6 +55,11 @@ const PAYMENTS_SQL = `
       'Curso «' || COALESCE(co.title, 'curso apagado') || '»',
       COALESCE(cp.stripe_payment_intent, cp.stripe_session_id), ${refundState("cp")}
     FROM course_purchases cp LEFT JOIN courses co ON co.id=cp.course_id WHERE cp.status='paid'
+    UNION ALL
+    SELECT 'subscription', sp.id, sp.subscriber_id, sp.amount_kz::float, sp.paid_at,
+      'Subscrição de ' || COALESCE(cu.display_name, 'conta apagada') || ' (1 mês)',
+      COALESCE(sp.stripe_payment_intent, sp.stripe_session_id), ${refundState("sp")}
+    FROM subscription_payments sp LEFT JOIN users cu ON cu.id=sp.creator_id WHERE sp.status='paid'
   )
   SELECT i.kind, i.ref_id, i.user_id, i.amount_kz, i.paid_at, i.description, i.status, i.card_ref,
     COALESCE(l.method, CASE WHEN i.card_ref IS NOT NULL THEN 'card' ELSE 'demo' END) AS method,

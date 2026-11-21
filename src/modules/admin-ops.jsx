@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { API, Icon, api, formatPrice, token } from "./core.jsx";
 import { relativeTime } from "./feed.jsx";
+import { Select } from "./select.jsx";
 
 const post = (path, body) => api(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
 const dateTime = value => new Date(value).toLocaleString("pt-PT", { timeZone: "Africa/Luanda", dateStyle: "medium", timeStyle: "short" });
@@ -201,17 +202,17 @@ export function AdminBroadcasts() {
         <label>Mensagem<textarea required rows={4} maxLength={1000} value={form.body} onChange={event => setForm({ ...form, body: event.target.value })} placeholder="Amanhã às 2h o Tchilar fica parado cerca de 10 minutos." /></label>
         <div className="admin-broadcast-row">
           <label>Para quem
-            <select value={form.audience} onChange={event => setForm({ ...form, audience: event.target.value })}>
+            <Select value={form.audience} onChange={event => setForm({ ...form, audience: event.target.value })}>
               <option value="all">Todas as pessoas</option>
               <option value="creators">Criadores</option>
               <option value="inactive">Sem entrar há 30 dias</option>
               <optgroup label="Por província">{data.provinces.map(province => <option key={province} value={`province:${province}`}>{province}</option>)}</optgroup>
-            </select>
+            </Select>
           </label>
           <label>Como
-            <select value={form.channel} onChange={event => setForm({ ...form, channel: event.target.value })}>
+            <Select value={form.channel} onChange={event => setForm({ ...form, channel: event.target.value })}>
               {Object.entries(CHANNEL_LABELS).map(([key, label]) => <option key={key} value={key} disabled={key !== "notification" && !data.emailEnabled}>{label}{key !== "notification" && !data.emailEnabled ? " (sem SMTP)" : ""}</option>)}
-            </select>
+            </Select>
           </label>
         </div>
         <p className="muted">{reach ? `${reach.people} pessoas · ${reach.emails} com email confirmado` : "A contar..."}</p>
@@ -302,10 +303,10 @@ export function TeamRole({ user, onChange }) {
   };
   return <div className="admin-role">
     <label>Função na equipa
-      <select value={user.is_admin ? user.admin_role || "super" : ""} disabled={busy} onChange={change}>
+      <Select value={user.is_admin ? user.admin_role || "super" : ""} disabled={busy} onChange={change}>
         <option value="">Sem acesso</option>
         {Object.entries(ROLE_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
-      </select>
+      </Select>
     </label>
     <small className="muted">Para entrar no painel, a pessoa precisa de ter a verificação em dois passos ativa.</small>
     {error && <p className="error" role="alert">{error}</p>}

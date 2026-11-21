@@ -1,5 +1,5 @@
 import { createContext, useEffect, useRef, useState } from "react";
-import { Maximize, Minimize, Scissors, Gauge, Wand2, Type, Music2, RotateCcw, SlidersHorizontal, Lock, Mail, MonitorSmartphone, Ban, ChevronDown, Globe, Image as ImageIcon, LayoutGrid, Search, ThumbsUp, BarChart3, Bell, CircleHelp, Flag, Info, MapPin, MoreHorizontal, Mic, MicOff, Radio, Send, Square, VideoOff, Volume2, VolumeX, CreditCard, Hash, Smartphone, BadgeCheck, BriefcaseBusiness, Copy, Gift, GraduationCap, Star, Trophy, ArrowDown, ArrowUp, Eye, Pause, Play, Move, ShieldCheck, CalendarDays, Camera, Check, ChevronLeft, ChevronRight, Clapperboard, ExternalLink, FileText, Heart, House, Layers3, LogOut, Megaphone, MessageCircle, Moon, PenLine, Plus, Settings as SettingsIcon, Share2, Sparkles, Sun, Trash2, UserRound, UserRoundPlus, UsersRound, Video, X, Zap, Pin, PinOff, MicOff as MuteIcon, PhoneOff } from "lucide-react";
+import { Maximize, Minimize, Scissors, Gauge, Wand2, Type, Music2, RotateCcw, SlidersHorizontal, Lock, Mail, MonitorSmartphone, Ban, ChevronDown, Globe, Image as ImageIcon, LayoutGrid, Search, ThumbsUp, BarChart3, Bell, CircleHelp, Flag, Info, MapPin, MoreHorizontal, Mic, MicOff, Radio, Send, Square, VideoOff, Volume2, VolumeX, CreditCard, Hash, Smartphone, BadgeCheck, BriefcaseBusiness, Copy, Gift, GraduationCap, Star, Trophy, ArrowDown, ArrowUp, Eye, Pause, Play, Move, ShieldCheck, CalendarDays, Camera, Check, ChevronLeft, ChevronRight, Clapperboard, Clock, ExternalLink, FileText, Heart, House, Layers3, LogOut, Megaphone, MessageCircle, Moon, PenLine, Plus, Settings as SettingsIcon, Share2, Sparkles, Sun, Trash2, UserRound, UserRoundPlus, UsersRound, Video, X, Zap, Pin, PinOff, MicOff as MuteIcon, PhoneOff } from "lucide-react";
 
 export const API_BASE = (import.meta.env.DEV ? "" : import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
 export const API = `${API_BASE}/api`;
@@ -9,11 +9,13 @@ export const PUBLIC_URL = (import.meta.env.VITE_PUBLIC_URL || window.location.or
 export const UserContext = createContext({ user: null, refreshUser: () => {} });
 export const ThemeContext = createContext({ theme: "light", setTheme: () => {} });
 // Preferências deste dispositivo (não vão para o servidor): tamanho do texto, vídeos automáticos e animações.
-export const DEVICE_PREFS_KEY = "biva-device";
+export const DEVICE_PREFS_KEY = "tchilar-device";
+const LEGACY_DEVICE_PREFS_KEY = "biva-device";
 export const DEVICE_PREFS_DEFAULTS = { textSize: "normal", autoplay: true, reduceMotion: false };
 export function readDevicePrefs() {
   try {
-    const saved = JSON.parse(localStorage.getItem(DEVICE_PREFS_KEY) || "{}");
+    const savedValue = localStorage.getItem(DEVICE_PREFS_KEY) || localStorage.getItem(LEGACY_DEVICE_PREFS_KEY);
+    const saved = JSON.parse(savedValue || "{}");
     return {
       textSize: ["normal", "large", "larger"].includes(saved.textSize) ? saved.textSize : DEVICE_PREFS_DEFAULTS.textSize,
       autoplay: saved.autoplay !== false,
@@ -30,7 +32,10 @@ export function applyDevicePrefs(prefs) {
   else delete root.dataset.motion;
 }
 export function saveDevicePrefs(prefs) {
-  try { localStorage.setItem(DEVICE_PREFS_KEY, JSON.stringify(prefs)); } catch { /* sem armazenamento: vale só nesta visita */ }
+  try {
+    localStorage.setItem(DEVICE_PREFS_KEY, JSON.stringify(prefs));
+    localStorage.removeItem(LEGACY_DEVICE_PREFS_KEY);
+  } catch { /* sem armazenamento: vale só nesta visita */ }
   applyDevicePrefs(prefs);
   return prefs;
 }
@@ -101,7 +106,27 @@ export const setReelSound = value => { reelSoundOn = value; reelSoundListeners.f
 // Leitor de vídeo próprio: toque no vídeo para pausar/continuar, botão de som, ecrã cheio,
 // barra de progresso, música por cima do vídeo. Começa sozinho quando aparece no ecrã e pára quando sai.
 // music: { title, artist, src } — a faixa escolhida (o início, volume e entrada suave vêm de edit.music).
-export function VideoPlayer({ src, edit, music = null, className = "", autoPlay = true, label = "Vídeo" }) {
+// Visto até ao fim = chegou ao fim do corte depois de ver (sem saltar) pelo menos 90% dele. É o que conta para a
+// monetização por vídeos; saltar para o fim não conta.
+export function createWatchTracker(onWatched) {
+  let last = null;
+  let watched = 0;
+  let done = false;
+  return {
+    update(currentTime, clipStart, clipEnd) {
+      if (done || !(clipEnd > clipStart)) return;
+      const step = last === null ? 0 : currentTime - last;
+      if (step > 0 && step < 1.5) watched += step;
+      last = currentTime;
+      if (currentTime >= clipEnd - 0.6 && watched >= (clipEnd - clipStart) * 0.9) {
+        done = true;
+        onWatched?.();
+      }
+    }
+  };
+}
+
+export function VideoPlayer({ src, edit, music = null, className = "", autoPlay = true, label = "Vídeo", onWatched }) {
   const settings = { ...DEFAULT_VIDEO_EDIT, ...(edit || {}) };
   const wrapRef = useRef(null);
   const videoRef = useRef(null);
@@ -114,6 +139,10 @@ export function VideoPlayer({ src, edit, music = null, className = "", autoPlay 
   const [fullscreen, setFullscreen] = useState(false);
   const [loading, setLoading] = useState(true);
   const userPaused = useRef(false);
+  const onWatchedRef = useRef(onWatched);
+  onWatchedRef.current = onWatched;
+  const watchTracker = useRef(null);
+  if (!watchTracker.current) watchTracker.current = createWatchTracker(() => onWatchedRef.current?.());
 
   const clipStart = settings.start || 0;
   const clipEnd = () => settings.end ?? videoRef.current?.duration ?? 0;
@@ -266,6 +295,7 @@ export function VideoPlayer({ src, edit, music = null, className = "", autoPlay 
   const onTime = () => {
     const video = videoRef.current;
     const end = clipEnd();
+    watchTracker.current.update(video.currentTime, clipStart, end);
     if (end && video.currentTime >= end - 0.03) {
       video.currentTime = clipStart;
       if (!video.paused) video.play().catch(() => {});
@@ -381,6 +411,7 @@ export const ICONS = {
   bolt: Zap,
   camera: Camera,
   check: Check,
+  clock: Clock,
   close: X,
   lock: Lock,
   devices: MonitorSmartphone,

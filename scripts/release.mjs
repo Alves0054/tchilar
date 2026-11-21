@@ -9,6 +9,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const { createRequire } = await import("node:module");
+const { CRAWLER_PATTERN } = createRequire(import.meta.url)("../server/link-preview.js");
 const webUrl = (process.env.TCHILAR_WEB_URL || "https://tchilar.ao").replace(/\/$/, "");
 const apiUrl = (process.env.TCHILAR_API_URL || "https://api.tchilar.ao").replace(/\/$/, "");
 for (const [name, value] of [["TCHILAR_WEB_URL", webUrl], ["TCHILAR_API_URL", apiUrl]]) {
@@ -55,6 +57,11 @@ RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
   ForceType application/json
 </Files>
 
+# Pré-visualização dos links: o WhatsApp, o Facebook e companhia não correm JavaScript, por isso os perfis,
+# publicações e cursos pedidos por eles vão à API, que responde com a foto e o texto certos.
+RewriteCond %{HTTP_USER_AGENT} (${CRAWLER_PATTERN.source}) [NC]
+RewriteRule ^((u|posts|academia)/.*)$ ${apiUrl}/api/share/$1 [R=302,L]
+
 # Rotas do React (/u/ana, /admin/painel...): ficheiro inexistente abre o index.html
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
@@ -82,7 +89,6 @@ RewriteRule ^ index.html [L]
 `);
 
 // Links que abrem a app: só com os dados do primeiro build (Team ID da Apple, impressão SHA-256 do Android).
-const { createRequire } = await import("node:module");
 const { androidAssetLinks, appleAssociation } = createRequire(import.meta.url)("../server/app-links.js");
 const appleFile = appleAssociation(process.env.APPLE_TEAM_ID);
 const androidFile = androidAssetLinks(process.env.ANDROID_CERT_SHA256);

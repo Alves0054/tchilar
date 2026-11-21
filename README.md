@@ -77,7 +77,7 @@ Com Docker Desktop ativo, cria `.env` a partir do `.env.example` e define `POSTG
 docker compose up --build
 ```
 
-A aplicação fica em <http://localhost:4000> e a base de dados fica acessível localmente na porta `5433`, evitando conflito com uma instalação PostgreSQL local na porta `5432`. Os dados PostgreSQL e uploads persistem em volumes Docker.
+A aplicação fica em <http://localhost:4003> e a base de dados fica acessível localmente na porta `5433`, evitando conflito com uma instalação PostgreSQL local na porta `5432`. Os dados PostgreSQL e uploads persistem em volumes Docker.
 
 Para publicar atrás de um domínio, define `PUBLIC_APP_URL` e `PUBLIC_CLIENT_URL` no `.env`, configura `NODE_ENV=production`, SMTP e os domínios permitidos antes de iniciar. Usa HTTPS e um proxy reverso; não exponhas diretamente a porta PostgreSQL. Em produção, o arranque exige configuração SMTP válida para envio de confirmação e recuperação.
 
@@ -140,17 +140,19 @@ Copia o `whsec_...` mostrado para `STRIPE_WEBHOOK_SECRET`.
 4. **Reembolsos:** quando um administrador recusa uma promoção paga, o Tchilar pede o reembolso à Stripe automaticamente. Se falhar (ou se o pagamento não tiver identificador), aparece em **Administração → Finanças → Reembolsos a fazer à mão**.
 5. **Faturação:** a Stripe não emite faturas certificadas pela AGT. Para cumprir a lei angolana é preciso um programa de faturação certificado (integração por API) — isto ainda não está feito.
 
-### Multicaixa Express e Pagamento por Referência
+### Pagamentos locais e RedotPay
 
-Promoções, estrelas e campanhas podem ser pagas por **Multicaixa Express** ou **Referência** (e por cartão, se a Stripe estiver configurada). O cliente escolhe o método num só ecrã de pagamento.
+Promoções, estrelas e campanhas podem ser pagas por **Multicaixa Express**, **Referência**, **RedotPay** ou por cartão, se a Stripe estiver configurada. O cliente escolhe o método num só ecrã de pagamento.
 
 | Método | Prestador | Variáveis | Webhook |
 |---|---|---|---|
 | Pagamento por Referência (Entidade + Referência + Valor) | [ProxyPay API v2](https://developer.proxypay.co.ao/v2/) | `PROXYPAY_API_KEY`, `PROXYPAY_ENTITY_ID`, `PROXYPAY_ENV` | `https://<domínio>/api/webhooks/proxypay` |
 | Multicaixa Express (pedido na app do telemóvel ou QR code) | [Paybyrd](https://docs.paybyrd.com) | `PAYBYRD_API_KEY` | `https://<domínio>/api/webhooks/paybyrd` |
+| Checkout RedotPay (métodos disponibilizados na conta RedotPay) | RedotPay Connect | `REDOTPAY_APP_KEY`, `REDOTPAY_PRIVATE_KEY`, `REDOTPAY_PLATFORM_PUBLIC_KEY`, `REDOTPAY_ENV`, `REDOTPAY_CURRENCY`, `PAYMENTS_KZ_PER_USD` | `https://<domínio>/api/webhooks/redotpay` |
 
 - **Referências:** válidas 3 dias. A notificação só é aceite com a assinatura `X-Signature` (HMAC-SHA-256 com a chave da API) e o valor pago tem de cobrir o valor pedido. Sem webhook, o servidor lê a fila `GET /payments` da ProxyPay a cada minuto. No sandbox, o ecrã de pagamento mostra **Simular pagamento**.
 - **Multicaixa Express:** o pedido chega à app pelo número de telemóvel (ou QR code). O ecrã vai perguntando o estado; a notificação da Paybyrd nunca é usada como prova — o servidor confirma sempre com `GET /transactions/{id}`.
+- **RedotPay:** configura as três chaves fornecidas/geradas para a integração Connect, a taxa Kz/USD e o webhook indicado. Usa `REDOTPAY_ENV=sandbox` apenas em desenvolvimento; em produção é obrigatório `production`. O cliente conclui o pagamento no checkout RedotPay; os meios aceites dependem da conta RedotPay do comerciante.
 - **A confirmar com a Paybyrd antes de ir para produção:** o formato do número (`244#9XXXXXXXX`, como nos exemplos da documentação), se o kwanza (AOA) está ativo na conta e os nomes exatos dos estados finais.
 - **Reembolsos:** Express e Referência não têm devolução automática; aparecem em **Administração → Finanças → Reembolsos a fazer à mão**.
 - Para outro prestador, implementa o cliente em `server/angola-payments.js` e liga-o em `server/payments.js`.

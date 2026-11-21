@@ -56,3 +56,10 @@ test("bigger daily budgets are picked more often, without repeats", () => {
   const both = pickPromotions([big, small, spentOut], 5, Math.random, now);
   assert.deepEqual(both.map(ad => ad.id).sort(), [1, 2]);
 });
+
+test("partner payout is zero while the programme is 'coming soon', and the normal rate once it opens", () => {
+  const { PARTNER_PROGRAM_OPEN, partnerPayout } = require("./promotions");
+  assert.equal(PARTNER_PROGRAM_OPEN, false);
+  assert.equal(partnerPayout(5000), 0);
+  assert.equal(partnerPayout(5000, true), partnerEarnings(5000));
+});

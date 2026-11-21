@@ -5,6 +5,7 @@ const {
   campaignSplit, packPrice, parseBirthDate, referralQualifies, starsValueKz
 } = require("./growth");
 const { LEVELS, hasCash, parsePrizes } = require("./challenge-templates");
+const { VERIFICATION_MIN_FOLLOWERS, VERIFICATION_PLANS, verificationEligibility } = require("./verification");
 
 // Saldo de estrelas para gastar: compras, prémios e bónus menos as ofertas feitas.
 // As estrelas RECEBIDAS não entram aqui: valem dinheiro (70%) e vão para os ganhos (ver finance-routes.js).
@@ -64,6 +65,121 @@ function registerGrowthRoutes(app, deps) {
     });
   });
 
+  // Uma compra de verificação é da conta (page_id vazio) ou de uma página dessa conta: o selo fica em quem foi pago.
+  payments.register("verification", async (purchaseId, details) => {
+    await transaction(async client => {
+      const purchase = await client.query(
+        "UPDATE verification_purchases SET status='paid',paid_at=NOW(),stripe_payment_intent=$2 WHERE id=$1 AND status='pending' RETURNING user_id,page_id,tier",
+        [purchaseId, details.paymentIntent || null]);
+      if (!purchase.rowCount) return;
+      const { user_id: userId, page_id: pageId, tier } = purchase.rows[0];
+      const table = pageId ? "pages" : "users";
+      const verified = await client.query(`
+        UPDATE ${table} SET verification_tier=$2,
+          verification_expires_at=GREATEST(COALESCE(verification_expires_at,NOW()),NOW()) + INTERVAL '1 month'
+        WHERE id=$1 RETURNING verification_expires_at`,
+      [pageId || userId, tier]);
+      if (!verified.rowCount) throw new Error(pageId ? "A página da compra de verificação já não existe." : "A conta da compra de verificação já não existe.");
+      await client.query("UPDATE verification_purchases SET expires_at=$2 WHERE id=$1",
+        [purchaseId, verified.rows[0].verification_expires_at]);
+    });
+  });
+
+  // Estado da verificação de uma conta ou de uma página: planos, selo ativo e seguidores.
+  function verificationState(row) {
+    const active = row.verification_tier && row.verification_expires_at > new Date()
+      ? { tier: row.verification_tier, expires_at: row.verification_expires_at }
+      : null;
+    const plans = VERIFICATION_PLANS.map(plan => {
+      const { minFollowers, ...details } = plan;
+      return { ...details, minimum_followers: minFollowers, eligible: verificationEligibility(row.followers, plan.id) };
+    });
+    return {
+      plans,
+      active,
+      followers: row.followers,
+      minimum_followers: VERIFICATION_MIN_FOLLOWERS,
+      eligible: plans.some(plan => plan.eligible),
+      renewal: "manual"
+    };
+  }
+
+  // Começa o pagamento de um plano. `subject` = a conta ou a página (email, nome, seguidores e selo atual).
+  async function startVerificationCheckout(req, res, subject, { pageId = null, path }) {
+    const plan = VERIFICATION_PLANS.find(item => item.id === req.body?.tier);
+    if (!plan) return res.status(400).json({ error: "Plano de verificação inválido." });
+    if (!verificationEligibility(subject.followers, plan.id)) {
+      return res.status(403).json({ error: `O plano ${plan.name} exige pelo menos ${plan.minFollowers.toLocaleString("pt-PT")} seguidores para ativar ou renovar o selo.${pageId ? "" : " Amigos não contam."}` });
+    }
+    if (subject.verification_active && subject.verification_tier !== plan.id) {
+      return res.status(409).json({ error: "Só podes mudar de plano quando a verificação atual terminar." });
+    }
+    const purchase = await pool.query(
+      "INSERT INTO verification_purchases(user_id,page_id,tier,amount_kz) VALUES($1,$2,$3,$4) RETURNING id",
+      [req.user.id, pageId, plan.id, plan.priceKz]);
+    const purchaseId = purchase.rows[0].id;
+    let result;
+    try {
+      result = await payments.start({
+        purpose: "verification", refId: purchaseId, amountKz: plan.priceKz, userId: req.user.id,
+        email: subject.email, method: req.body?.method, phone: req.body?.phone, promoCode: req.body?.promoCode,
+        name: pageId ? `Selo verificado ${plan.name} da página ${subject.name} (1 mês)` : `Selo verificado ${plan.name} (1 mês)`,
+        successPath: `${path}?pagamento=sucesso`,
+        cancelPath: `${path}?pagamento=cancelado`
+      });
+    } catch (error) {
+      await pool.query("UPDATE verification_purchases SET status='failed' WHERE id=$1 AND status='pending'", [purchaseId]);
+      throw error;
+    }
+    if (result.error) {
+      await pool.query("UPDATE verification_purchases SET status='failed' WHERE id=$1 AND status='pending'", [purchaseId]);
+      return res.status(503).json({ error: result.error });
+    }
+    res.status(201).json(result);
+  }
+
+  app.get("/api/creator/verification", auth, async (req, res) => {
+    const result = await pool.query(`
+      SELECT u.verification_tier,u.verification_expires_at,
+        (SELECT COUNT(*) FROM follows f WHERE f.following_id=u.id)::int AS followers
+      FROM users u WHERE u.id=$1`, [req.user.id]);
+    if (!result.rowCount) return res.status(404).json({ error: "Conta não encontrada." });
+    res.json(verificationState(result.rows[0]));
+  });
+
+  app.post("/api/creator/verification/checkout", auth, async (req, res) => {
+    const user = await pool.query(`
+      SELECT email,verification_tier,verification_expires_at > NOW() AS verification_active
+        ,(SELECT COUNT(*) FROM follows f WHERE f.following_id=u.id)::int AS followers
+      FROM users u WHERE id=$1`, [req.user.id]);
+    if (!user.rowCount) return res.status(404).json({ error: "Conta não encontrada." });
+    await startVerificationCheckout(req, res, user.rows[0], { path: "/creator/verificacao" });
+  });
+
+  // Verificação de páginas: só quem criou a página a pode comprar; contam os seguidores da página.
+  const ownedPage = (pageId, userId) => pool.query(`
+    SELECT p.name,p.verification_tier,p.verification_expires_at,
+      COALESCE(p.verification_expires_at > NOW(),FALSE) AS verification_active,u.email,
+      (SELECT COUNT(*) FROM page_followers f WHERE f.page_id=p.id)::int AS followers
+    FROM pages p JOIN users u ON u.id=p.owner_id
+    WHERE p.id=$1 AND p.owner_id=$2 AND p.hidden_at IS NULL`, [pageId, userId]);
+
+  app.get("/api/pages/:pageId/verification", auth, async (req, res) => {
+    const pageId = parseId(req.params.pageId);
+    if (!pageId) return res.status(400).json({ error: "Página inválida." });
+    const page = await ownedPage(pageId, req.user.id);
+    if (!page.rowCount) return res.status(404).json({ error: "Só quem criou a página pode tratar da verificação." });
+    res.json({ ...verificationState(page.rows[0]), page: { id: pageId, name: page.rows[0].name } });
+  });
+
+  app.post("/api/pages/:pageId/verification/checkout", auth, async (req, res) => {
+    const pageId = parseId(req.params.pageId);
+    if (!pageId) return res.status(400).json({ error: "Página inválida." });
+    const page = await ownedPage(pageId, req.user.id);
+    if (!page.rowCount) return res.status(404).json({ error: "Só quem criou a página pode tratar da verificação." });
+    await startVerificationCheckout(req, res, page.rows[0], { pageId, path: `/pages/${pageId}` });
+  });
+
   app.get("/api/stars", auth, async (req, res) => {
     const [balance, history, received] = await Promise.all([
       pool.query(balanceSql, [req.user.id]),
@@ -94,7 +210,7 @@ function registerGrowthRoutes(app, deps) {
     const id = purchase.rows[0].id;
     const result = await payments.start({
       purpose: "stars", refId: id, amountKz: packPrice(pack), userId: req.user.id, email: user.rows[0]?.email,
-      method: req.body?.method, phone: req.body?.phone,
+      method: req.body?.method, phone: req.body?.phone, promoCode: req.body?.promoCode,
       name: `${pack.stars}${pack.bonus ? ` + ${pack.bonus}` : ""} Estrelas Tchilar`,
       successPath: "/estrelas?pagamento=sucesso", cancelPath: "/estrelas?pagamento=cancelado",
       onSession: sessionId => pool.query("UPDATE star_purchases SET stripe_session_id=$2 WHERE id=$1", [id, sessionId])
@@ -190,7 +306,8 @@ function registerGrowthRoutes(app, deps) {
         SELECT u.id,u.username,u.display_name,u.avatar_url,u.bio,u.profession,
           -- A província é privada: só aparece (e só filtra) quando a pessoa autorizou.
           CASE WHEN u.show_province_to_brands THEN u.province END AS province,
-          u.partner_since IS NOT NULL AS is_verified,
+          COALESCE(u.partner_since IS NOT NULL OR u.verification_expires_at > NOW(), FALSE) AS is_verified,
+          CASE WHEN u.verification_expires_at > NOW() THEN u.verification_tier END AS verification_tier,
           (SELECT COUNT(*) FROM follows f WHERE f.following_id=u.id)::int AS followers,
           (SELECT COUNT(*) FROM posts p WHERE p.user_id=u.id)::int AS posts
         FROM users u
@@ -198,7 +315,8 @@ function registerGrowthRoutes(app, deps) {
           AND ($2::text IS NULL OR (u.show_province_to_brands AND u.province=$2))
           AND ($3 = '' OR u.profession ILIKE '%' || $3 || '%' OR u.bio ILIKE '%' || $3 || '%')
       ) c WHERE c.followers >= $4
-      ORDER BY c.is_verified DESC, c.followers DESC LIMIT 60`, [req.user?.id || 0, province, area, minFollowers]);
+      ORDER BY CASE c.verification_tier WHEN 'benga' THEN 2 WHEN 'bolado' THEN 1 ELSE 0 END DESC,
+        c.is_verified DESC, c.followers DESC LIMIT 60`, [req.user?.id || 0, province, area, minFollowers]);
     res.json({ creators: result.rows, provinces: ANGOLA_PROVINCES });
   });
 
@@ -272,7 +390,7 @@ function registerGrowthRoutes(app, deps) {
       const user = await pool.query("SELECT email FROM users WHERE id=$1", [req.user.id]);
       const result = await payments.start({
         purpose: "campaign", refId: id, amountKz: row.budget, userId: req.user.id, email: user.rows[0]?.email,
-        method: req.body?.method, phone: req.body?.phone,
+        method: req.body?.method, phone: req.body?.phone, promoCode: req.body?.promoCode,
         name: `Campanha no Tchilar: ${row.title}`,
         successPath: "/creator/parcerias?pagamento=sucesso", cancelPath: "/creator/parcerias?pagamento=cancelado",
         onSession: sessionId => pool.query("UPDATE brand_campaigns SET stripe_session_id=$2 WHERE id=$1", [id, sessionId])

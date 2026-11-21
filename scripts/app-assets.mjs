@@ -1,4 +1,4 @@
-// Gera os ícones da app e as imagens das lojas a partir do logótipo (mobile/biva-expo/assets/tchilar-icon.png).
+// Gera os ícones da app e as imagens das lojas a partir do logótipo (mobile/tchilar-app/assets/tchilar-icon.png).
 // Uso: npm run app:assets
 //   App:   icon-ios.png (1024, sem transparência), android-icon-foreground/monochrome.png, notification-icon.png
 //   Lojas: store/play-icon-512.png, store/play-feature-graphic.png (1024×500), store/app-store-icon-1024.png
@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 import sharp from "sharp";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const appDir = existsSync(path.join(root, "mobile", "tchilar-app")) ? path.join(root, "mobile", "tchilar-app") : path.join(root, "mobile", "biva-expo");
+const appDir = path.join(root, "mobile", "tchilar-app");
 const assets = path.join(appDir, "assets");
 const store = path.join(root, "store");
 mkdirSync(store, { recursive: true });

@@ -1,4 +1,4 @@
-# Muda a pasta da app de mobile/biva-expo para mobile/tchilar-app e atualiza as referências.
+# Mantém o script de migração da pasta antiga para mobile/tchilar-app.
 # Fecha antes o editor de código (VS Code, Cursor...) e o Expo: o Windows não deixa mudar o nome
 # de uma pasta que outro programa tem aberta.
 # Uso (na raiz do projeto):  powershell -ExecutionPolicy Bypass -File scripts/rename-app-folder.ps1

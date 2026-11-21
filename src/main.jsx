@@ -4,6 +4,7 @@ import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-route
 import "@fontsource-variable/nunito";
 import "@fontsource-variable/bricolage-grotesque";
 import "./styles.css";
+import "./forms.css";
 import { Auth, ForgotPassword, ResetPassword, VerifyEmail } from "./modules/auth.jsx";
 import { applyDevicePrefs, readDevicePrefs } from "./modules/core.jsx";
 import { Home, PostPage } from "./modules/feed.jsx";
@@ -106,4 +107,8 @@ function App() {
 }
 applyDevicePrefs(readDevicePrefs());
 installGlobalErrorReporting();
-createRoot(document.getElementById("root")).render(<BrowserRouter><App /></BrowserRouter>);
+// Em desenvolvimento, o Vite volta a correr este ficheiro quando se edita código: reaproveita a raiz que já existe
+// (criar outra no mesmo elemento dava "createRoot() ... already been passed" e "removeChild" e o ecrã ficava em branco).
+const container = document.getElementById("root");
+const root = container.__tchilarRoot || (container.__tchilarRoot = createRoot(container));
+root.render(<BrowserRouter><App /></BrowserRouter>);

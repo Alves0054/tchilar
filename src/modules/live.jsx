@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { Avatar, Icon, UserContext, api, formatCount } from "./core.jsx";
 import { CharCount, LiveBadge, VerifiedBadge, pageTone, usePolling } from "./shared.jsx";
 import GIFT_ART from "../data/live-gifts-art.json";
+import { Select } from "./select.jsx";
 
 // Ícone desenhado de um presente (SVG do próprio Tchilar, em src/data/live-gifts-art.json).
 export function GiftIcon({ gift, size = 40 }) {
@@ -413,7 +414,7 @@ export function StreamKeyDialog({ onClose }) {
     </div>
   </div>, document.body);
 }
-export function StartLiveDialog({ onClose }) {
+export function StartLiveDialog({ onClose, pageId, pageName }) {
   const navigate = useNavigate();
   const videoRef = useRef(null);
   const [config, setConfig] = useState(null);
@@ -474,7 +475,7 @@ export function StartLiveDialog({ onClose }) {
     setError("");
     try {
       const result = await api("/lives", { method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...details, source: mode === "obs" ? "obs" : "browser" }) });
+        body: JSON.stringify({ ...details, source: mode === "obs" ? "obs" : "browser", ...(pageId ? { pageId } : {}) }) });
       if (mode !== "obs") { pendingHostStream = stream; pendingHostSettings = { quality, videoId, audioId, originalAudio, kind: mode }; }
       navigate(`/live/${result.id}`);
     } catch (startError) {
@@ -492,7 +493,7 @@ export function StartLiveDialog({ onClose }) {
   return createPortal(<div className="modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget && !busy) onClose(); }}>
     <form className="modal card start-live-dialog live-studio" role="dialog" aria-modal="true" aria-labelledby="start-live-title" onSubmit={start}>
       <div className="share-dialog-head">
-        <h2 id="start-live-title">Estúdio do direto</h2>
+        <h2 id="start-live-title">{pageName ? `Direto · ${pageName}` : "Estúdio do direto"}</h2>
         <button className="round-button" type="button" aria-label="Fechar" onClick={onClose} disabled={busy}><Icon name="close" size={18} /></button>
       </div>
       <div className="live-studio-grid">
@@ -517,21 +518,21 @@ export function StartLiveDialog({ onClose }) {
             </div>
             <div className="live-studio-devices">
               {mode === "camera" && <label>Vídeo
-                <select value={videoId} onChange={event => setVideoId(event.target.value)}>
+                <Select value={videoId} onChange={event => setVideoId(event.target.value)}>
                   <option value="">Câmara predefinida</option>
                   {devices.video.map((device, index) => <option key={device.deviceId || index} value={device.deviceId}>{device.label || `Câmara ${index + 1}`}</option>)}
-                </select>
+                </Select>
               </label>}
               <label>Som
-                <select value={audioId} onChange={event => setAudioId(event.target.value)}>
+                <Select value={audioId} onChange={event => setAudioId(event.target.value)}>
                   <option value="">Microfone predefinido</option>
                   {devices.audio.map((device, index) => <option key={device.deviceId || index} value={device.deviceId}>{device.label || `Microfone ${index + 1}`}</option>)}
-                </select>
+                </Select>
               </label>
               <label>Qualidade
-                <select value={quality} onChange={event => setQuality(event.target.value)}>
+                <Select value={quality} onChange={event => setQuality(event.target.value)}>
                   {Object.entries(LIVE_QUALITIES).map(([key, preset]) => <option key={key} value={key}>{preset.label}</option>)}
-                </select>
+                </Select>
               </label>
               <LiveAudioMeters stream={stream || micPreview} original={originalAudio} />
             </div>
@@ -553,10 +554,10 @@ export function StartLiveDialog({ onClose }) {
           <label><span className="ad-field-head">Descrição <CharCount value={details.description} max={500} /></span>
             <textarea rows={4} maxLength={500} value={details.description} onChange={event => update("description", event.target.value)} placeholder="Do que vais falar, convidados, horário..." /></label>
           <label>Categoria
-            <select value={details.category} onChange={event => update("category", event.target.value)}>
+            <Select value={details.category} onChange={event => update("category", event.target.value)}>
               <option value="">Sem categoria</option>
               {(config?.categories || Object.keys(LIVE_CATEGORY_LABELS)).map(key => <option key={key} value={key}>{LIVE_CATEGORY_LABELS[key] || key}</option>)}
-            </select>
+            </Select>
           </label>
           <p className="muted create-page-note">{config?.mode === "cdn"
             ? "Quem te segue recebe uma notificação. O vídeo chega a todas as pessoas, mesmo a quem não tem conta."
@@ -619,7 +620,7 @@ export function LiveList() {
       </span>
       <span className="live-card-body">
         <strong>{live.title}</strong>
-        <small>{live.display_name}<VerifiedBadge show={live.is_verified} /> · há {liveDuration(live.started_at)}</small>
+        <small>{live.display_name}<VerifiedBadge show={live.is_verified} tier={live.verification_tier} /> · há {liveDuration(live.started_at)}{live.page_name ? ` · Página ${live.page_name}` : ""}</small>
         {live.category && <small className="live-card-category">{LIVE_CATEGORY_LABELS[live.category] || live.category}</small>}
       </span>
     </Link>)}</div>}
@@ -1105,7 +1106,8 @@ export function LiveRoom({ liveId }) {
           <Link to={`/u/${live.username}`} aria-label={`Perfil de ${live.display_name}`}><Avatar user={live} size="large" /></Link>
           <div>
             <h1>{live.title}</h1>
-            <p><Link className="post-author" to={`/u/${live.username}`}>{live.display_name}</Link><VerifiedBadge show={live.is_verified} />
+            <p><Link className="post-author" to={`/u/${live.username}`}>{live.display_name}</Link><VerifiedBadge show={live.is_verified} tier={live.verification_tier} />
+              {live.page_id && live.page_name && <Link className="live-category" to={`/pages/${live.page_id}`}>Página {live.page_name}</Link>}
               {live.category && <span className="live-category">{LIVE_CATEGORY_LABELS[live.category] || live.category}</span>}</p>
             {live.description && <p className="live-description">{live.description}</p>}
           </div>
@@ -1135,16 +1137,16 @@ export function LiveRoom({ liveId }) {
             <StreamKeyPanel />
           </> : <div className="live-studio-devices">
             <label>Vídeo
-              <select value={settings.videoId} onChange={event => switchSource({ videoId: event.target.value, kind: "camera" })}>
+              <Select value={settings.videoId} onChange={event => switchSource({ videoId: event.target.value, kind: "camera" })}>
                 <option value="">Câmara predefinida</option>
                 {devices.video.map((device, index) => <option key={device.deviceId || index} value={device.deviceId}>{device.label || `Câmara ${index + 1}`}</option>)}
-              </select>
+              </Select>
             </label>
             <label>Som
-              <select value={settings.audioId} onChange={event => switchSource({ audioId: event.target.value })}>
+              <Select value={settings.audioId} onChange={event => switchSource({ audioId: event.target.value })}>
                 <option value="">Microfone predefinido</option>
                 {devices.audio.map((device, index) => <option key={device.deviceId || index} value={device.deviceId}>{device.label || `Microfone ${index + 1}`}</option>)}
-              </select>
+              </Select>
             </label>
             <LiveAudioMeters stream={hostStream} original={settings.originalAudio} />
             <label className="live-switch">
@@ -1191,9 +1193,10 @@ export function LiveRoom({ liveId }) {
                 onClick={() => gift(item.key)} disabled={balance !== null && balance < item.stars} title={`${item.name} · ${item.stars} estrelas`}>
                 <GiftIcon gift={item.key} size={40} />
                 <strong>{item.name}</strong>
-                <small>{formatCount(item.kz)} Kz</small>
+                <span className="live-gift-stars"><Icon name="star" size={12} /> {formatCount(item.stars)} {item.stars === 1 ? "estrela" : "estrelas"}</span>
+                <small>= {formatCount(item.kz)} Kz</small>
               </button>)}
-              {balance !== null && <p className="live-gift-hint">Pagas com estrelas (1 estrela = 10 Kz). <Link to="/estrelas">Comprar estrelas</Link></p>}
+              <p className="live-gift-hint">{balance !== null && <>Tens <strong>{formatCount(balance)} {balance === 1 ? "estrela" : "estrelas"}</strong>. </>}Cada presente paga-se com estrelas (1 estrela = 10 Kz); quem está em direto recebe 70%. <Link to="/estrelas">Comprar estrelas</Link></p>
             </div>}
             {giftMessage && <p className="live-gift-message" role="status">{giftMessage}</p>}
             <form className="live-chat-form" onSubmit={sendComment}>

@@ -1,0 +1,343 @@
+/* ===========================================================================================
+   Criar evento: cabeçalho com o calendário, campos com ícones e o cartaz do evento ao lado.
+   =========================================================================================== */
+.event-dialog {
+  width: min(880px, calc(100vw - 24px));
+}
+
+.event-dialog-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 18px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--color-line);
+}
+
+.event-dialog-badge {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  color: #FFFFFF;
+  background: #0B0B0C;
+}
+
+.event-dialog-head h2 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 22px;
+  letter-spacing: -.02em;
+}
+
+.event-dialog-head p {
+  margin: 2px 0 0;
+  color: var(--color-text-muted);
+  font-size: 14px;
+}
+
+.event-dialog-grid {
+  align-items: start;
+}
+
+.event-dialog-fields {
+  display: grid;
+  gap: 16px;
+}
+
+.event-field {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  margin: 0;
+}
+
+.event-field-label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--color-text);
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.event-field-label small {
+  color: var(--color-text-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.event-dialog .event-field input:not([type="file"]),
+.event-dialog .event-field textarea {
+  width: 100%;
+  min-height: 46px;
+  padding: 10px 14px;
+  border: 1px solid var(--color-line);
+  border-radius: 12px;
+  color: var(--color-text);
+  background: var(--color-surface);
+  font: inherit;
+}
+
+.event-dialog .event-field textarea {
+  min-height: 92px;
+  resize: vertical;
+}
+
+.event-dialog .event-field input:focus,
+.event-dialog .event-field textarea:focus {
+  border-color: var(--color-text);
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-text) 12%, transparent);
+}
+
+.event-dialog .event-name-input {
+  min-height: 52px !important;
+  font-family: var(--font-display) !important;
+  font-size: 18px !important;
+  font-weight: 700;
+}
+
+.event-dialog .tc-date-trigger {
+  min-height: 46px;
+  border-radius: 12px;
+}
+
+.event-input-icon {
+  position: relative;
+  display: block;
+}
+
+.event-input-icon > svg {
+  position: absolute;
+  top: 50%;
+  left: 14px;
+  translate: 0 -50%;
+  color: var(--color-text-muted);
+  pointer-events: none;
+}
+
+.event-dialog .event-input-icon input {
+  padding-left: 38px !important;
+}
+
+/* ----- Cartaz do evento ----- */
+.event-dialog-preview {
+  position: sticky;
+  top: 0;
+}
+
+.event-poster {
+  overflow: hidden;
+  border: 1px solid var(--color-line);
+  border-radius: 18px;
+  background: var(--color-surface);
+  box-shadow: 0 18px 40px -26px rgba(0, 0, 0, .5);
+}
+
+.event-poster-cover {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  background: #0B0B0C;
+}
+
+.event-poster-cover > img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.event-poster-waves {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: rgba(255, 255, 255, .85);
+  background: #141416;
+}
+
+.event-poster-cover .event-date-tile {
+  position: absolute;
+  bottom: -26px;
+  left: 16px;
+  box-shadow: 0 10px 24px -10px rgba(0, 0, 0, .55);
+}
+
+.event-poster-body {
+  display: grid;
+  gap: 6px;
+  padding: 34px 16px 16px;
+}
+
+.event-poster-body > strong {
+  font-family: var(--font-display);
+  font-size: 19px;
+  line-height: 1.2;
+  letter-spacing: -.01em;
+  overflow-wrap: anywhere;
+}
+
+.event-poster-body > span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-text-muted);
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.event-poster-body > span:first-of-type {
+  color: #E30613;
+}
+
+.event-poster-body .is-placeholder {
+  color: var(--color-text-subtle, var(--color-text-muted)) !important;
+  opacity: .7;
+}
+
+.event-poster-body p {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 4px 0 0;
+  color: var(--color-text);
+  font-size: 13.5px;
+  line-height: 1.45;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.event-poster-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--color-line);
+}
+
+.event-poster-foot small {
+  color: var(--color-text-muted);
+  font-size: 12.5px;
+}
+
+.event-poster-foot b {
+  color: var(--color-text);
+}
+
+.event-poster-going {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 14px;
+  border-radius: 999px;
+  color: #FFFFFF;
+  background: #E30613;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.event-dialog-actions .btn {
+  gap: 8px;
+}
+
+@media (max-width: 760px) {
+  .event-dialog-preview {
+    position: static;
+  }
+}
+
+/* ===========================================================================================
+   Eventos dentro do grupo: cabeçalho, estado vazio e cartões (o mesmo cartaz do Criar evento)
+   =========================================================================================== */
+.group-events-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.group-events-head h3 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 19px;
+}
+
+.group-events-head p {
+  margin: 2px 0 0;
+  font-size: 13px;
+}
+
+.group-events-head .btn,
+.group-events-empty .btn {
+  gap: 6px;
+}
+
+.group-events-empty {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+  padding: 18px;
+}
+
+.group-events-empty > div {
+  flex: 1;
+  min-width: 200px;
+}
+
+.group-events-empty p {
+  margin: 2px 0 0;
+}
+
+.group-events-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 14px;
+}
+
+.group-event-card .event-poster-cover {
+  display: block;
+}
+
+.group-event-card .event-poster-body a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.group-event-card .event-poster-body a:hover strong {
+  text-decoration: underline;
+}
+
+.group-event-card .event-poster-body strong {
+  font-family: var(--font-display);
+  font-size: 17px;
+  line-height: 1.2;
+}
+
+.event-going-btn {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 14px;
+  border: 1.5px solid var(--color-text);
+  border-radius: 999px;
+  color: var(--color-text);
+  background: var(--color-surface);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.event-going-btn.is-on {
+  border-color: #E30613;
+  color: #FFFFFF;
+  background: #E30613;
+}

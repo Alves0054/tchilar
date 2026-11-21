@@ -1,0 +1,15 @@
+{
+  "_nota": "Capas de perfil para quem ainda não escolheu uma foto. Cada pessoa fica sempre com a mesma, escolhida pelo número da conta (ver coverFor no site e na app). 'first' é a primeira linha, 'accent' a segunda, em destaque.",
+  "covers": [
+    { "key": "disciplina", "first": "A disciplina de hoje", "accent": "é a liberdade de amanhã." },
+    { "key": "passos", "first": "Grandes conquistas começam", "accent": "com pequenos passos." },
+    { "key": "persistir", "first": "Quem persiste", "accent": "transforma o impossível." },
+    { "key": "esforco", "first": "O teu esforço", "accent": "fala por ti." },
+    { "key": "silencio", "first": "Trabalha em silêncio,", "accent": "deixa os resultados falar." },
+    { "key": "crescer", "first": "Cada dia é uma nova", "accent": "oportunidade de crescer." },
+    { "key": "orgulho", "first": "Não pares", "accent": "até te orgulhares de ti." },
+    { "key": "sonhos", "first": "Sonha alto,", "accent": "trabalha ainda mais." },
+    { "key": "historia", "first": "A tua história", "accent": "ainda está a ser escrita." },
+    { "key": "coragem", "first": "Coragem é continuar", "accent": "quando ninguém está a ver." }
+  ]
+}

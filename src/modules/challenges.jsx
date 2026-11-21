@@ -47,21 +47,21 @@ function ChallengeList() {
   const month = new Date().toLocaleDateString("pt-PT", { month: "long" });
 
   return <div className="page challenges-v2">
-    <header className="challenges-hero card">
-      <div className="challenges-hero-text">
-        <p className="feed-section-kicker">Desafios de {month}</p>
+    <header className="tc-head">
+      <div className="tc-head-text">
+        <p className="tc-head-kicker">Desafios de {month}</p>
         <h1>Participa e ganha prémios</h1>
         <p>Todos os meses há desafios novos. Publica, entra com a tua publicação e junta gostos: os mais gostados ganham estrelas e, nos níveis mais altos, dinheiro.</p>
-        {user?.is_admin && <div className="challenges-admin">
-          <Link className="btn secondary" to="/admin/desafios"><Icon name="settings" size={15} /> Gerir desafios</Link>
-        </div>}
+        <p className="tc-head-facts">
+          <b>{formatCount(open.length)}</b> {open.length === 1 ? "desafio aberto" : "desafios abertos"}
+          {" · "}{totalCash ? <>Prémios de <b>{formatPrice(totalCash)}</b> este mês</> : "Prémios em estrelas"}
+          {" · "}{nextEnd === null ? "Próximos desafios em breve" : nextEnd <= 1 ? <b>Último dia</b> : <>Terminam em <b>{nextEnd} dias</b></>}
+          {user && <>{" · "}Estás em <b>{mine}</b> {mine === 1 ? "desafio" : "desafios"}</>}
+        </p>
       </div>
-      <dl className="challenges-hero-stats">
-        <div><dt>Desafios abertos</dt><dd>{formatCount(open.length)}</dd></div>
-        <div><dt>Em prémios este mês</dt><dd>{totalCash ? formatPrice(totalCash) : "Estrelas"}</dd></div>
-        <div><dt>{nextEnd === null ? "Próximos desafios" : "Terminam em"}</dt><dd>{nextEnd === null ? "Em breve" : nextEnd <= 1 ? "Último dia" : `${nextEnd} dias`}</dd></div>
-        {user && <div><dt>Estás em</dt><dd>{mine} {mine === 1 ? "desafio" : "desafios"}</dd></div>}
-      </dl>
+      {user?.is_admin && <div className="tc-head-actions">
+        <Link className="btn secondary" to="/admin/desafios"><Icon name="settings" size={15} /> Gerir desafios</Link>
+      </div>}
     </header>
 
     <section className="challenges-steps" aria-label="Como funciona">

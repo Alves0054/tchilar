@@ -5,6 +5,7 @@ import { Avatar, Icon, api, formatPrice } from "./core.jsx";
 import { relativeTime } from "./feed.jsx";
 import { PaymentStatus } from "./payments.jsx";
 import { ROLE_LABELS, TeamRole } from "./admin-ops.jsx";
+import { Select } from "./select.jsx";
 
 const dateTime = value => new Date(value).toLocaleString("pt-PT", { timeZone: "Africa/Luanda", dateStyle: "medium", timeStyle: "short" });
 const shortDay = day => new Date(`${day}T12:00:00Z`).toLocaleDateString("pt-PT", { day: "numeric", month: "short", timeZone: "UTC" });
@@ -281,7 +282,7 @@ export function AdminUserDetail({ userId, canManageTeam = false, canModerate = f
       <h2>Levantamentos</h2>
       {data.payouts.length ? <ul className="admin-mini-list">{data.payouts.map(payout => <li key={payout.id}>
         <span className="muted">#{payout.id}</span>
-        <span>{payout.bank_name} · IBAN •••• {payout.iban_last4}<small>{dateTime(payout.created_at)}{payout.reference ? ` · ref. ${payout.reference}` : ""}{payout.note ? ` · ${payout.note}` : ""}</small></span>
+        <span>{payout.bank_name} · {payout.destination}<small>{dateTime(payout.created_at)}{payout.reference ? ` · ref. ${payout.reference}` : ""}{payout.note ? ` · ${payout.note}` : ""}</small></span>
         <strong>{formatPrice(payout.amount)}</strong><span className="payment-status">{PAYOUT_STATUS[payout.status] || payout.status}</span>
       </li>)}</ul> : <p className="muted">Sem levantamentos.</p>}
     </section></>}
@@ -326,10 +327,10 @@ export function AdminActions() {
   return <section className="creator-card">
     <div className="creator-card-head"><div><h2>Registo de ações</h2><p>Tudo o que a equipa fez no painel: quem, o quê e quando. Não se pode apagar.</p></div>
       {data && <label className="period-select"><span className="visually-hidden">Tipo de ação</span>
-        <select value={action} onChange={event => set("action", event.target.value)}>
+        <Select value={action} onChange={event => set("action", event.target.value)}>
           <option value="">Todas as ações</option>
           {Object.entries(data.labels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
-        </select><Icon name="chevronDown" size={16} /></label>}</div>
+        </Select></label>}</div>
     {error && <p className="error" role="alert">{error}</p>}
     {!data && !error && <div className="creator-loading">A carregar...</div>}
     {data && !data.actions.length && <p className="muted">Nada registado{action ? " com este filtro" : ""}.</p>}

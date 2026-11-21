@@ -1,0 +1,188 @@
+/* Campo de ficheiro do Tchilar (src/modules/file-picker.jsx) */
+.tc-file {
+  position: relative;
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* O <input type="file"> fica escondido mas acessível (o rótulo abre-o) */
+.tc-file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.tc-file-empty {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center;
+  gap: 12px !important;
+  min-height: 72px;
+  margin: 0 !important;
+  padding: 12px 14px;
+  border: 1.5px dashed var(--color-line-strong);
+  border-radius: 14px;
+  color: var(--color-text);
+  background: var(--color-surface);
+  font-weight: 400 !important;
+  cursor: pointer;
+  transition: border-color .15s ease, background-color .15s ease;
+}
+
+.tc-file-empty:hover,
+.tc-file.is-dragging .tc-file-empty {
+  border-color: var(--color-text);
+  background: color-mix(in srgb, var(--color-text) 4%, var(--color-surface));
+}
+
+.tc-file.is-dragging .tc-file-empty {
+  border-color: #E30613;
+  background: color-mix(in srgb, #E30613 6%, var(--color-surface));
+}
+
+.tc-file-input:focus-visible + .tc-file-empty,
+.tc-file-input:focus-visible + .tc-file-chosen {
+  outline: 2px solid var(--color-text);
+  outline-offset: 2px;
+}
+
+.tc-file-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  color: #FFFFFF;
+  background: #141416;
+}
+
+.tc-file-text {
+  display: grid;
+  flex: 1;
+  gap: 2px;
+  min-width: 0;
+}
+
+.tc-file-text strong {
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.tc-file-text small,
+.tc-file-info small {
+  color: var(--color-text-muted);
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+.tc-file-cta {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 12px;
+  border-radius: 999px;
+  color: var(--color-surface);
+  background: var(--color-text);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.tc-file-chosen {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px;
+  border: 1px solid var(--color-line);
+  border-radius: 14px;
+  background: var(--color-surface);
+}
+
+.tc-file-thumb {
+  position: relative;
+  display: grid;
+  flex: none;
+  place-items: center;
+  overflow: hidden;
+  width: 56px;
+  height: 56px;
+  border-radius: 10px;
+  color: #FFFFFF;
+  background: #141416;
+}
+
+.tc-file-thumb.is-wide {
+  width: 96px;
+  height: 60px;
+}
+
+.tc-file-thumb img,
+.tc-file-thumb video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.tc-file-play {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, .55);
+}
+
+.tc-file-info {
+  display: grid;
+  flex: 1;
+  gap: 2px;
+  min-width: 0;
+}
+
+.tc-file-info strong {
+  overflow: hidden;
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tc-file-actions {
+  display: flex;
+  flex: none;
+  gap: 6px;
+}
+
+.tc-file-actions .btn {
+  min-height: 36px;
+}
+
+.tc-file-error {
+  margin: 0;
+}
+
+.tc-file.is-disabled {
+  opacity: .6;
+  pointer-events: none;
+}
+
+@media (max-width: 480px) {
+  .tc-file-cta {
+    display: none;
+  }
+
+  .tc-file-chosen {
+    flex-wrap: wrap;
+  }
+
+  .tc-file-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+}

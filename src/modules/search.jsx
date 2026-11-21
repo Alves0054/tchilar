@@ -5,6 +5,7 @@ import { Link, Navigate, useSearchParams } from "react-router-dom";
 import { Icon, UserContext, api } from "./core.jsx";
 import { PostCard } from "./feed.jsx";
 import { PeopleCard } from "./friends.jsx";
+import { OfficialPageBadge } from "./pages.jsx";
 
 const TABS = [["all", "Tudo"], ["people", "Pessoas"], ["posts", "Publicações"], ["hashtags", "Hashtags"], ["groups", "Grupos"], ["pages", "Páginas"]];
 const HASHTAG = /^#[\p{L}\p{N}_]{1,50}$/u;
@@ -90,7 +91,7 @@ export function Search() {
         <h2 id="search-pages">Páginas</h2>
         <ul className="search-list">{results.pages.slice(0, tab === "all" ? 4 : 20).map(page => <li key={page.id}>
           <Link to={`/pages/${page.id}`}><span className="menu-icon tone-pages"><Icon name="pages" size={18} /></span>
-            <span><strong>{page.name}</strong><small>{page.follower_count === 1 ? "1 seguidor" : `${page.follower_count} seguidores`}</small></span></Link>
+            <span><strong>{page.name}<OfficialPageBadge show={page.is_official} tier={page.verification_tier} /></strong><small>{page.follower_count === 1 ? "1 seguidor" : `${page.follower_count} seguidores`}</small></span></Link>
         </li>)}</ul>
       </section>}
     </>}

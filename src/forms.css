@@ -1,0 +1,391 @@
+/* ===========================================================================================
+   Campos do Tchilar por omissão (carregado depois de styles.css).
+   As regras base usam :where (especificidade zero): só preenchem o que um formulário não definiu,
+   por isso nunca estragam campos que já têm desenho próprio.
+   =========================================================================================== */
+:where(label) > :where(input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [type="color"], [type="hidden"], [type="search"], [type="submit"], [type="button"]), textarea) {
+  width: 100%;
+  min-height: 46px;
+  padding: 10px 14px;
+  border: 1px solid var(--color-line);
+  border-radius: 12px;
+  color: var(--color-text);
+  background: var(--color-surface);
+  font: inherit;
+  font-weight: 500;
+  transition: border-color .12s ease, box-shadow .12s ease;
+}
+
+:where(label) > :where(textarea) {
+  min-height: 96px;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+:where(label) > :where(input, textarea)::placeholder {
+  color: var(--color-text-muted);
+  opacity: .8;
+}
+
+:where(label) > :where(input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"]), textarea):hover {
+  border-color: var(--color-line-strong);
+}
+
+:where(label) > :where(input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"]), textarea):focus {
+  border-color: var(--color-text);
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-text) 12%, transparent);
+}
+
+/* Título do campo com o contador ou "Opcional" na mesma linha, à direita:
+   <label>Título <small>0/100</small><input /></label> */
+label:not([class]):has(> small):has(> input, > textarea, > .tc-select, > .tc-date) {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  column-gap: 10px;
+  row-gap: 7px;
+}
+
+label:not([class]):has(> small) > :is(input, textarea, .tc-select, .tc-date) {
+  grid-column: 1 / -1;
+}
+
+label:not([class]):has(> input, > textarea, > .tc-select, > .tc-date) > small:not(:is(input, textarea, .tc-select, .tc-date) ~ small) {
+  justify-self: end;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+label:not([class]) > :is(input, textarea, .tc-select, .tc-date) ~ small {
+  grid-column: 1 / -1;
+}
+
+/* Caixa de marcar do Tchilar (e interruptor quando role="switch") */
+:where(input[type="checkbox"]) {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  border: 2px solid var(--color-line-strong);
+  border-radius: 6px;
+  background: var(--color-surface) center / 14px no-repeat;
+  appearance: none;
+  cursor: pointer;
+  transition: background-color .12s ease, border-color .12s ease;
+}
+
+:where(input[type="checkbox"]:checked) {
+  border-color: #E30613;
+  background-color: #E30613;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3.5 8.5l3 3 6-7' fill='none' stroke='white' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+
+:where(input[type="checkbox"]):focus-visible {
+  outline: 2px solid var(--color-text);
+  outline-offset: 2px;
+}
+
+:where(input[type="checkbox"]:disabled) {
+  opacity: .5;
+  cursor: not-allowed;
+}
+
+:where(input[type="checkbox"][role="switch"]) {
+  position: relative;
+  width: 44px;
+  height: 26px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--color-line-strong);
+  background-image: none;
+}
+
+:where(input[type="checkbox"][role="switch"])::after {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #FFFFFF;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .3);
+  transition: translate .15s ease;
+  content: "";
+}
+
+:where(input[type="checkbox"][role="switch"]:checked) {
+  background: #E30613;
+  background-image: none;
+}
+
+:where(input[type="checkbox"][role="switch"]:checked)::after {
+  translate: 18px 0;
+}
+
+/* Loja na página: interruptor à direita do texto */
+.page-about-form .shop-toggle,
+.shop-toggle {
+  display: flex;
+  flex-direction: row-reverse;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  background: var(--color-surface);
+}
+
+.shop-toggle input {
+  margin: 0;
+  accent-color: auto;
+}
+
+/* Definições: sem caixa cinzenta dentro do cartão; as caixas de texto com o desenho do Tchilar */
+.prefs-form {
+  padding: 4px 0 0;
+  background: transparent;
+}
+
+.prefs-form textarea {
+  width: 100%;
+  padding: 11px 13px;
+  border: 1px solid var(--color-line-strong);
+  border-radius: 11px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-weight: 450;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.prefs-form textarea:focus {
+  border-color: var(--color-text);
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-text) 12%, transparent);
+}
+
+/* Telemóvel por confirmar: aviso neutro (o vermelho fica só para o botão principal) */
+.phone-verify {
+  border-color: var(--color-line);
+  background: color-mix(in srgb, var(--color-text) 3%, var(--color-surface));
+}
+
+.phone-verify p {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: var(--color-text-muted);
+}
+
+.phone-verify p svg {
+  flex: none;
+  margin-top: 2px;
+  color: #C77700;
+}
+
+.phone-verify p strong {
+  color: var(--color-text);
+}
+
+/* Sessões: uma lista com separadores em vez de blocos cinzentos; o aparelho atual com ponto verde */
+.device-list {
+  gap: 0;
+  overflow: hidden;
+  border: 1px solid var(--color-line);
+  border-radius: 14px;
+}
+
+.device-list li,
+.device-list li.is-current {
+  border-radius: 0;
+  background: var(--color-surface);
+}
+
+.device-list li + li {
+  border-top: 1px solid var(--color-line);
+}
+
+.device-icon {
+  background: color-mix(in srgb, var(--color-text) 6%, var(--color-surface));
+}
+
+.device-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  color: #12643D;
+  background: #E3F6EC;
+}
+
+:root[data-theme="dark"] .device-badge {
+  color: #4CD58A;
+  background: #12301F;
+}
+
+.device-badge i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.device-end {
+  color: var(--color-text);
+}
+
+.device-end:hover {
+  border-color: #E30613;
+  color: #E30613;
+  background: var(--color-surface);
+}
+
+/* O texto escrito nos campos não herda o negrito do título do campo */
+label > :is(input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"]), textarea) {
+  font-weight: 500;
+}
+
+/* A regra antiga das Páginas fixava a caixa em 18px: o interruptor precisa do seu tamanho */
+.shop-toggle input[role="switch"] {
+  width: 44px;
+  height: 26px;
+  margin: 0;
+}
+
+/* Criar publicação (/create): o mesmo desenho do formulário do feed, com mais espaço para escrever */
+.create-composer {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.create-composer .composer-top textarea {
+  min-height: 140px;
+  max-height: 420px;
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+.create-composer > .btn {
+  justify-self: end;
+  min-width: 140px;
+}
+
+.create-composer > .file-label {
+  justify-self: start;
+}
+
+/* Telemóvel guardado: só para ler, com Alterar e Remover */
+.phone-saved {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-line);
+  border-radius: 14px;
+  background: var(--color-surface);
+}
+
+.phone-saved-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-text) 6%, var(--color-surface));
+}
+
+.phone-saved-text {
+  display: grid;
+  flex: 1;
+  gap: 3px;
+  min-width: 180px;
+}
+
+.phone-saved-text strong {
+  font-size: 17px;
+  letter-spacing: .03em;
+  font-variant-numeric: tabular-nums;
+}
+
+.phone-saved-text small {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  color: var(--color-text-muted);
+  font-size: 12.5px;
+}
+
+.phone-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.phone-tag.is-ok {
+  color: #12643D;
+  background: #E3F6EC;
+}
+
+.phone-tag.is-pending {
+  color: #8A5300;
+  background: #FFF1DC;
+}
+
+:root[data-theme="dark"] .phone-tag.is-ok {
+  color: #4CD58A;
+  background: #12301F;
+}
+
+:root[data-theme="dark"] .phone-tag.is-pending {
+  color: #FFB547;
+  background: #3A2600;
+}
+
+.phone-saved-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.phone-saved-actions .btn {
+  gap: 6px;
+}
+
+.phone-remove {
+  color: var(--color-text-muted);
+  font-weight: 700;
+}
+
+.phone-remove:hover {
+  color: #E30613;
+}
+
+.phone-password {
+  display: grid;
+  gap: 6px;
+  max-width: 360px;
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.phone-confirm-text {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* Escolher por onde vai o código (SMS ou WhatsApp) na recuperação da conta */
+.entry-switch.is-small {
+  margin: 0 0 10px;
+  font-size: 13px;
+}

@@ -1,0 +1,378 @@
+/* ===========================================================================================
+   Verificação (Painel do criador → Verificação): apresentação, progresso por plano e planos.
+   E o aviso "Brevemente" do Programa de Parceiros. Selo azul #1877F2 e dourado #C58A00, como no resto do site.
+   =========================================================================================== */
+.vf-progress-card {
+  display: grid;
+  gap: 14px;
+}
+
+.vf-progress-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.vf-progress-head h3 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.vf-progress-head p {
+  margin: 4px 0 0;
+  color: var(--color-text-muted);
+}
+
+.vf-progress-head strong {
+  color: var(--color-text);
+}
+
+.vf-active {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  color: var(--color-text);
+  background: var(--color-surface-muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+/* Barra de seguidores com uma marca por plano */
+.vf-track {
+  position: relative;
+  height: 10px;
+  margin: 8px 0 44px;
+  border-radius: 999px;
+  background: var(--color-surface-muted);
+}
+
+.vf-track-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #1877F2, #5AA2FF);
+}
+
+.vf-marker {
+  position: absolute;
+  top: 50%;
+  translate: -50% -50%;
+  display: grid;
+  justify-items: center;
+}
+
+.vf-marker:last-child {
+  translate: -100% -50%;
+  justify-items: end;
+}
+
+.vf-marker-dot {
+  width: 18px;
+  height: 18px;
+  border: 3px solid var(--color-surface);
+  border-radius: 50%;
+  background: var(--color-line-strong);
+  box-shadow: 0 1px 3px color-mix(in srgb, var(--shadow-color) 25%, transparent);
+}
+
+.vf-marker.is-met .vf-marker-dot {
+  background: #1877F2;
+}
+
+.vf-marker.is-featured .vf-marker-dot {
+  background: #D4AF37;
+}
+
+.vf-marker-label {
+  position: absolute;
+  top: 24px;
+  display: grid;
+  justify-items: inherit;
+  color: var(--color-text);
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.vf-marker:last-child .vf-marker-label {
+  right: 0;
+}
+
+.vf-marker-label small {
+  color: var(--color-text-muted);
+  font-weight: 600;
+}
+
+.vf-note {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+/* Planos */
+.vf-plans {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: stretch;
+  gap: 16px;
+  padding-top: 14px;
+}
+
+/* Na página (coluna mais estreita, ao lado do resumo) os planos ficam uns por baixo dos outros, o destaque primeiro. */
+.pg-content .vf-plans {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 22px;
+}
+
+.pg-content .vf-plan.is-featured {
+  order: -1;
+  transform: none;
+}
+
+.pg-content .vf-head,
+.pg-content .vf-progress-card {
+  margin-bottom: 14px;
+}
+
+.vf-plan {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 22px 20px 20px;
+  border: 1px solid var(--color-line);
+  border-radius: 18px;
+  background: var(--color-surface);
+}
+
+.vf-plan.is-featured {
+  border: 2px solid #D4AF37;
+  background: linear-gradient(180deg, color-mix(in srgb, #D4AF37 10%, var(--color-surface)), var(--color-surface) 45%);
+  box-shadow: 0 18px 40px -22px rgba(197, 138, 0, .55);
+  transform: translateY(-10px);
+}
+
+.vf-plan.is-active {
+  border-color: #1877F2;
+}
+
+.vf-ribbon {
+  position: absolute;
+  top: -13px;
+  left: 50%;
+  translate: -50% 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  color: #3D2B00;
+  background: linear-gradient(135deg, #F7E6A1, #D4AF37);
+  box-shadow: 0 4px 12px -4px rgba(197, 138, 0, .6);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: .02em;
+  white-space: nowrap;
+}
+
+.vf-plan-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.vf-plan-head h3 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 21px;
+  letter-spacing: -.01em;
+}
+
+.vf-plan-head p {
+  margin: 2px 0 0;
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+.vf-plan-badge {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  color: #1877F2;
+  background: color-mix(in srgb, #1877F2 12%, var(--color-surface));
+}
+
+.vf-plan-badge.is-bolado {
+  color: #FFFFFF;
+  background: linear-gradient(135deg, #FF4D57, #E30613);
+}
+
+.vf-plan-badge.is-benga {
+  color: #FFFFFF;
+  background: linear-gradient(135deg, #E9C766, #C58A00);
+}
+
+.vf-price {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 0;
+  color: var(--color-text);
+  font-family: var(--font-display);
+  font-size: 32px;
+  font-weight: 800;
+  letter-spacing: -.02em;
+}
+
+.vf-price small {
+  color: var(--color-text-muted);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.vf-requirement {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  color: var(--color-text-muted);
+  background: var(--color-surface-muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.vf-requirement.is-met {
+  color: #12643D;
+  background: #E3F6EC;
+}
+
+:root[data-theme="dark"] .vf-requirement.is-met {
+  color: #4CD58A;
+  background: #12301F;
+}
+
+.vf-benefits {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.vf-benefits li {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  color: var(--color-text);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.vf-benefits svg {
+  flex: none;
+  margin-top: 3px;
+  color: #1877F2;
+}
+
+.vf-plan.is-featured .vf-benefits svg {
+  color: #C58A00;
+}
+
+.vf-cta {
+  width: 100%;
+  min-height: 44px;
+  margin-top: auto;
+}
+
+.vf-plan.is-featured .vf-cta:not(:disabled) {
+  color: #3D2B00;
+  background: linear-gradient(135deg, #F2D97A, #D4AF37);
+}
+
+@media (max-width: 900px) {
+  .vf-plans {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 22px;
+  }
+
+  /* No telemóvel e no tablet ao alto, o plano em destaque aparece primeiro */
+  .vf-plan.is-featured {
+    order: -1;
+    transform: none;
+  }
+}
+
+
+/* ===========================================================================================
+   Programa de Parceiros: aviso "Brevemente"
+   =========================================================================================== */
+.partner-soon {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  margin: 0 0 14px;
+  padding: 16px 18px;
+  border: 1px solid color-mix(in srgb, #D4AF37 45%, var(--color-line));
+  border-radius: 14px;
+  background: color-mix(in srgb, #D4AF37 10%, var(--color-surface));
+}
+
+.partner-soon-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  color: #3D2B00;
+  background: linear-gradient(135deg, #F7E6A1, #D4AF37);
+}
+
+.partner-soon-body {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.partner-soon-body strong {
+  color: var(--color-text);
+  font-size: 15px;
+}
+
+.partner-soon-body p {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.partner-soon-body ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.partner-soon-body li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  color: var(--color-text);
+  background: var(--color-surface);
+  font-size: 13px;
+  font-weight: 600;
+}

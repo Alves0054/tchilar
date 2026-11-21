@@ -1,0 +1,14 @@
+{
+  "name": "Tchilar",
+  "short_name": "Tchilar",
+  "description": "Conecta, partilha, vive.",
+  "lang": "pt",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0B0B0C",
+  "theme_color": "#0B0B0C",
+  "icons": [
+    { "src": "/tchilar-logo.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}

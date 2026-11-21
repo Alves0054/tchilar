@@ -1,8 +1,16 @@
 node_modules
 .env
+.env.production
+redotpay-merchant-keys/
 dist
 uploads/*
 !uploads/.gitkeep
 .playwright-mcp
 release
 expo-qr.png
+
+# Ficheiros gerados localmente (vídeos, PDFs de revisão, capturas)
+tmp/
+output/
+tchilar-expo-qr.png
+*.log

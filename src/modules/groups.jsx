@@ -1,13 +1,16 @@
 import { useContext, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { Avatar, Icon, UserContext, api, formatCount, formatPrice } from "./core.jsx";
+import { API_BASE, Avatar, Icon, UserContext, api, formatCount, formatPrice } from "./core.jsx";
 import { Composer, PostCard } from "./feed.jsx";
 import { PaymentDialog, pageMonogram, pageTone } from "./shared.jsx";
 import { GROUP_CATEGORIES, GROUP_PRIVACY, GROUP_TYPES, groupCategory, groupCategoryLabel, groupCategoryPath, groupPrivacyOf, groupType } from "./community-types.js";
 import { ReportDialog } from "./feed.jsx";
 import { GroupCallBar, GroupCallRoom } from "./group-call.jsx";
 import { GroupChat, GroupEvents, GroupFiles, GroupMembers, GroupPolls, GroupSettings, GroupStats, isTeam } from "./group-tabs.jsx";
+import { Select } from "./select.jsx";
+import "./events.css";
+import "./groups.css";
 
 const SECRET_MIN_PRICE = 500;
 const SECRET_MAX_PRICE = 500000;
@@ -66,7 +69,11 @@ export function GroupRequests({ group, onChanged }) {
 // Grupos: descobrir, participar, criar e conversar em grupo (mesma linguagem das Páginas)
 // ---------------------------------------------------------------------------------------------
 export function GroupLogo({ group, size = "" }) {
-  return <span className={`page-logo group-logo tone-page-${pageTone(group.name)} ${size}`} aria-hidden="true">{pageMonogram(group.name)}</span>;
+  return <span className={`page-logo group-logo tone-page-${pageTone(group.name)} ${size}`} aria-hidden="true">
+    {group.owner_avatar
+      ? <img src={`${API_BASE}${group.owner_avatar}`} alt="" loading="lazy" />
+      : pageMonogram(group.name)}
+  </span>;
 }
 export function MemberStack({ members = [], total }) {
   if (!members.length) return null;
@@ -97,7 +104,7 @@ export function JoinGroupButton({ group, user, busy, onJoin, onLeave, onPay }) {
     : <button className="btn" type="button" disabled={busy} aria-pressed="false" onClick={() => onJoin(group)}><Icon name="plus" size={15} /> Participar</button>;
 }
 export function GroupCard({ group, user, busy, onJoin, onLeave, onPay }) {
-  if (group.is_secret && !group.is_member) return <article className="page-card card is-secret">
+  if (group.is_secret && !group.is_member) return <article className="page-card card group-card is-secret">
     <span className={`page-card-cover tone-page-${pageTone(group.name)}`} aria-hidden="true" />
     <div className="page-card-body">
       <GroupLogo group={group} />
@@ -106,12 +113,12 @@ export function GroupCard({ group, user, busy, onJoin, onLeave, onPay }) {
       <p className="page-card-description">{group.description || "Um grupo privado para maiores de 18."}</p>
       <div className="group-card-meta"><span>{formatCount(group.member_count)} {group.member_count === 1 ? "membro" : "membros"}</span></div>
       <div className="page-card-footer">
-        <span className="page-owner"><Avatar user={{ display_name: group.owner_name, avatar_url: group.owner_avatar }} size="tiny" /><span>{group.owner_name}</span></span>
+        <span className="page-owner"><Avatar user={{ display_name: group.owner_name, avatar_url: group.owner_avatar }} size="tiny" /><span>por <b>{group.owner_name}</b></span></span>
         <JoinGroupButton group={group} user={user} busy={busy} onJoin={onJoin} onLeave={onLeave} onPay={onPay} />
       </div>
     </div>
   </article>;
-  return <article className={`page-card card${group.is_secret ? " is-secret" : ""}`}>
+  return <article className={`page-card card group-card${group.is_secret ? " is-secret" : ""}`}>
     <Link className={`page-card-cover tone-page-${pageTone(group.name)}`} to={`/groups/${group.id}`} tabIndex={-1} aria-hidden="true" />
     <div className="page-card-body">
       <Link to={`/groups/${group.id}`} className="page-card-logo-link" aria-hidden="true" tabIndex={-1}><GroupLogo group={group} /></Link>
@@ -123,13 +130,14 @@ export function GroupCard({ group, user, busy, onJoin, onLeave, onPay }) {
         <span>{formatCount(group.member_count)} {group.member_count === 1 ? "membro" : "membros"} · {formatCount(group.post_count)} {group.post_count === 1 ? "publicação" : "publicações"}</span>
       </div>
       <div className="page-card-footer">
-        <Link className="page-owner" to={`/u/${group.owner_username}`}><Avatar user={{ display_name: group.owner_name, avatar_url: group.owner_avatar }} size="tiny" /><span>{group.owner_name}</span></Link>
+        <Link className="page-owner" to={`/u/${group.owner_username}`}><Avatar user={{ display_name: group.owner_name, avatar_url: group.owner_avatar }} size="tiny" /><span>por <b>{group.owner_name}</b></span></Link>
         <JoinGroupButton group={group} user={user} busy={busy} onJoin={onJoin} onLeave={onLeave} onPay={onPay} />
       </div>
     </div>
   </article>;
 }
 export function CreateGroupDialog({ viewer, onClose, onCreated }) {
+  const { user } = useContext(UserContext);
   const [form, setForm] = useState({ name: "", description: "", groupType: "", category: "", subcategory: "", rules: "", privacy: "public", accessPrice: "" });
   const kind = GROUP_TYPES.find(item => item.key === form.groupType);
   const area = form.category ? groupCategory(form.category) : null;
@@ -167,73 +175,112 @@ export function CreateGroupDialog({ viewer, onClose, onCreated }) {
     private: "Ninguém entra sem convite: tu e a tua equipa convidam pelo nome de utilizador.",
     secret: "Partilha o nome exato só com quem queres convidar. Tu ficas como administrador."
   }[form.privacy];
+  const privacyOption = GROUP_PRIVACY.find(option => option.key === form.privacy) || GROUP_PRIVACY[0];
+  const previewAction = isSecret ? `Entrar por ${formatPrice(price >= SECRET_MIN_PRICE ? price : SECRET_MIN_PRICE)}`
+    : form.privacy === "approval" ? "Pedir para entrar" : form.privacy === "private" ? "Só por convite" : "Participar";
+  const previewIcon = isSecret ? "lock" : form.privacy === "approval" ? "shield" : form.privacy === "private" ? "shield" : "plus";
   return createPortal(<div className="modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget && !busy) onClose(); }}>
-    <form className="modal card create-page-dialog" role="dialog" aria-modal="true" aria-labelledby="create-group-title" onSubmit={submit}>
-      <div className="share-dialog-head">
-        <h2 id="create-group-title">Criar grupo</h2>
+    <form className="modal card create-page-dialog event-dialog group-dialog" role="dialog" aria-modal="true" aria-labelledby="create-group-title" onSubmit={submit}>
+      <div className="event-dialog-head">
+        <span className="event-dialog-badge" aria-hidden="true"><Icon name="groups" size={22} /></span>
+        <div>
+          <h2 id="create-group-title">Criar grupo</h2>
+          <p>Junta pessoas à volta de um tema. Tu ficas como dono e podes nomear administradores e moderadores.</p>
+        </div>
         <button className="round-button" type="button" aria-label="Fechar" onClick={onClose} disabled={busy}><Icon name="close" size={18} /></button>
       </div>
-      <div className="create-page-grid">
-        <div className="create-page-fields">
-          <label>Nome<input required autoFocus maxLength={100} value={form.name} onChange={event => setForm({ ...form, name: event.target.value })} placeholder="Ex.: Fotógrafos de Luanda" /></label>
-          <label>Sobre o que é <small>{form.description.length}/2000</small><textarea rows={5} maxLength={2000} value={form.description}
-            onChange={event => setForm({ ...form, description: event.target.value })} placeholder="Diz quem deve participar e o que se partilha aqui." /></label>
-          <label>Tipo de grupo<span className="select-with-icon">
-            <Icon name={kind?.icon || "groups"} size={17} />
-            <select required value={form.groupType} onChange={event => chooseType(event.target.value)}>
-              <option value="" disabled>Escolhe o tipo</option>
-              {GROUP_TYPES.map(item => <option key={item.key} value={item.key}>{item.label} — {item.help}</option>)}
-            </select>
-          </span></label>
+      <div className="create-page-grid event-dialog-grid">
+        <div className="create-page-fields event-dialog-fields">
+          <label className="event-field">
+            <span className="event-field-label">Nome do grupo <small>{form.name.length}/100</small></span>
+            <input className="event-name-input" required autoFocus maxLength={100} value={form.name} onChange={event => setForm({ ...form, name: event.target.value })} placeholder="Ex.: Fotógrafos de Luanda" />
+          </label>
+          <label className="event-field">
+            <span className="event-field-label">Sobre o que é <small>{form.description.length}/2000</small></span>
+            <textarea rows={4} maxLength={2000} value={form.description}
+              onChange={event => setForm({ ...form, description: event.target.value })} placeholder="Diz quem deve participar e o que se partilha aqui." />
+          </label>
+          <label className="event-field">
+            <span className="event-field-label">Tipo de grupo</span>
+            <span className="select-with-icon group-type-select">
+              <Icon name={kind?.icon || "groups"} size={17} />
+              <Select required value={form.groupType} onChange={event => chooseType(event.target.value)} placeholder="Escolhe o tipo">
+                <option value="" disabled>Escolhe o tipo</option>
+                {GROUP_TYPES.map(item => <option key={item.key} value={item.key}>{item.label} — {item.help}</option>)}
+              </Select>
+            </span>
+          </label>
           {kind && <div className="create-page-areas">
-            <label>Categoria<select value={form.category} onChange={event => setForm({ ...form, category: event.target.value, subcategory: "" })}>
-              {GROUP_CATEGORIES.map(item => <option key={item.key} value={item.key}>{item.label}</option>)}
-            </select></label>
-            {area?.subcategories.length > 0 && <label>Subcategoria (opcional)<select value={form.subcategory} onChange={event => setForm({ ...form, subcategory: event.target.value })}>
-              <option value="">Sem subcategoria</option>
-              {area.subcategories.map(item => <option key={item.key} value={item.key}>{item.label}</option>)}
-            </select></label>}
+            <label className="event-field"><span className="event-field-label">Categoria</span>
+              <Select value={form.category} onChange={event => setForm({ ...form, category: event.target.value, subcategory: "" })}>
+                {GROUP_CATEGORIES.map(item => <option key={item.key} value={item.key}>{item.label}</option>)}
+              </Select></label>
+            {area?.subcategories.length > 0 && <label className="event-field"><span className="event-field-label">Subcategoria <small>Opcional</small></span>
+              <Select value={form.subcategory} onChange={event => setForm({ ...form, subcategory: event.target.value })}>
+                <option value="">Sem subcategoria</option>
+                {area.subcategories.map(item => <option key={item.key} value={item.key}>{item.label}</option>)}
+              </Select></label>}
           </div>}
-          <fieldset className="group-type-choice">
-            <legend>Quem pode entrar</legend>
-            {GROUP_PRIVACY.map(option => {
-              const locked = option.key === "secret" && !canSecret;
-              return <label key={option.key} className={`${form.privacy === option.key ? "is-selected" : ""}${locked ? " is-disabled" : ""}`}>
-                <input type="radio" name="group-type" checked={form.privacy === option.key} disabled={locked} onChange={() => setForm({ ...form, privacy: option.key })} />
-                <span className={`group-type-icon is-${option.key}`}><Icon name={option.icon} size={18} /></span>
-                <span><strong>{option.label}</strong><small>{option.help}</small></span>
-              </label>;
-            })}
-          </fieldset>
-          {!canSecret && <p className="muted create-page-note">{viewer?.hasBirthDate
-            ? "Os grupos secretos são só para maiores de 18 anos."
-            : <>Para criar um grupo secreto, indica primeiro a tua data de nascimento em <Link to="/settings/privacidade">Definições › Privacidade</Link>.</>}</p>}
-          {isSecret && <label>Preço de entrada (Kz)
-            <input type="number" inputMode="numeric" required min={SECRET_MIN_PRICE} max={SECRET_MAX_PRICE} step="1" value={form.accessPrice}
-              onChange={event => setForm({ ...form, accessPrice: event.target.value })} placeholder="Ex.: 2500" aria-describedby="group-price-help" />
-            <small id="group-price-help">Pagamento único, entre {formatPrice(SECRET_MIN_PRICE)} e {formatPrice(SECRET_MAX_PRICE)}. Recebes 70% de cada entrada nos teus ganhos.</small>
-          </label>}
-          <p className="muted create-page-note">{privacyNote}</p>
-          <label>Regras do grupo <small>opcional</small><textarea rows={3} maxLength={3000} value={form.rules}
-            onChange={event => setForm({ ...form, rules: event.target.value })} placeholder={"Ex.: Respeito por todos. Sem spam."} /></label>
-        </div>
-        <div className="create-page-preview" aria-label="Pré-visualização">
-          <small>Pré-visualização</small>
-          <div className="page-card card is-preview">
-            <span className={`page-card-cover tone-page-${pageTone(preview.name)}`} />
-            <div className="page-card-body">
-              <GroupLogo group={preview} />
-              <h2>{preview.name}</h2>
-              <span className="group-card-kind"><GroupTopicChip group={preview} />{isSecret && <SecretBadge />}{["approval", "private"].includes(form.privacy) && <PrivateBadge group={preview} />}</span>
-              <p className="page-card-description">{form.description || "A descrição aparece aqui."}</p>
+          <fieldset className="event-field group-privacy">
+            <legend className="event-field-label">Quem pode entrar</legend>
+            <div className="group-privacy-grid">
+              {GROUP_PRIVACY.map(option => {
+                const locked = option.key === "secret" && !canSecret;
+                return <label key={option.key} className={`group-privacy-option is-${option.key}${form.privacy === option.key ? " is-selected" : ""}${locked ? " is-disabled" : ""}`}>
+                  <input type="radio" name="group-privacy" checked={form.privacy === option.key} disabled={locked} onChange={() => setForm({ ...form, privacy: option.key })} />
+                  <span className="group-privacy-head">
+                    <span className="group-privacy-icon"><Icon name={option.icon} size={17} /></span>
+                    <strong>{option.label}</strong>
+                    <span className="group-privacy-dot" aria-hidden="true" />
+                  </span>
+                  <small>{option.help}</small>
+                </label>;
+              })}
             </div>
-          </div>
+            <p className="group-privacy-note"><Icon name="info" size={14} /> <span>{privacyNote}</span></p>
+            {!canSecret && <p className="muted create-page-note">{viewer?.hasBirthDate
+              ? "Os grupos secretos são só para maiores de 18 anos."
+              : <>Para criar um grupo secreto, indica primeiro a tua data de nascimento em <Link to="/settings/privacidade">Definições › Privacidade</Link>.</>}</p>}
+          </fieldset>
+          {isSecret && <label className="event-field">
+            <span className="event-field-label">Preço de entrada <small>Pagamento único</small></span>
+            <span className="event-input-icon"><Icon name="lock" size={16} />
+              <input type="number" inputMode="numeric" required min={SECRET_MIN_PRICE} max={SECRET_MAX_PRICE} step="1" value={form.accessPrice}
+                onChange={event => setForm({ ...form, accessPrice: event.target.value })} placeholder="Ex.: 2500" aria-describedby="group-price-help" /></span>
+            <small className="muted" id="group-price-help">Entre {formatPrice(SECRET_MIN_PRICE)} e {formatPrice(SECRET_MAX_PRICE)}. Recebes 70% de cada entrada nos teus ganhos.</small>
+          </label>}
+          <label className="event-field">
+            <span className="event-field-label">Regras do grupo <small>Opcional</small></span>
+            <textarea rows={3} maxLength={3000} value={form.rules}
+              onChange={event => setForm({ ...form, rules: event.target.value })} placeholder={"Ex.: Respeito por todos. Sem spam."} />
+          </label>
+        </div>
+        <div className="create-page-preview event-dialog-preview" aria-label="Pré-visualização">
+          <small>Assim vão ver o teu grupo</small>
+          <article className="group-poster">
+            <div className={`group-poster-cover tone-page-${pageTone(preview.name)}`}>
+              <span className="event-poster-waves" aria-hidden="true" />
+              <GroupLogo group={preview} />
+            </div>
+            <div className="group-poster-body">
+              <strong className={form.name ? "" : "is-placeholder"}>{preview.name}</strong>
+              <span className="group-card-kind">{form.groupType ? <GroupTopicChip group={preview} /> : <span className="page-category is-placeholder">Tipo · categoria</span>}
+                {isSecret && <SecretBadge />}{["approval", "private"].includes(form.privacy) && <PrivateBadge group={preview} />}</span>
+              <p className={form.description ? "" : "is-placeholder"}>{form.description || "A descrição aparece aqui."}</p>
+              <span className="group-poster-privacy"><Icon name={privacyOption.icon} size={14} /> {privacyOption.help}</span>
+              <div className="group-poster-foot">
+                <small>1 membro · por <b>{user?.display_name || "ti"}</b></small>
+                <span className="group-poster-action"><Icon name={previewIcon} size={14} /> {previewAction}</span>
+              </div>
+            </div>
+          </article>
         </div>
       </div>
       {error && <p className="error" role="alert">{error}</p>}
-      <div className="modal-actions">
+      <div className="modal-actions event-dialog-actions">
         <button className="btn secondary" type="button" onClick={onClose} disabled={busy}>Cancelar</button>
-        <button className="btn" type="submit" disabled={busy || !form.name.trim() || !form.groupType || !priceValid || !nameValid}>{busy ? "A criar..." : isSecret ? "Criar grupo secreto" : "Criar grupo"}</button>
+        <button className="btn" type="submit" disabled={busy || !form.name.trim() || !form.groupType || !priceValid || !nameValid}>
+          <Icon name={isSecret ? "lock" : "groups"} size={16} /> {busy ? "A criar..." : isSecret ? "Criar grupo secreto" : "Criar grupo"}</button>
       </div>
     </form>
   </div>, document.body);
@@ -415,7 +462,7 @@ export function Groups() {
     group: target,
     onPay: choice => api(`/groups/${target.id}/access`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: target.name, ...choice }) })
   });
-  const paymentDialog = paying && <PaymentDialog title={`Entrar no grupo «${paying.group.name}»`} amountKz={paying.group.access_price} onPay={paying.onPay}
+  const paymentDialog = paying && <PaymentDialog title={`Entrar no grupo «${paying.group.name}»`} amountKz={paying.group.access_price} purpose="group_access" onPay={paying.onPay}
     onDone={() => { const id = paying.group.id; setPaying(null); setSecretFound([]); setQuery(""); loadGroups().then(() => navigate(`/groups/${id}`)); }}
     onClose={() => { setPaying(null); loadGroups(); }} />;
   // Entrar/sair muda logo no ecrã; se o servidor falhar, volta atrás. Num grupo privado
@@ -454,11 +501,17 @@ export function Groups() {
   const extraSecret = tab === "discover" ? secretFound.filter(found => !matches.some(item => item.id === found.id)) : [];
   const visible = [...extraSecret, ...matches];
 
-  return <div className="pages-view">
-    <header className="pages-head">
-      <div><h1>Grupos</h1><p>Junta-te a pessoas com os mesmos interesses e conversa num espaço só para membros.</p></div>
-      {user ? <button className="btn" type="button" onClick={() => setCreating(true)}><Icon name="plus" size={16} /> Criar grupo</button>
-        : <Link className="btn" to="/login">Entrar para criar</Link>}
+  return <div className="pages-view groups-view">
+    <header className="tc-head">
+      <div className="tc-head-text">
+        <p className="tc-head-kicker">Grupos</p>
+        <h1>Junta-te a quem gosta do mesmo que tu</h1>
+        <p>Conversa, marca eventos, faz sondagens e chamadas num espaço só para membros.</p>
+      </div>
+      <div className="tc-head-actions">
+        {user ? <button className="btn" type="button" onClick={() => setCreating(true)}><Icon name="plus" size={16} /> Criar grupo</button>
+          : <Link className="btn" to="/login">Entrar para criar</Link>}
+      </div>
     </header>
     <div className="pages-toolbar">
       <div className="pages-tabs" role="tablist" aria-label="Que grupos mostrar">

@@ -21,6 +21,32 @@ Gerado por `npm run app:assets` (a partir de `mobile/tchilar-app/assets/tchilar-
    ```
 4. Corre `npm run app:assets`: as capturas saem com o título e o fundo da marca, nos tamanhos das duas lojas.
 
+## Publicar (depois das capturas)
+
+A configuração já está pronta: `mobile/tchilar-app/eas.json` (builds de teste e de produção a apontar para
+`https://api.tchilar.ao`), `app.json` (permissões explicadas em português, declaração de encriptação,
+manifesto de privacidade da Apple, links que abrem a app). O `expo-doctor` passa nas 20 verificações.
+
+Antes do primeiro build:
+
+1. **O servidor tem de estar no ar** em `https://api.tchilar.ao` (ver `NOTA-DEPLOY.md`): a app instalada fala com ele.
+2. Na pasta da app, entra na tua conta Expo e liga o projeto (cria o `projectId`, sem ele não há notificações push):
+   `npx eas-cli@latest login` e depois `npx eas-cli@latest init`.
+3. Build de teste para experimentar no telemóvel (push, chamadas, diretos, Face ID):
+   `npx eas-cli@latest build --profile preview --platform android` (APK) e
+   `npx eas-cli@latest build --profile production --platform ios` → TestFlight.
+4. Quando estiver bom: `npx eas-cli@latest build --profile production --platform all` e
+   `npx eas-cli@latest submit --platform all`.
+
+Nas lojas vais precisar também de:
+- **Política de privacidade**: `https://tchilar.ao/privacy`.
+- **Apagar a conta**: Definições → Conta → Apagar conta (a Apple e o Google pedem que exista dentro da app).
+- **Conteúdo gerado por utilizadores**: denunciar publicações, comentários, perfis, grupos e cursos, bloquear
+  pessoas, e os Termos aceites no registo (pedido pela Apple, regra 1.2).
+- **Conta de demonstração** para a equipa de revisão das lojas (cria uma no servidor de produção e dá o email e a
+  palavra-passe só no formulário da loja).
+- **Classificação etária**: 17+ na Apple / "Adolescentes" ou superior no Google (há chamadas, mensagens e grupos +18).
+
 ## Texto da loja (português)
 
 **Nome:** Tchilar

@@ -89,8 +89,10 @@ function registerLiveRoutes(app, deps) {
     UPDATE lives SET status='ended', ended_at=NOW()
     WHERE status='live' AND host_seen_at < NOW() - make_interval(secs => $1)`, [HOST_TIMEOUT_SECONDS]);
 
-  const LIVE_FIELDS = `l.id,l.title,l.description,l.category,l.source,l.status,l.started_at,l.ended_at,l.peak_viewers,l.unique_viewers,l.current_viewers,
-    u.id AS host_id,u.username,u.display_name,u.avatar_url,u.partner_since IS NOT NULL AS is_verified,
+  const LIVE_FIELDS = `l.id,l.page_id,p.name AS page_name,l.title,l.description,l.category,l.source,l.status,l.started_at,l.ended_at,l.peak_viewers,l.unique_viewers,l.current_viewers,
+    u.id AS host_id,u.username,u.display_name,u.avatar_url,
+    COALESCE(u.partner_since IS NOT NULL OR u.verification_expires_at > NOW(), FALSE) AS is_verified,
+    CASE WHEN u.verification_expires_at > NOW() THEN u.verification_tier END AS verification_tier,
     (SELECT COALESCE(SUM(s.amount),0) FROM star_ledger s WHERE s.live_id=l.id AND s.kind='gift_received')::int AS stars`;
 
   // Esta cópia da API conta o direto (o nginx manda sempre o mesmo direto para a mesma cópia)?
@@ -101,7 +103,7 @@ function registerLiveRoutes(app, deps) {
   // Quem pode ver: o direto existe e não há bloqueio entre as duas pessoas.
   async function loadLive(id, viewerId) {
     const result = await pool.query(
-      `SELECT ${LIVE_FIELDS} FROM lives l JOIN users u ON u.id=l.host_id
+      `SELECT ${LIVE_FIELDS} FROM lives l JOIN users u ON u.id=l.host_id LEFT JOIN pages p ON p.id=l.page_id
        WHERE l.id=$1 AND NOT ${blockedBetween("$2", "l.host_id")}`, [id, viewerId || 0]);
     return withViewers(result.rows[0] || null);
   }
@@ -133,11 +135,14 @@ function registerLiveRoutes(app, deps) {
   });
 
   app.get("/api/lives", optionalAuth, async (req, res) => {
+    const pageId = req.query.pageId === undefined ? null : parseId(req.query.pageId);
+    if (req.query.pageId !== undefined && !pageId) return res.status(400).json({ error: "Página inválida." });
     await endStaleLives();
     const result = await pool.query(`
-      SELECT ${LIVE_FIELDS} FROM lives l JOIN users u ON u.id=l.host_id
+      SELECT ${LIVE_FIELDS} FROM lives l JOIN users u ON u.id=l.host_id LEFT JOIN pages p ON p.id=l.page_id
       WHERE l.status='live' AND NOT ${blockedBetween("$1", "l.host_id")}
-      ORDER BY (l.host_id=$1) DESC, l.started_at DESC LIMIT 50`, [req.user?.id || 0]);
+        AND ($2::int IS NULL OR l.page_id=$2)
+      ORDER BY (l.host_id=$1) DESC, l.started_at DESC LIMIT 50`, [req.user?.id || 0, pageId]);
     const lives = result.rows.map(withViewers).sort((a, b) =>
       Number(b.host_id === req.user?.id) - Number(a.host_id === req.user?.id) || b.viewers - a.viewers);
     res.json({ lives });
@@ -202,21 +207,33 @@ function registerLiveRoutes(app, deps) {
   app.post("/api/lives", auth, async (req, res) => {
     const parsed = parseLiveInput(isRecord(req.body) ? req.body : {}, { mediaEnabled: Boolean(media) });
     if (parsed.error) return res.status(400).json({ error: parsed.error });
+    const rawPageId = req.body?.pageId;
+    const pageId = rawPageId === undefined || rawPageId === null || rawPageId === "" ? null : parseId(rawPageId);
+    if (rawPageId !== undefined && rawPageId !== null && rawPageId !== "" && !pageId) return res.status(400).json({ error: "Página inválida." });
+    if (pageId) {
+      const page = await pool.query("SELECT 1 FROM pages WHERE id=$1 AND owner_id=$2 AND hidden_at IS NULL", [pageId, req.user.id]);
+      if (!page.rowCount) return res.status(403).json({ error: "Só o responsável pela página pode iniciar um direto nela." });
+    }
     const { title, description, category, source } = parsed.live;
     await endStaleLives();
     let live;
     try {
-      live = (await pool.query("INSERT INTO lives(host_id,title,description,category,source) VALUES($1,$2,$3,$4,$5) RETURNING id",
-        [req.user.id, title, description, category, source])).rows[0];
+      live = (await pool.query("INSERT INTO lives(host_id,page_id,title,description,category,source) VALUES($1,$2,$3,$4,$5,$6) RETURNING id",
+        [req.user.id, pageId, title, description, category, source])).rows[0];
     } catch (error) {
       if (error.code === "23505") return res.status(409).json({ error: "Já tens um direto a decorrer." });
       throw error;
     }
-    // Avisa quem segue (até 1000 pessoas).
+    // Avisa quem segue o anfitrião e quem segue a página (até 1000 pessoas).
     await pool.query(`
       INSERT INTO notifications(user_id,actor_id,type,text)
-      SELECT f.follower_id,$1,'live',$2 FROM follows f WHERE f.following_id=$1 LIMIT 1000`,
-    [req.user.id, `Está em direto: ${title}`]);
+      SELECT audience.user_id,$1,'live',$2 FROM (
+        SELECT follower_id AS user_id FROM follows WHERE following_id=$1
+        UNION
+        SELECT user_id FROM page_followers WHERE page_id=$3
+      ) audience
+      WHERE audience.user_id<>$1 LIMIT 1000`,
+    [req.user.id, `Está em direto: ${title}`, pageId]);
     res.status(201).json({ id: live.id });
   });
 

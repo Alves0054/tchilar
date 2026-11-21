@@ -3,9 +3,11 @@
 import { useContext, useEffect, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { API, Icon, UserContext, api, formatPrice, token } from "./core.jsx";
+import { Select } from "./select.jsx";
+import { DatePicker } from "./date-picker.jsx";
 
 const KIND_OPTIONS = [["", "Todos os tipos"], ["ad", "Promoções"], ["stars", "Estrelas"], ["campaign", "Campanhas"], ["group_access", "Entradas em grupos"], ["course", "Cursos"]];
-const METHOD_OPTIONS = [["", "Todos os métodos"], ["express", "Multicaixa Express"], ["reference", "Referência"], ["card", "Cartão"], ["demo", "Demonstração"]];
+const METHOD_OPTIONS = [["", "Todos os métodos"], ["express", "Multicaixa Express"], ["reference", "Referência"], ["card", "Cartão"], ["paypal", "PayPal"], ["redotpay", "RedotPay"], ["paypay", "PayPay Africa"], ["demo", "Demonstração"]];
 const STATUS_OPTIONS = [["", "Todos os estados"], ["paid", "Pagos"], ["refunded", "Reembolsados"], ["refund_due", "Reembolso por fazer"]];
 
 const dateTime = value => new Date(value).toLocaleString("pt-PT", { timeZone: "Africa/Luanda", dateStyle: "medium", timeStyle: "short" });
@@ -117,11 +119,13 @@ Motivo (fica no registo):`);
         <input type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Nome, @utilizador, email ou nº do recibo" /></label>
       {[["kind", KIND_OPTIONS, "Tipo"], ["method", METHOD_OPTIONS, "Método"], ["status", STATUS_OPTIONS, "Estado"]].map(([key, options, label]) =>
         <label className="period-select" key={key}><span className="visually-hidden">{label}</span>
-          <select value={params.get(key) || ""} onChange={event => setFilter(key, event.target.value)}>
+          <Select value={params.get(key) || ""} onChange={event => setFilter(key, event.target.value)}>
             {options.map(([value, text]) => <option key={value} value={value}>{text}</option>)}
-          </select><Icon name="chevronDown" size={16} /></label>)}
-      <label className="payment-date">De<input type="date" value={params.get("from") || ""} onChange={event => setFilter("from", event.target.value)} /></label>
-      <label className="payment-date">Até<input type="date" value={params.get("to") || ""} onChange={event => setFilter("to", event.target.value)} /></label>
+          </Select></label>)}
+      <label className="payment-date">De<DatePicker mode="date" shortcuts={false} value={params.get("from") || ""} max={params.get("to") || ""} placeholder="Início"
+        onChange={event => setFilter("from", event.target.value)} aria-label="Pagamentos desde" /></label>
+      <label className="payment-date">Até<DatePicker mode="date" shortcuts={false} value={params.get("to") || ""} min={params.get("from") || ""} placeholder="Hoje"
+        onChange={event => setFilter("to", event.target.value)} aria-label="Pagamentos até" /></label>
       {query && <button className="prefs-link" type="button" onClick={() => { setSearch(""); setParams({}, { replace: true }); }}>Limpar filtros</button>}
     </form>
 

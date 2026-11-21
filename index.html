@@ -3,16 +3,21 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- preview -->
+  <title>Tchilar</title>
   <meta name="description" content="Tchilar — conecta, partilha, vive. A rede social para estares perto de quem importa.">
   <meta property="og:title" content="Tchilar — conecta, partilha, vive">
   <meta property="og:description" content="Partilha momentos, conversa e encontra a tua comunidade no Tchilar.">
   <meta property="og:image" content="/tchilar-logo-full.png">
   <meta property="og:type" content="website">
+  <!-- /preview -->
+  <!-- O servidor troca o bloco acima pelas etiquetas de cada perfil, publicação ou curso (server/link-preview.js). -->
   <meta name="theme-color" content="#0B0B0C">
   <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png">
   <link rel="icon" type="image/png" href="/tchilar-logo.png">
   <link rel="apple-touch-icon" href="/tchilar-logo.png">
-  <title>Tchilar</title>
+  <!-- No iPhone, os avisos do site só chegam com o Tchilar no ecrã principal (precisa do manifesto). -->
+  <link rel="manifest" href="/manifest.webmanifest">
   <style>
     /* Arranque: o logótipo desfoca e foca enquanto o site carrega (o React substitui isto ao abrir). */
     .boot { position: fixed; inset: 0; display: grid; place-items: center; background: #FFFFFF; }
@@ -30,7 +35,7 @@
   <script>
     // Mesmo tema que o site vai usar (escolha guardada ou a do sistema), para o ecrã de arranque não piscar.
     try {
-      var saved = localStorage.getItem("biva-theme");
+      var saved = localStorage.getItem("tchilar-theme") || localStorage.getItem("biva-theme");
       var dark = saved === "dark" || (saved !== "light" && window.matchMedia("(prefers-color-scheme: dark)").matches);
       if (dark) document.documentElement.classList.add("boot-is-dark");
     } catch (e) { /* sem armazenamento: tema claro */ }

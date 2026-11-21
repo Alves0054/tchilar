@@ -138,7 +138,7 @@ function registerGroupCalls(app, deps) {
     if (result.full) return res.status(409).json({ error: `A chamada está cheia (máximo ${MAX_PARTICIPANTS} pessoas).` });
     await joinedResponse(res, result.call, req.user.id);
   });
-  for (const [action, handler] of [["heartbeat", heartbeat], ["signal", signal], ["leave", leave]]) {
+  for (const [action, handler] of Object.entries({ heartbeat, signal, leave })) {
     app.post(`/api/groups/:groupId/call/${action}`, auth, async (req, res) => {
       const group = await memberGroup(req, res);
       if (!group) return;
@@ -248,7 +248,7 @@ function registerGroupCalls(app, deps) {
     if (result.error) return res.status(400).json({ error: result.error });
     res.status(201).json({ invited: ids.length });
   });
-  for (const [action, handler] of [["heartbeat", heartbeat], ["signal", signal], ["leave", leave]]) {
+  for (const [action, handler] of Object.entries({ heartbeat, signal, leave })) {
     app.post(`/api/calls/:callId/${action}`, auth, async (req, res) => {
       const call = await directCall(req, res);
       if (!call) return;

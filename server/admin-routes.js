@@ -1,9 +1,12 @@
 // Painel de administração: números do dia a dia, gestão de pessoas, reembolsos feitos à mão e o
 // registo de tudo o que a equipa faz. Todas as rotas exigem admin com verificação em dois passos.
 const { PAYMENTS_SQL, serializePayment } = require("./payment-records");
+const { normalizePromotionCode } = require("./promotion-codes");
 
 // O que aparece no registo. A chave é o que fica guardado na base de dados.
 const ACTION_LABELS = {
+  promotion_code_create: "Criou um código promocional",
+  promotion_code_toggle: "Ativou ou desativou um código promocional",
   ad_approve: "Aprovou a promoção",
   ad_reject: "Recusou a promoção",
   refund_done: "Confirmou o reembolso",
@@ -68,6 +71,7 @@ const ACTIONS_SQL = `
 
 function registerAdminRoutes(app, { pool, auth, requireAdmin, requireRole, parseId, cleanText, transaction }) {
   const moderation = requireRole("moderation");
+  const finance = requireRole("finance");
   const superOnly = requireRole("super");
   // -------------------------------------------------------------------------------------------
   // Painel: números e o que está à espera da equipa
@@ -163,7 +167,8 @@ function registerAdminRoutes(app, { pool, auth, requireAdmin, requireRole, parse
     const none = { rows: [] };
     const [payments, payouts, reports, actions] = await Promise.all([
       canSeeMoney ? pool.query(`SELECT * FROM (${PAYMENTS_SQL}) p WHERE p.user_id=$1 ORDER BY p.paid_at DESC LIMIT 20`, [id]) : none,
-      canSeeMoney ? pool.query(`SELECT id,amount::float AS amount,status,bank_name,iban_last4,reference,note,created_at,processed_at
+      canSeeMoney ? pool.query(`SELECT id,amount::float AS amount,status,method,bank_name,iban_last4,
+          COALESCE(NULLIF(destination_hint,''),'•••• ' || iban_last4) AS destination,reference,note,created_at,processed_at
         FROM payout_requests WHERE user_id=$1 ORDER BY created_at DESC LIMIT 20`, [id]) : none,
       pool.query(`SELECT id,target_type,reason,status,action,created_at FROM reports WHERE target_user_id=$1 ORDER BY created_at DESC LIMIT 20`, [id]),
       pool.query(`${ACTIONS_SQL} WHERE a.target_type='user' AND a.target_id=$1 ORDER BY a.created_at DESC LIMIT 20`, [id])
@@ -227,6 +232,51 @@ function registerAdminRoutes(app, { pool, auth, requireAdmin, requireRole, parse
     });
     if (!outcome) return res.status(409).json({ error: "O email desta conta já está confirmado." });
     res.json({ email_verified: true });
+  });
+
+  // -------------------------------------------------------------------------------------------
+  // Códigos promocionais
+  // -------------------------------------------------------------------------------------------
+  app.get("/api/admin/promotion-codes", auth, finance, async (_req, res) => {
+    const result = await pool.query("SELECT * FROM promotion_codes ORDER BY created_at DESC, id DESC");
+    res.json({ codes: result.rows });
+  });
+
+  app.post("/api/admin/promotion-codes", auth, finance, async (req, res) => {
+    const code = normalizePromotionCode(req.body?.code);
+    const discountPercent = Number(req.body?.discountPercent);
+    const minAmount = Number(req.body?.minAmountKz || 0);
+    const maxDiscount = req.body?.maxDiscountKz === "" || req.body?.maxDiscountKz == null ? null : Number(req.body.maxDiscountKz);
+    const maxUses = req.body?.maxUses === "" || req.body?.maxUses == null ? null : Number(req.body.maxUses);
+    const expiresAt = req.body?.expiresAt ? new Date(req.body.expiresAt) : null;
+    const purposes = Array.isArray(req.body?.purposes) ? req.body.purposes.filter(value => typeof value === "string").slice(0, 20) : [];
+    if (!/^[A-Z0-9_-]{3,40}$/.test(code)) return res.status(400).json({ error: "O código deve ter 3 a 40 letras, números, hífen ou underscore." });
+    if (!Number.isInteger(discountPercent) || discountPercent < 1 || discountPercent > 100) return res.status(400).json({ error: "O desconto deve ser entre 1% e 100%." });
+    if (!Number.isFinite(minAmount) || minAmount < 0) return res.status(400).json({ error: "O valor mínimo é inválido." });
+    if (maxDiscount != null && (!Number.isFinite(maxDiscount) || maxDiscount < 1)) return res.status(400).json({ error: "O desconto máximo é inválido." });
+    if (maxUses != null && (!Number.isInteger(maxUses) || maxUses < 1)) return res.status(400).json({ error: "O limite de usos é inválido." });
+    if (expiresAt && Number.isNaN(expiresAt.getTime())) return res.status(400).json({ error: "A data de validade é inválida." });
+    try {
+      const created = await pool.query(`
+        INSERT INTO promotion_codes(code,discount_percent,min_amount_kz,max_discount_kz,max_uses,expires_at,applicable_purposes,created_by)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+        [code, discountPercent, minAmount, maxDiscount, maxUses, expiresAt, purposes, req.user.id]);
+      await logAdminAction(pool, req.user.id, "promotion_code_create", "promotion_code", created.rows[0].id, `Criou o código ${code}`);
+      res.status(201).json({ code: created.rows[0] });
+    } catch (error) {
+      if (error.code === "23505") return res.status(409).json({ error: "Já existe um código com esse nome." });
+      throw error;
+    }
+  });
+
+  app.patch("/api/admin/promotion-codes/:id", auth, finance, async (req, res) => {
+    const id = parseId(req.params.id);
+    if (!id) return res.status(400).json({ error: "Código inválido." });
+    if (typeof req.body?.active !== "boolean") return res.status(400).json({ error: "Indica se o código está ativo." });
+    const updated = await pool.query("UPDATE promotion_codes SET active=$2 WHERE id=$1 RETURNING *", [id, req.body.active]);
+    if (!updated.rowCount) return res.status(404).json({ error: "Código não encontrado." });
+    await logAdminAction(pool, req.user.id, "promotion_code_toggle", "promotion_code", id, req.body.active ? "Ativou o código" : "Desativou o código");
+    res.json({ code: updated.rows[0] });
   });
 
   // -------------------------------------------------------------------------------------------

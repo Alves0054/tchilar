@@ -5,6 +5,8 @@ import { Link } from "react-router-dom";
 import { API_BASE, Avatar, Icon, api, formatCount } from "./core.jsx";
 import { GROUP_CATEGORIES, GROUP_PRIVACY, GROUP_TYPES, groupCategory, groupPrivacyOf } from "./community-types.js";
 import { usePolling } from "./shared.jsx";
+import { Select } from "./select.jsx";
+import { CreateEventDialog, EventDate, eventWhen } from "./events.jsx";
 
 const json = (method, body) => ({ method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
 const ROLE_LABELS = { owner: "Dono", admin: "Administrador", moderator: "Moderador", member: "Membro" };
@@ -76,48 +78,52 @@ export function GroupChat({ group, me }) {
 }
 
 // ----- Eventos e calendário do grupo -----
+// Criar abre a mesma janela dos outros eventos (calendário, imagem e cartaz); a lista mostra cada evento em cartão.
 export function GroupEvents({ group }) {
   const [events, setEvents] = useState(null);
-  const [form, setForm] = useState(null);
+  const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
   const load = () => api(`/groups/${group.id}/events`).then(result => setEvents(result.events)).catch(loadError => setError(loadError.message));
   useEffect(() => { load(); }, [group.id]);
-  const create = async event => {
-    event.preventDefault();
-    setError("");
-    try {
-      await api(`/groups/${group.id}/events`, json("POST", { name: form.name, location: form.location, description: form.description, startsAt: new Date(form.startsAt).toISOString() }));
-      setForm(null); load();
-    } catch (createError) { setError(createError.message); }
-  };
   const rsvp = async item => {
     try { await api(`/events/${item.id}/rsvp`, { method: "POST" }); load(); } catch (rsvpError) { setError(rsvpError.message); }
   };
   return <section className="group-tab-stack" aria-label="Eventos do grupo">
-    {form ? <form className="card group-form" onSubmit={create}>
-      <h3>Novo evento do grupo</h3>
-      <label>Nome<input required maxLength={120} value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Ex.: Encontro de sábado" /></label>
-      <div className="group-form-row">
-        <label>Data e hora<input required type="datetime-local" value={form.startsAt} onChange={e => setForm({ ...form, startsAt: e.target.value })} /></label>
-        <label>Local<input maxLength={160} value={form.location} onChange={e => setForm({ ...form, location: e.target.value })} placeholder="Ex.: Ilha de Luanda" /></label>
-      </div>
-      <label>Descrição<textarea rows={3} maxLength={2000} value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} /></label>
-      <div className="modal-actions"><button className="btn secondary" type="button" onClick={() => setForm(null)}>Cancelar</button><button className="btn" type="submit">Criar evento</button></div>
-    </form> : <button className="btn group-tab-add" type="button" onClick={() => setForm({ name: "", startsAt: "", location: "", description: "" })}><Icon name="plus" size={15} /> Criar evento</button>}
+    <div className="group-events-head">
+      <div><h3>Eventos do grupo</h3><p className="muted">Só os membros veem estes eventos.</p></div>
+      <button className="btn" type="button" onClick={() => setCreating(true)}><Icon name="plus" size={15} /> Criar evento</button>
+    </div>
+    {creating && <CreateEventDialog group={{ id: group.id, name: group.name }} onClose={() => setCreating(false)}
+      onCreated={() => { setCreating(false); load(); }} />}
     <TabError error={error} />
     {events === null && <div className="empty card">A carregar eventos...</div>}
-    {events?.length === 0 && !form && <div className="empty card group-tab-empty">Ainda não há eventos marcados. Os eventos do grupo só aparecem aqui, para os membros.</div>}
-    {events?.map(item => {
-      const date = new Date(item.starts_at);
-      return <article key={item.id} className="card group-event">
-        <span className="group-event-date"><strong>{date.getDate()}</strong><small>{date.toLocaleDateString("pt-PT", { month: "short" })}</small></span>
-        <div>
-          <Link to={`/events/${item.id}`}><h3>{item.name}</h3></Link>
-          <p className="muted">{date.toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" })}{item.location ? ` · ${item.location}` : ""} · {formatCount(item.attendee_count)} {item.attendee_count === 1 ? "vai" : "vão"}</p>
-        </div>
-        <button className={`btn${item.is_attending ? " secondary" : ""}`} type="button" onClick={() => rsvp(item)}>{item.is_attending ? <><Icon name="check" size={14} /> Vou</> : "Vou"}</button>
-      </article>;
-    })}
+    {events?.length === 0 && <div className="card group-events-empty">
+      <span className="event-dialog-badge" aria-hidden="true"><Icon name="events" size={22} /></span>
+      <div><strong>Ainda não há eventos marcados</strong><p className="muted">Marca um encontro, um treino ou uma live: avisamos todos os membros.</p></div>
+      <button className="btn secondary" type="button" onClick={() => setCreating(true)}><Icon name="plus" size={15} /> Criar o primeiro</button>
+    </div>}
+    {events?.length > 0 && <div className="group-events-grid">
+      {events.map(item => {
+        const when = eventWhen(item.starts_at);
+        return <article key={item.id} className="event-poster group-event-card">
+          <Link className="event-poster-cover" to={`/events/${item.id}`} aria-label={item.name}>
+            {item.image_url ? <img src={`${API_BASE}${item.image_url}`} alt="" loading="lazy" />
+              : <span className="event-poster-waves" aria-hidden="true"><Icon name="events" size={28} /></span>}
+            <EventDate value={item.starts_at} />
+          </Link>
+          <div className="event-poster-body">
+            <Link to={`/events/${item.id}`}><strong>{item.name}</strong></Link>
+            <span><Icon name="clock" size={14} /> {when[0].toUpperCase() + when.slice(1)}</span>
+            {item.location && <span><Icon name="location" size={14} /> {item.location}</span>}
+            <div className="event-poster-foot">
+              <small><b>{formatCount(item.attendee_count)}</b> {item.attendee_count === 1 ? "vai" : "vão"} · por {item.creator_name}</small>
+              <button type="button" className={`event-going-btn${item.is_attending ? " is-on" : ""}`} aria-pressed={item.is_attending} onClick={() => rsvp(item)}>
+                <Icon name={item.is_attending ? "check" : "plus"} size={14} /> Vou</button>
+            </div>
+          </div>
+        </article>;
+      })}
+    </div>}
   </section>;
 }
 
@@ -154,9 +160,9 @@ export function GroupPolls({ group, me }) {
       {form.options.length < 10 && <button className="link-button" type="button" onClick={() => setForm({ ...form, options: [...form.options, ""] })}><Icon name="plus" size={14} /> Mais uma resposta</button>}
       <div className="group-form-row">
         <label className="checkbox-label"><input type="checkbox" checked={form.multiple} onChange={e => setForm({ ...form, multiple: e.target.checked })} /> Permitir várias respostas</label>
-        <label>Fecha em<select value={form.days} onChange={e => setForm({ ...form, days: e.target.value })}>
+        <label>Fecha em<Select value={form.days} onChange={e => setForm({ ...form, days: e.target.value })}>
           <option value="">Não fecha</option><option value="1">1 dia</option><option value="3">3 dias</option><option value="7">1 semana</option><option value="30">1 mês</option>
-        </select></label>
+        </Select></label>
       </div>
       <div className="modal-actions"><button className="btn secondary" type="button" onClick={() => setForm(null)}>Cancelar</button><button className="btn" type="submit">Publicar sondagem</button></div>
     </form> : <button className="btn group-tab-add" type="button" onClick={() => setForm({ question: "", options: ["", ""], multiple: false, days: "7" })}><Icon name="plus" size={15} /> Criar sondagem</button>}
@@ -269,11 +275,11 @@ export function GroupMembers({ group, me, onChanged }) {
           <span><strong>{person.display_name}</strong><small>@{person.username}</small></span></Link>
         <span className={`group-role is-${person.role}`}>{ROLE_LABELS[person.role]}</span>
         {manageable && <span className="group-member-actions">
-          {(myRole === "owner" || myRole === "admin") && <select aria-label={`Papel de ${person.display_name}`} value={person.role} onChange={e => setRole(person, e.target.value)}>
+          {(myRole === "owner" || myRole === "admin") && <Select aria-label={`Papel de ${person.display_name}`} value={person.role} onChange={e => setRole(person, e.target.value)}>
             <option value="member">Membro</option>
             <option value="moderator">Moderador</option>
             {myRole === "owner" && <option value="admin">Administrador</option>}
-          </select>}
+          </Select>}
           <button type="button" className="round-button" aria-label={`Remover ${person.display_name}`} onClick={() => remove(person)}><Icon name="close" size={14} /></button>
         </span>}
       </li>;
@@ -332,22 +338,22 @@ export function GroupSettings({ group, onSaved }) {
   };
   return <form className="card group-form" onSubmit={save}>
     <h3>Definições do grupo</h3>
-    <label>Nome<input required maxLength={100} value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} /></label>
-    <label>Descrição<textarea rows={3} maxLength={2000} value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} /></label>
+    <label>Nome <small>{form.name.length}/100</small><input required maxLength={100} value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} /></label>
+    <label>Descrição <small>{form.description.length}/2000</small><textarea rows={3} maxLength={2000} value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} /></label>
     <label>Regras do grupo <small>{form.rules.length}/3000</small><textarea rows={5} maxLength={3000} value={form.rules} onChange={e => setForm({ ...form, rules: e.target.value })}
       placeholder={"Ex.:\n1. Respeito por todos.\n2. Sem spam nem publicidade.\n3. Publicações sobre o tema do grupo."} /></label>
     <div className="group-form-row">
-      <label>Tipo<select value={form.groupType} onChange={e => setForm({ ...form, groupType: e.target.value })}>
-        {GROUP_TYPES.map(type => <option key={type.key} value={type.key}>{type.label}</option>)}</select></label>
-      {!group.is_secret && <label>Quem pode entrar<select value={form.privacy} onChange={e => setForm({ ...form, privacy: e.target.value })}>
-        {GROUP_PRIVACY.filter(option => option.key !== "secret").map(option => <option key={option.key} value={option.key}>{option.label}</option>)}</select></label>}
+      <label>Tipo<Select value={form.groupType} onChange={e => setForm({ ...form, groupType: e.target.value })}>
+        {GROUP_TYPES.map(type => <option key={type.key} value={type.key}>{type.label}</option>)}</Select></label>
+      {!group.is_secret && <label>Quem pode entrar<Select value={form.privacy} onChange={e => setForm({ ...form, privacy: e.target.value })}>
+        {GROUP_PRIVACY.filter(option => option.key !== "secret").map(option => <option key={option.key} value={option.key}>{option.label}</option>)}</Select></label>}
     </div>
     <div className="group-form-row">
-      <label>Categoria<select value={form.category} onChange={e => setForm({ ...form, category: e.target.value, subcategory: "" })}>
-        {GROUP_CATEGORIES.map(item => <option key={item.key} value={item.key}>{item.label}</option>)}</select></label>
-      {area.subcategories.length > 0 && <label>Subcategoria (opcional)<select value={form.subcategory} onChange={e => setForm({ ...form, subcategory: e.target.value })}>
+      <label>Categoria<Select value={form.category} onChange={e => setForm({ ...form, category: e.target.value, subcategory: "" })}>
+        {GROUP_CATEGORIES.map(item => <option key={item.key} value={item.key}>{item.label}</option>)}</Select></label>
+      {area.subcategories.length > 0 && <label>Subcategoria <small>Opcional</small><Select value={form.subcategory} onChange={e => setForm({ ...form, subcategory: e.target.value })}>
         <option value="">Sem subcategoria</option>
-        {area.subcategories.map(item => <option key={item.key} value={item.key}>{item.label}</option>)}</select></label>}
+        {area.subcategories.map(item => <option key={item.key} value={item.key}>{item.label}</option>)}</Select></label>}
     </div>
     <TabError error={state.error} />
     {state.saved && <p className="prefs-saved" role="status"><Icon name="check" size={14} />Guardado.</p>}

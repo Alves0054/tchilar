@@ -1,8 +1,12 @@
-import { useContext, useEffect, useRef, useState } from "react";
+import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Link, NavLink, useParams, useSearchParams } from "react-router-dom";
 import { downscaleImage } from "../PhotoEditors.jsx";
 import { API_BASE, Avatar, Icon, UserContext, api, formatCount, formatPrice } from "./core.jsx";
-import { CharCount, ContentThumb, CreatorPartnerships, PaymentDialog, PersonLine, SHORT_MONTHS, canBoost, postKind } from "./shared.jsx";
+import { CharCount, ContentThumb, CreatorPartnerships, PaymentDialog, PayoutLogo, PersonLine, SHORT_MONTHS, canBoost, postKind } from "./shared.jsx";
+import { VerificationPlans } from "./verification.jsx";
+import { useDismiss } from "./layout.jsx";
+import "./ads.css";
+import { Select } from "./select.jsx";
 
 // Visitas diárias ao perfil: uma série, barras finas, dica ao passar o rato e tabela alternativa.
 export const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
@@ -16,6 +20,7 @@ export const CREATOR_SECTIONS = [
   ["conteudo", "pages", "Conteúdo"],
   ["engajamento", "messages", "Engajamento"],
   ["monetizacao", "spark", "Monetização"],
+  ["verificacao", "verified", "Verificação"],
   ["ganhos", "gift", "Ganhos"],
   ["parcerias", "brand", "Parcerias"],
   ["anuncios", "ad", "Anúncios"]
@@ -136,10 +141,9 @@ export function useCreatorOverview(days) {
 export function PeriodSelect({ days, onChange }) {
   return <label className="period-select">
     <span className="visually-hidden">Período</span>
-    <select value={days} onChange={event => onChange(Number(event.target.value))}>
+    <Select value={days} onChange={event => onChange(Number(event.target.value))}>
       {PERIOD_OPTIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-    </select>
-    <Icon name="chevronDown" size={16} />
+    </Select>
   </label>;
 }
 export function InsightsCard({ data, error, days, onDays, full = false }) {
@@ -191,8 +195,8 @@ export function ProfileStatusCard({ profile }) {
 export function CreatorHome({ user }) {
   const [days, setDays] = useState(28);
   const [data, error] = useCreatorOverview(days);
-  const [welcome, setWelcome] = useState(() => { try { return localStorage.getItem("biva-creator-welcome") !== "hidden"; } catch { return true; } });
-  const hideWelcome = () => { setWelcome(false); try { localStorage.setItem("biva-creator-welcome", "hidden"); } catch { /* opcional */ } };
+  const [welcome, setWelcome] = useState(() => { try { return (localStorage.getItem("tchilar-creator-welcome") || localStorage.getItem("biva-creator-welcome")) !== "hidden"; } catch { return true; } });
+  const hideWelcome = () => { setWelcome(false); try { localStorage.setItem("tchilar-creator-welcome", "hidden"); localStorage.removeItem("biva-creator-welcome"); } catch { /* opcional */ } };
   return <>
     {welcome && <section className="creator-card creator-welcome">
       <div><h2>Bem-vindo ao Painel do criador</h2><p>Acompanha o desempenho do teu perfil, gere as tuas publicações, as subscrições e os anúncios — tudo num só lugar.</p></div>
@@ -394,6 +398,10 @@ export function CreatorMonetization() {
     </section>
   </>;
 }
+// A verificação da conta usa o mesmo ecrã que a das páginas (src/modules/verification.jsx).
+export function CreatorVerification() {
+  return <VerificationPlans endpoint="/creator/verification" />;
+}
 export const MONTH_NAMES = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
 export const monthLabel = key => { const [year, month] = key.split("-").map(Number); return `${MONTH_NAMES[month - 1]} de ${year}`; };
 // Programa de Parceiros: mostra o progresso para as regras e, depois de aderir, os ganhos por mês.
@@ -425,10 +433,25 @@ export function PartnerProgramCard() {
     <div className="creator-card-head">
       <div>
         <h2 id="partner-title"><Icon name="spark" size={18} /> Programa de Parceiros Tchilar</h2>
-        <p>O Tchilar paga-te <strong>{formatPrice(data.rpm)}</strong> por cada 1000 visualizações das tuas publicações.</p>
+        <p>Monetização por vídeos: <strong>{formatPrice(data.rpm)}</strong> por cada 1000 visualizações completas (vídeos vistos até ao fim),
+          somando todos os teus vídeos.</p>
       </div>
-      {data.partner_since && <span className={`status-pill ${data.earning ? "is-ok" : "is-warning"}`}>{data.earning ? "Parceiro ativo" : "Ganhos em pausa"}</span>}
+      {data.open === false
+        ? <span className="status-pill is-warning">Brevemente</span>
+        : data.partner_since && <span className={`status-pill ${data.earning ? "is-ok" : "is-warning"}`}>{data.earning ? "Parceiro ativo" : "Ganhos em pausa"}</span>}
     </div>
+    {data.open === false && <div className="partner-soon" role="note">
+      <span className="partner-soon-icon" aria-hidden="true"><Icon name="clock" size={20} /></span>
+      <div className="partner-soon-body">
+        <strong>A monetização por vídeos está a chegar</strong>
+        <p>Ainda não estamos a pagar por visualizações. Quando o programa abrir, avisamos-te e podes aderir se cumprires as regras.</p>
+        <ul>
+          <li><Icon name="play" size={14} /> Conta cada vídeo visto até ao fim</li>
+          <li><Icon name="friends" size={14} /> Só por outras pessoas, uma vez por dia</li>
+          <li><Icon name="stats" size={14} /> O teu progresso já está a contar</li>
+        </ul>
+      </div>
+    </div>}
 
     {!data.partner_since || !data.earning ? <>
       <p className="partner-intro">{data.partner_since
@@ -450,20 +473,21 @@ export function PartnerProgramCard() {
         </li>)}
       </ul>
       {!data.partner_since && <div className="partner-join">
-        <button className="btn" type="button" disabled={!data.eligible || busy} onClick={join}>{busy ? "A aderir..." : "Aderir ao programa"}</button>
-        {!data.eligible && <small className="muted">O botão fica disponível quando cumprires todas as regras.</small>}
+        <button className="btn" type="button" disabled={data.open === false || !data.eligible || busy} onClick={join}>
+          {data.open === false ? "Brevemente" : busy ? "A aderir..." : "Aderir ao programa"}</button>
+        {data.open !== false && !data.eligible && <small className="muted">O botão fica disponível quando cumprires todas as regras.</small>}
       </div>}
     </> : <>
       <div className="stat-grid">
         <div className="stat-box"><span>Ganhos este mês</span><strong>{formatPrice(current.amount)}</strong></div>
-        <div className="stat-box"><span>Visualizações este mês</span><strong>{formatCount(current.views)}</strong></div>
+        <div className="stat-box"><span>Vídeos vistos até ao fim (mês)</span><strong>{formatCount(current.views)}</strong></div>
         <div className="stat-box"><span>Meses anteriores</span><strong>{formatPrice(pending)}</strong></div>
       </div>
       {data.months.length > 0 && <table className="partner-months">
-        <thead><tr><th scope="col">Mês</th><th scope="col">Visualizações</th><th scope="col">Ganhos</th></tr></thead>
+        <thead><tr><th scope="col">Mês</th><th scope="col">Visualizações completas</th><th scope="col">Ganhos</th></tr></thead>
         <tbody>{data.months.map(month => <tr key={month.month}><td>{monthLabel(month.month)}</td><td>{formatCount(month.views)}</td><td>{formatPrice(month.amount)}</td></tr>)}</tbody>
       </table>}
-      <p className="muted creator-footnote">Parceiro desde {new Date(data.partner_since).toLocaleDateString("pt-PT")}. Os ganhos são pagos uma vez por mês, quando o total acumulado chega a {formatPrice(data.min_payout)}. Só contam visualizações de outras pessoas (uma por pessoa e por dia).</p>
+      <p className="muted creator-footnote">Parceiro desde {new Date(data.partner_since).toLocaleDateString("pt-PT")}. Os ganhos são pagos uma vez por mês, quando o total acumulado chega a {formatPrice(data.min_payout)}. Só contam vídeos vistos até ao fim por outras pessoas (uma vez por pessoa e por dia).</p>
     </>}
     {error && <p className="error" role="alert">{error}</p>}
   </section>;
@@ -529,6 +553,67 @@ export function AdImagePicker({ image, preview, onChange }) {
     {error && <p className="error" role="alert">{error}</p>}
   </div>;
 }
+// Caixa de seleção das províncias: um campo que abre a lista com caixas para marcar (vazio = todas).
+export function ProvinceSelect({ provinces, value, onChange }) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const boxRef = useRef(null);
+  const close = useMemo(() => () => { setOpen(false); setQuery(""); }, []);
+  useDismiss(boxRef, open, close);
+  const normalize = text => text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const shown = provinces.filter(province => normalize(province).includes(normalize(query)));
+  const toggle = province => onChange(value.includes(province) ? value.filter(item => item !== province) : [...value, province]);
+  const summary = !value.length ? "Todas as províncias" : value.length <= 2 ? value.join(", ") : `${value.slice(0, 2).join(", ")} e mais ${value.length - 2}`;
+  return <div className="province-select" ref={boxRef}>
+    <button type="button" className={`province-select-field${open ? " is-open" : ""}`} aria-haspopup="listbox" aria-expanded={open}
+      onClick={() => setOpen(current => !current)}>
+      <Icon name="location" size={16} />
+      <span className={value.length ? "" : "is-placeholder"}>{summary}</span>
+      {value.length > 0 && <em>{value.length}</em>}
+      <Icon name="chevronDown" size={16} />
+    </button>
+    {open && <div className="province-select-panel">
+      <input type="search" value={query} onChange={event => setQuery(event.target.value)} placeholder="Procurar província" aria-label="Procurar província" autoFocus />
+      <div className="province-select-list" role="listbox" aria-multiselectable="true" aria-label="Províncias">
+        <label className={`province-select-option is-all${value.length ? "" : " is-checked"}`}>
+          <input type="checkbox" checked={!value.length} onChange={() => onChange([])} />
+          <span>Todas as províncias</span>
+        </label>
+        {shown.map(province => <label key={province} className={`province-select-option${value.includes(province) ? " is-checked" : ""}`}>
+          <input type="checkbox" checked={value.includes(province)} onChange={() => toggle(province)} />
+          <span>{province}</span>
+        </label>)}
+        {!shown.length && <p className="muted">Nenhuma província com «{query}».</p>}
+      </div>
+      <div className="province-select-foot">
+        <button type="button" className="text-button" onClick={() => onChange([])} disabled={!value.length}>Limpar</button>
+        <button type="button" className="btn" onClick={close}>Feito{value.length ? ` (${value.length})` : ""}</button>
+      </div>
+    </div>}
+  </div>;
+}
+// Caixa de seleção de escolha única (mesmo painel e estilo da das províncias).
+export function ChoiceSelect({ label, options, value, onChange }) {
+  const [open, setOpen] = useState(false);
+  const boxRef = useRef(null);
+  const close = useMemo(() => () => setOpen(false), []);
+  useDismiss(boxRef, open, close);
+  const current = options.find(([key]) => key === value);
+  return <div className="province-select" ref={boxRef}>
+    <button type="button" className={`province-select-field${open ? " is-open" : ""}`} aria-haspopup="listbox" aria-expanded={open}
+      aria-label={`${label}: ${current?.[1] || ""}`} onClick={() => setOpen(state => !state)}>
+      <Icon name="clock" size={16} />
+      <span>{current?.[1]}</span>
+      <Icon name="chevronDown" size={16} />
+    </button>
+    {open && <div className="province-select-panel" role="listbox" aria-label={label}>
+      {options.map(([key, name]) => <button key={key} type="button" role="option" aria-selected={key === value}
+        className={`choice-option${key === value ? " is-checked" : ""}`} onClick={() => { onChange(key); close(); }}>
+        <span>{name}</span>{key === value && <Icon name="check" size={16} />}
+      </button>)}
+    </div>}
+  </div>;
+}
 export const EMPTY_AD = { kind: "boost", postId: "", title: "", body: "", destination: "profile", linkUrl: "", budget: "5000", days: "7", provinces: [], minAge: "", maxAge: "" };
 export const BUDGET_PRESETS = [2000, 5000, 10000, 25000, 50000];
 export const AD_DAY_OPTIONS = [1, 3, 7, 14, 30];
@@ -548,16 +633,22 @@ export function AdsOverview({ ads }) {
   const sum = key => paid.reduce((total, ad) => total + Number(ad[key] || 0), 0);
   const impressions = sum("impressions");
   const clicks = sum("clicks");
-  const live = ads.filter(ad => ad.status === "active").length;
-  const tiles = [
-    ["Investido", formatPrice(sum("budget")), `${formatPrice(sum("spent"))} já usados`],
-    ["Pessoas alcançadas", formatCount(sum("reach")), `${formatCount(impressions)} visualizações`],
-    ["Cliques", formatCount(clicks), `${percentOf(clicks, impressions)} de quem viu`],
-    ["No ar agora", formatCount(live), live === 1 ? "promoção ativa" : "promoções ativas"]
-  ];
-  return <dl className="ads-overview">
-    {tiles.map(([label, value, hint]) => <div key={label}><dt>{label}</dt><dd>{value}</dd><small>{hint}</small></div>)}
-  </dl>;
+  const reach = sum("reach");
+  const spent = sum("spent");
+  // Funil: quanto se pagou, a quantas pessoas chegou e quantas clicaram. Entre cada passo, o que custou ou converteu.
+  return <div className="ads-funnel" role="list" aria-label="Resultados de todas as promoções">
+    <div className="ads-funnel-step is-money" role="listitem">
+      <span>Investido</span><strong>{formatPrice(sum("budget"))}</strong><small>{formatPrice(spent)} já usados</small>
+    </div>
+    <span className="ads-funnel-link" aria-hidden="true"><Icon name="next" size={14} /><em>{reach ? `${formatPrice(Math.round(spent / reach))} por pessoa` : "—"}</em></span>
+    <div className="ads-funnel-step is-reach" role="listitem">
+      <span>Pessoas alcançadas</span><strong>{formatCount(reach)}</strong><small>{formatCount(impressions)} visualizações</small>
+    </div>
+    <span className="ads-funnel-link" aria-hidden="true"><Icon name="next" size={14} /><em>{percentOf(clicks, impressions)} clicaram</em></span>
+    <div className="ads-funnel-step is-clicks" role="listitem">
+      <span>Cliques</span><strong>{formatCount(clicks)}</strong><small>visitas ao teu perfil ou site</small>
+    </div>
+  </div>;
 }
 // Resultados de uma promoção: evolução por dia e onde está o público (só números agregados).
 export function AdResults({ ad }) {
@@ -634,6 +725,8 @@ export function CreatorAds() {
   const [filter, setFilter] = useState("all");
   const [openResults, setOpenResults] = useState(null);
   const [placement, setPlacement] = useState("feed");
+  const [calcBudget, setCalcBudget] = useState(10000);   // calculadora de alcance do topo
+  const [customBudget, setCustomBudget] = useState(() => BUDGET_PRESETS.includes(Number(form.budget)) ? "" : String(form.budget));    // o que se escreve em "Outro valor" (não muda sozinho a meio da escrita)
   const formRef = useRef(null);
 
   const load = () => api("/ads/mine").then(result => {
@@ -668,7 +761,6 @@ export function CreatorAds() {
   const targeted = form.provinces.length > 0 || form.minAge !== "" || form.maxAge !== "";
   const budget = Number(form.budget) || 0;
   const reach = Math.floor(budget / (cost * (targeted ? 1 + surcharge : 1)));
-  const toggleProvince = province => update("provinces", form.provinces.includes(province) ? form.provinces.filter(item => item !== province) : [...form.provinces, province]);
   const selectedPost = posts.find(post => String(post.id) === String(form.postId));
   // Reels só mostram vídeos e Stories só publicações com imagem ou vídeo (como em /api/ads/feed).
   const placements = [["feed", "Feed", true], ["stories", "Stories", Boolean(selectedPost?.media_url)], ["reels", "Reels", selectedPost?.media_type === "video"]];
@@ -678,7 +770,7 @@ export function CreatorAds() {
   const paidNotice = "Pagamento recebido. A promoção fica em revisão e entra no ar assim que a equipa a aprovar (normalmente em menos de 24 horas).";
 
   const openForm = () => { setCreating(true); window.requestAnimationFrame(() => formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })); };
-  const closeForm = () => { setCreating(false); setFormError(""); setFormHint(""); setForm(EMPTY_AD); setImage(null); };
+  const closeForm = () => { setCreating(false); setFormError(""); setFormHint(""); setForm(EMPTY_AD); setCustomBudget(""); setImage(null); };
 
   // Criar: abre o ecrã de pagamento; a promoção só é criada quando se escolhe como pagar.
   const submit = event => {
@@ -726,6 +818,7 @@ export function CreatorAds() {
       budget: String(Math.round(ad.budget)), days: String(ad.days), provinces: ad.target_provinces || [],
       minAge: ad.target_min_age ?? "", maxAge: ad.target_max_age ?? ""
     });
+    setCustomBudget(BUDGET_PRESETS.includes(Math.round(ad.budget)) ? "" : String(Math.round(ad.budget)));
     setImage(null);
     setFormError("");
     setFormHint(!postAvailable ? "A publicação original já não pode ser impulsionada. Escolhe outra."
@@ -764,16 +857,32 @@ export function CreatorAds() {
   const activeFilter = AD_FILTERS.find(([key]) => key === filter) || AD_FILTERS[0];
   const visibleAds = ads?.filter(activeFilter[2]) || [];
   const endsOn = new Date(Date.now() + Number(form.days) * 86400000).toLocaleDateString("pt-PT", { day: "numeric", month: "long" });
+  const liveCount = ads?.filter(ad => ad.status === "active").length || 0;
 
   return <>
-    {paying && <PaymentDialog title={paying.title} amountKz={paying.amount} onPay={paying.onPay}
+    {paying && <PaymentDialog title={paying.title} amountKz={paying.amount} purpose="ad" onPay={paying.onPay}
       onDone={() => { setNotice(paidNotice); load(); }} onClose={() => { setPaying(null); load(); }} />}
-    <section className="creator-card" aria-labelledby="ads-full-title">
-      <div className="creator-card-head">
-        <div><h2 id="ads-full-title">Anúncios e publicações impulsionadas</h2>
-          <p>Pagas uma vez e o Tchilar mostra a tua promoção a quem ainda não a viu: {formatPrice(cost * 1000)} por cada 1000 pessoas alcançadas.</p></div>
-        {!creating && <button className="btn" type="button" onClick={openForm}><Icon name="plus" size={16} /> Criar promoção</button>}
+    <header className="tc-head ads-head">
+      <div className="tc-head-text">
+        <p className="tc-head-kicker">{liveCount ? <><i className="ads-live-dot" aria-hidden="true" /> {liveCount} {liveCount === 1 ? "promoção no ar" : "promoções no ar"}</> : "Anúncios"}</p>
+        <h2 id="ads-full-title">Leva o teu trabalho a quem ainda não te conhece</h2>
+        <p>Pagas uma vez, em kwanzas, e o Tchilar mostra a tua promoção a pessoas novas no feed, nos Stories, nos Reels e na coluna «Patrocinado».</p>
       </div>
+      {!creating && <div className="tc-head-actions">
+        <button className="btn" type="button" onClick={() => { update("kind", "boost"); openForm(); }}><Icon name="bolt" size={16} /> Impulsionar publicação</button>
+        <button className="btn secondary" type="button" onClick={() => { update("kind", "ad"); openForm(); }}><Icon name="ad" size={16} /> Criar anúncio</button>
+      </div>}
+    </header>
+    {/* Calculadora de alcance numa linha */}
+    <div className="ads-calc-line">
+      <label htmlFor="ads-calc-range">Com <strong>{formatPrice(calcBudget)}</strong></label>
+      <input id="ads-calc-range" type="range" min="1000" max="100000" step="1000" value={calcBudget}
+        onChange={event => setCalcBudget(Number(event.target.value))} aria-valuetext={formatPrice(calcBudget)} />
+      <span>chegas a cerca de <strong className="ads-calc-reach">{formatCount(Math.floor(calcBudget / cost))}</strong> pessoas novas</span>
+      <button className="text-button" type="button" onClick={() => { update("budget", String(calcBudget)); setCustomBudget(BUDGET_PRESETS.includes(calcBudget) ? "" : String(calcBudget)); openForm(); }}>Usar este valor</button>
+    </div>
+
+    <section className="creator-card ads-studio" aria-label="As tuas promoções">
       {notice && <p className="success" role="status">{notice}</p>}
       {payments === "demo" && <p className="info-draft" role="note"><Icon name="info" size={15} /> Pagamentos em modo de demonstração: as promoções ficam ativas sem cobrança.</p>}
       {ads && ads.length > 0 && <AdsOverview ads={ads} />}
@@ -782,6 +891,7 @@ export function CreatorAds() {
         <div className="ad-form-fields">
           <h3 id="ad-form-title" className="ad-form-title">Nova promoção</h3>
           {formHint && <p className="info-draft" role="status"><Icon name="copy" size={15} /> {formHint}</p>}
+          <h4 className="ads-step"><span>1</span> O que queres promover</h4>
           <div className="ad-kind" role="radiogroup" aria-label="Tipo de promoção">
             <label className={form.kind === "boost" ? "is-selected" : ""}>
               <input type="radio" name="kind" checked={form.kind === "boost"} onChange={() => update("kind", "boost")} />
@@ -835,27 +945,33 @@ export function CreatorAds() {
             </fieldset>
           </>}
 
-          <fieldset className="ad-choice">
-            <legend>Orçamento total</legend>
-            <div className="ad-chips" role="group" aria-label="Valores sugeridos">
-              {BUDGET_PRESETS.map(value => <button key={value} type="button" className="province-chip" aria-pressed={budget === value} onClick={() => update("budget", String(value))}>{formatPrice(value)}</button>)}
+          <h4 className="ads-step"><span>2</span> Quanto e durante quanto tempo</h4>
+          <div className="ads-pair">
+          <div className="ad-choice" role="group" aria-labelledby="ads-budget-title">
+            <span className="ads-box-title" id="ads-budget-title">Orçamento total</span>
+            {/* 5 valores + "outro valor" = grelha certa de 3 × 2 */}
+            <div className="ads-budget-grid">
+              {BUDGET_PRESETS.map(value => <button key={value} type="button" className="province-chip" aria-pressed={!customBudget && budget === value} onClick={() => { update("budget", String(value)); setCustomBudget(""); }}>{formatPrice(value)}</button>)}
+              <label className={`ads-budget-other${customBudget ? " is-on" : ""}`}>
+                <span className="visually-hidden">Outro valor em kwanzas</span>
+                <input type="number" min="1000" max="10000000" step="500" value={customBudget} placeholder="Outro valor"
+                  onChange={event => { setCustomBudget(event.target.value); update("budget", event.target.value); }} />
+                <span aria-hidden="true">Kz</span>
+              </label>
             </div>
-            <label className="ad-custom-budget">Outro valor (Kz)<input type="number" min="1000" max="10000000" step="500" required value={form.budget} onChange={event => update("budget", event.target.value)} /></label>
-          </fieldset>
-          <fieldset className="ad-choice">
-            <legend>Duração</legend>
-            <div className="ad-chips" role="radiogroup" aria-label="Duração">
-              {AD_DAY_OPTIONS.map(value => <label key={value} className="ad-day">
-                <input type="radio" name="days" checked={form.days === String(value)} onChange={() => update("days", String(value))} />
-                <span>{dayLabel(value)}</span>
-              </label>)}
-            </div>
-          </fieldset>
+            <small className="muted">Mínimo {formatPrice(1000)}. Escreve outro valor no último campo.</small>
+          </div>
+          <div className="ad-choice" role="group" aria-labelledby="ads-days-title">
+            <span className="ads-box-title" id="ads-days-title">Duração</span>
+            <ChoiceSelect label="Duração da promoção" options={AD_DAY_OPTIONS.map(value => [String(value), dayLabel(value)])} value={form.days} onChange={value => update("days", value)} />
+            <p className="ads-days-end"><Icon name="events" size={15} /> <span>Termina a <strong>{endsOn}</strong>, se for aprovada hoje.</span></p>
+            <p className="ads-days-daily">≈ <strong>{formatPrice(Math.round(budget / Number(form.days || 1)))}</strong> por dia</p>
+          </div>
+          </div>
+          <h4 className="ads-step"><span>3</span> Para quem</h4>
           <fieldset className="ad-audience">
             <legend>Público <small>Opcional · +{Math.round(surcharge * 100)}% por pessoa alcançada</small></legend>
-            <div className="province-chips" role="group" aria-label="Províncias">
-              {provinceList.map(province => <button key={province} type="button" className="province-chip" aria-pressed={form.provinces.includes(province)} onClick={() => toggleProvince(province)}>{province}</button>)}
-            </div>
+            <ProvinceSelect provinces={provinceList} value={form.provinces} onChange={list => update("provinces", list)} />
             <div className="ad-budget">
               <label>Idade mínima<input type="number" min="13" max="100" placeholder="Qualquer" value={form.minAge} onChange={event => update("minAge", event.target.value)} /></label>
               <label>Idade máxima<input type="number" min="13" max="100" placeholder="Qualquer" value={form.maxAge} onChange={event => update("maxAge", event.target.value)} /></label>
@@ -877,7 +993,8 @@ export function CreatorAds() {
             ? selectedPost ? <BoostPreview post={selectedPost} user={user} placement={shownPlacement} /> : <p className="muted">Escolhe uma publicação para a veres aqui.</p>
             : <><p className="muted">Na coluna da direita da página inicial, em computador.</p><AdPreview ad={form} imageSrc={imagePreview} advertiser={user?.display_name || user?.username} /></>}
 
-          <div className="ad-summary" aria-live="polite">
+          <div className="ad-summary is-ticket" aria-live="polite">
+            <span className="ads-ticket-head">Talão da promoção</span>
             <p className="ad-summary-reach"><strong>{formatCount(reach)}</strong><span>pessoas alcançadas, no máximo</span></p>
             <dl>
               <div><dt>Por dia</dt><dd>cerca de {formatPrice(Math.round(budget / Number(form.days)))}</dd></div>
@@ -919,15 +1036,18 @@ export function CreatorAds() {
                 : ad.status === "active" || ad.status === "paused" ? (daysLeft <= 1 ? "termina hoje" : `faltam ${dayLabel(daysLeft)}`)
                   : `terminou a ${new Date(ad.ends_at).toLocaleDateString("pt-PT", { day: "numeric", month: "short" })}`;
             const expanded = openResults === ad.id;
-            return <li className={`ad-item${expanded ? " is-open" : ""}`} key={ad.id}>
+            return <li className={`ad-item ad-poster is-${ad.status}${expanded ? " is-open" : ""}`} key={ad.id}>
               <span className="ad-item-art">{art}</span>
               <div className="ad-item-main">
                 <div className="ad-item-title"><strong>{ad.title}</strong><span className={`status-pill ${statusClass}`}>{statusLabel}</span></div>
                 <small>{ad.post_id ? "Publicação impulsionada" : "Anúncio"}{ad.target_provinces?.length ? ` · ${ad.target_provinces.join(", ")}` : ""}{ad.target_min_age || ad.target_max_age ? ` · ${ad.target_min_age || 13}–${ad.target_max_age || "100"} anos` : ""} · {when}</small>
-                <div className="ad-budget-bar" role="progressbar" aria-label="Orçamento gasto" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(spentRatio)}><span style={{ width: `${spentRatio}%` }} /></div>
-                <small>{formatPrice(ad.spent)} de {formatPrice(ad.budget)} gastos</small>
               </div>
               <dl className="ad-metrics">
+                <div className="ad-ring-wrap">
+                  <span className="ad-ring" style={{ "--p": spentRatio }} role="progressbar" aria-label="Orçamento gasto"
+                    aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(spentRatio)}><b>{Math.round(spentRatio)}%</b></span>
+                  <small>{formatPrice(ad.spent)}<br />de {formatPrice(ad.budget)}</small>
+                </div>
                 <div><dt>Pessoas</dt><dd>{formatCount(ad.reach ?? ad.impressions)}</dd></div>
                 <div><dt>Cliques</dt><dd>{formatCount(ad.clicks)}</dd></div>
                 <div><dt>Taxa de cliques</dt><dd>{percentOf(ad.clicks, ad.impressions)}</dd></div>
@@ -955,7 +1075,7 @@ export function CreatorDashboard() {
   const { user, authReady } = useContext(UserContext);
   if (!authReady) return <div className="page narrow"><div className="empty card">A carregar...</div></div>;
   if (!user) return <div className="page narrow"><div className="empty card">Entra na tua conta para abrires o painel do criador. <Link to="/login">Entrar</Link></div></div>;
-  const views = { "": CreatorHome, insights: CreatorInsights, conteudo: CreatorContent, engajamento: CreatorEngagement, monetizacao: CreatorMonetization, ganhos: CreatorEarnings, parcerias: CreatorPartnerships, anuncios: CreatorAds };
+  const views = { "": CreatorHome, insights: CreatorInsights, conteudo: CreatorContent, engajamento: CreatorEngagement, monetizacao: CreatorMonetization, verificacao: CreatorVerification, ganhos: CreatorEarnings, parcerias: CreatorPartnerships, anuncios: CreatorAds };
   const View = views[section] || CreatorHome;
   return <div className="creator">
     <aside className="creator-nav" aria-label="Painel do criador">
@@ -978,12 +1098,21 @@ export function CreatorDashboard() {
 
 export const ANGOLAN_BANKS = ["BAI", "BFA", "BIC", "BPC", "Millennium Atlântico", "Banco Sol", "BNI", "Standard Bank", "Banco Económico", "Banco Keve", "Banco Yetu", "Outro"];
 export const PAYOUT_STATUS = { requested: ["Em processamento", "is-warning"], paid: ["Pago", "is-ok"], rejected: ["Recusado", "is-off"] };
+// Onde receber: cada pessoa escolhe. O servidor valida e guarda o destino cifrado (server/payouts.js).
+export const PAYOUT_CHOICES = [
+  { id: "iban", label: "Banco (IBAN)", icon: "brand", field: "IBAN", placeholder: "AO06 0000 0000 0000 0000 0000 0", hint: "Transferência para qualquer banco angolano." },
+  { id: "express", label: "Multicaixa Express", icon: "phone", field: "Telemóvel do Express", placeholder: "923 456 789", inputMode: "tel", hint: "Recebes no Express do número angolano indicado." },
+  { id: "paypay", label: "PayPay África", icon: "card", field: "Telemóvel da conta PayPay", placeholder: "923 456 789", inputMode: "tel", hint: "Recebes na carteira PayPay África desse número." },
+  { id: "paypal", label: "PayPal", icon: "globe", field: "Email da conta PayPal", placeholder: "nome@exemplo.com", inputMode: "email", hint: "Pago em dólares, à taxa do dia. O PayPal pode cobrar taxas." },
+  { id: "redotpay", label: "RedotPay", icon: "spark", field: "Email ou ID (UID) RedotPay", placeholder: "nome@exemplo.com ou 12345678", hint: "Pago em dólares (USDT), à taxa do dia." }
+];
+const EMPTY_PAYOUT_ACCOUNT = { method: "iban", holderName: "", bankName: "BAI", destination: "" };
 export function CreatorEarnings() {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [editingAccount, setEditingAccount] = useState(false);
-  const [account, setAccount] = useState({ holderName: "", bankName: "BAI", iban: "" });
+  const [account, setAccount] = useState(EMPTY_PAYOUT_ACCOUNT);
   const [amount, setAmount] = useState("");
   const [busy, setBusy] = useState(false);
   const load = () => api("/payouts").then(result => { setData(result); setAmount(result.available >= result.min_withdrawal ? String(Math.floor(result.available)) : ""); })
@@ -997,8 +1126,8 @@ export function CreatorEarnings() {
     try {
       await api("/payouts/account", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(account) });
       setEditingAccount(false);
-      setAccount({ holderName: "", bankName: "BAI", iban: "" });
-      setNotice("Conta bancária guardada.");
+      setAccount(EMPTY_PAYOUT_ACCOUNT);
+      setNotice("Guardado: é para aqui que vão os teus levantamentos.");
       await load();
     } catch (saveError) {
       setError(saveError.message);
@@ -1009,7 +1138,7 @@ export function CreatorEarnings() {
 
   const withdraw = async event => {
     event.preventDefault();
-    if (!window.confirm(`Pedir o levantamento de ${formatPrice(Number(amount))} para a conta ${data.account.bank_name} ${data.account.iban}?`)) return;
+    if (!window.confirm(`Pedir o levantamento de ${formatPrice(Number(amount))} para ${data.account.method_label || data.account.bank_name} ${data.account.destination || data.account.iban}?`)) return;
     setBusy(true);
     setError("");
     try {
@@ -1030,7 +1159,8 @@ export function CreatorEarnings() {
     ["Campanhas com marcas", data.sources.campaignsKz, "brand", "85% das campanhas concluídas"],
     ["Grupos secretos", data.sources.groupsKz || 0, "lock", "70% das entradas pagas"],
     ["Prémios de desafios", data.sources.prizesKz || 0, "trophy", "Prémios em dinheiro dos desafios do mês"],
-    ["Cursos vendidos", data.sources.coursesKz || 0, "academy", "85% das vendas na Academia"]
+    ["Cursos vendidos", data.sources.coursesKz || 0, "academy", "85% das vendas na Academia"],
+    ["Subscrições", data.sources.subscriptionsKz || 0, "spark", "85% de cada mês pago por Express, Referência, PayPay, PayPal ou RedotPay"]
   ];
   const hasPending = data.requests.some(request => request.status === "requested");
   return <>
@@ -1049,18 +1179,36 @@ export function CreatorEarnings() {
     </section>
 
     <section className="creator-card" aria-labelledby="bank-title">
-      <div className="creator-card-head"><div><h2 id="bank-title">Conta para receber</h2><p>Os levantamentos são feitos por transferência bancária para um IBAN angolano. O IBAN é guardado cifrado.</p></div>
-        {data.account && !editingAccount && <button className="btn secondary" type="button" onClick={() => setEditingAccount(true)}>Alterar</button>}</div>
+      <div className="creator-card-head"><div><h2 id="bank-title">Onde queres receber</h2><p>Escolhe banco (IBAN), Multicaixa Express, PayPay África, PayPal ou RedotPay. Os dados ficam guardados cifrados.</p></div>
+        {data.account && !editingAccount && <button className="btn secondary" type="button" onClick={() => { setAccount({ ...EMPTY_PAYOUT_ACCOUNT, method: data.account.method || "iban" }); setEditingAccount(true); }}>Alterar</button>}</div>
       {!data.configured && <p className="info-draft" role="note"><Icon name="info" size={15} /> Os levantamentos ainda não estão configurados no servidor.</p>}
-      {data.account && !editingAccount && <div className="bank-account"><Icon name="brand" size={20} /><span><strong>{data.account.holder_name}</strong><small>{data.account.bank_name} · IBAN {data.account.iban}</small></span></div>}
+      {data.account && !editingAccount && <div className="bank-account">
+        <PayoutLogo method={data.account.method} size={32} />
+        <span><strong>{data.account.holder_name}</strong><small>{data.account.method === "iban" || !data.account.method ? `${data.account.bank_name} · IBAN` : data.account.method_label} · {data.account.destination || data.account.iban}</small></span>
+      </div>}
       {(!data.account || editingAccount) && data.configured && <form className="bank-form" onSubmit={saveAccount}>
-        <label>Nome do titular<input required maxLength={120} value={account.holderName} onChange={event => setAccount({ ...account, holderName: event.target.value })} autoComplete="name" /></label>
-        <label>Banco<select value={account.bankName} onChange={event => setAccount({ ...account, bankName: event.target.value })}>{ANGOLAN_BANKS.map(bank => <option key={bank}>{bank}</option>)}</select></label>
-        <label className="bank-iban">IBAN<input required inputMode="numeric" autoComplete="off" placeholder="AO06 0000 0000 0000 0000 0000 0" value={account.iban}
-          onChange={event => setAccount({ ...account, iban: event.target.value.toUpperCase().replace(/[^A-Z0-9 ]/g, "") })} /></label>
+        {(() => {
+          const choice = PAYOUT_CHOICES.find(item => item.id === account.method) || PAYOUT_CHOICES[0];
+          return <>
+            <fieldset className="payout-methods">
+              <legend>Receber por</legend>
+              {PAYOUT_CHOICES.map(item => <label key={item.id} className={`payout-method${account.method === item.id ? " is-on" : ""}`}>
+                <input type="radio" name="payout-method" value={item.id} checked={account.method === item.id}
+                  onChange={() => setAccount({ ...account, method: item.id, destination: "" })} />
+                <PayoutLogo method={item.id} /><span>{item.label}</span>
+              </label>)}
+            </fieldset>
+            <p className="muted payout-method-hint">{choice.hint}</p>
+            <label>Nome do titular<input required maxLength={120} value={account.holderName} onChange={event => setAccount({ ...account, holderName: event.target.value })} autoComplete="name" /></label>
+            {account.method === "iban" && <label>Banco<Select value={account.bankName} onChange={event => setAccount({ ...account, bankName: event.target.value })}>{ANGOLAN_BANKS.map(bank => <option key={bank}>{bank}</option>)}</Select></label>}
+            <label className="bank-iban">{choice.field}<input required autoComplete="off" inputMode={choice.inputMode || (account.method === "iban" ? "text" : undefined)}
+              type={choice.inputMode === "email" ? "email" : "text"} placeholder={choice.placeholder} value={account.destination}
+              onChange={event => setAccount({ ...account, destination: account.method === "iban" ? event.target.value.toUpperCase().replace(/[^A-Z0-9 ]/g, "") : event.target.value })} /></label>
+          </>;
+        })()}
         <div className="modal-actions">
           {editingAccount && <button className="btn secondary" type="button" onClick={() => setEditingAccount(false)}>Cancelar</button>}
-          <button className="btn" type="submit" disabled={busy}>{busy ? "A guardar..." : "Guardar conta"}</button>
+          <button className="btn" type="submit" disabled={busy}>{busy ? "A guardar..." : "Guardar"}</button>
         </div>
       </form>}
     </section>
@@ -1069,7 +1217,7 @@ export function CreatorEarnings() {
       <h2 id="withdraw-title">Levantar</h2>
       {hasPending ? <p className="muted">Tens um levantamento em processamento. Podes pedir outro quando esse estiver concluído.</p>
         : data.available < data.min_withdrawal ? <p className="muted">O levantamento mínimo é de {formatPrice(data.min_withdrawal)}. Faltam {formatPrice(data.min_withdrawal - data.available)}.</p>
-          : !data.account ? <p className="muted">Adiciona primeiro a conta bancária.</p>
+          : !data.account ? <p className="muted">Escolhe primeiro onde queres receber.</p>
             : <form className="withdraw-form" onSubmit={withdraw}>
               <label>Valor (Kz)<input type="number" min={data.min_withdrawal} max={data.available} step="0.01" required value={amount} onChange={event => setAmount(event.target.value)} /></label>
               <button className="btn" type="submit" disabled={busy}>Pedir levantamento</button>
@@ -1077,7 +1225,7 @@ export function CreatorEarnings() {
       {data.requests.length > 0 && <ul className="ad-list payout-history">{data.requests.map(request => {
         const [label, pill] = PAYOUT_STATUS[request.status];
         return <li className="payout-item" key={request.id}>
-          <span><strong>{formatPrice(request.amount)}</strong><small>{request.bank_name} · {request.iban} · {new Date(request.created_at).toLocaleDateString("pt-PT")}</small>
+          <PayoutLogo method={request.method} size={28} /><span><strong>{formatPrice(request.amount)}</strong><small>{request.method_label || request.bank_name} · {request.destination || request.iban} · {new Date(request.created_at).toLocaleDateString("pt-PT")}</small>
             {request.reference && <small>Referência: {request.reference}</small>}{request.note && <small>Motivo: {request.note}</small>}</span>
           <span className={`status-pill ${pill}`}>{label}</span>
         </li>;

@@ -9,7 +9,7 @@ export const NOTIFICATION_ICONS = {
   follow: ["profile", "lagoa"], group_join: ["groups", "lagoa"], group_call: ["video", "coral"], call: ["video", "coral"], event_rsvp: ["events", "coral"], share: ["share", "ceu"],
   stars: ["star", "coral"], campaign: ["brand", "lagoa"], challenge: ["trophy", "coral"], referral: ["gift", "coral"],
   ad: ["ad", "coral"], payout: ["gift", "lagoa"], live: ["live", "coral"], moderation: ["shield", "tinta"],
-  payment: ["card", "lagoa"], privacy: ["lock", "tinta"], announcement: ["info", "ceu"]
+  payment: ["card", "lagoa"], privacy: ["lock", "tinta"], announcement: ["info", "ceu"], subscription: ["spark", "coral"]
 };
 export function notificationGroup(value) {
   const date = new Date(value);

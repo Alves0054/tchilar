@@ -2,7 +2,11 @@ import { useContext, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
 import { Icon, UserContext, api, formatCount } from "./core.jsx";
+import { downscaleImage } from "../PhotoEditors.jsx";
 import { SHORT_MONTHS } from "./shared.jsx";
+import { DatePicker } from "./date-picker.jsx";
+import { FilePicker } from "./file-picker.jsx";
+import "./events.css";
 
 // ----- Eventos -----
 export const eventDay = value => new Date(value).toLocaleDateString("pt-PT", { day: "2-digit" });
@@ -11,10 +15,26 @@ export const eventWhen = value => new Date(value).toLocaleString("pt-PT", { week
 export function EventDate({ value }) {
   return <span className="event-date-tile" aria-hidden="true"><strong>{eventDay(value)}</strong><small>{eventMonth(value)}</small></span>;
 }
-export function CreateEventDialog({ onClose, onCreated }) {
+// Criar evento: nome, dia e hora (calendário do Tchilar), local, detalhes e imagem; ao lado, o cartaz do evento
+// tal como as pessoas o vão ver.
+const EVENT_IMAGE_TYPES = "image/jpeg,image/png,image/webp,image/gif";
+// group = { id, name }: o evento é só do grupo (vai para /groups/:id/events e só os membros o veem).
+export function CreateEventDialog({ onClose, onCreated, pageId, pageName, group = null }) {
+  const { user } = useContext(UserContext);
   const [form, setForm] = useState({ name: "", startsAt: "", location: "", description: "" });
+  const [image, setImage] = useState(null);
+  const [imagePreview, setImagePreview] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  useEffect(() => {
+    if (!image) {
+      setImagePreview("");
+      return;
+    }
+    const preview = URL.createObjectURL(image);
+    setImagePreview(preview);
+    return () => URL.revokeObjectURL(preview);
+  }, [image]);
   useEffect(() => {
     const onKey = event => { if (event.key === "Escape" && !busy) onClose(); };
     window.addEventListener("keydown", onKey);
@@ -25,39 +45,82 @@ export function CreateEventDialog({ onClose, onCreated }) {
     setBusy(true);
     setError("");
     try {
-      await api("/events", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
+      const body = new FormData();
+      Object.entries({ ...form, startsAt: new Date(form.startsAt).toISOString(), ...(pageId ? { pageId } : {}) })
+        .forEach(([key, value]) => body.append(key, value));
+      if (image) body.append("image", await downscaleImage(image, 1600, 1200));
+      await api(group ? `/groups/${group.id}/events` : "/events", { method: "POST", body });
       onCreated();
     } catch (createError) {
       setError(createError.message);
       setBusy(false);
     }
   };
+  const set = key => event => setForm({ ...form, [key]: event.target.value });
   const minDate = new Date(Date.now() + 5 * 60_000 - new Date().getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+  const host = pageName || group?.name || user?.display_name || user?.username || "Tu";
+  const ready = form.name.trim() && form.startsAt;
   return createPortal(<div className="modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget && !busy) onClose(); }}>
-    <form className="modal card create-page-dialog" role="dialog" aria-modal="true" aria-labelledby="create-event-title" onSubmit={submit}>
-      <div className="share-dialog-head">
-        <h2 id="create-event-title">Criar evento</h2>
+    <form className="modal card create-page-dialog event-dialog" role="dialog" aria-modal="true" aria-labelledby="create-event-title" onSubmit={submit}>
+      <div className="event-dialog-head">
+        <span className="event-dialog-badge" aria-hidden="true"><Icon name="events" size={22} /></span>
+        <div>
+          <h2 id="create-event-title">{group ? "Novo evento do grupo" : pageName ? "Novo evento da página" : "Criar evento"}</h2>
+          <p>{group ? `Só os membros de ${group.name} o veem. Avisamos todos os membros quando o criares.`
+            : pageName ? `Aparece na página ${pageName} e na lista de eventos do Tchilar.` : "Aparece na lista de eventos do Tchilar. As pessoas confirmam que vão."}</p>
+        </div>
         <button className="round-button" type="button" aria-label="Fechar" onClick={onClose} disabled={busy}><Icon name="close" size={18} /></button>
       </div>
-      <div className="create-page-grid">
-        <div className="create-page-fields">
-          <label>Nome<input required autoFocus maxLength={120} value={form.name} onChange={event => setForm({ ...form, name: event.target.value })} placeholder="Ex.: Feira de artesanato no Benfica" /></label>
-          <label>Quando<input required type="datetime-local" min={minDate} value={form.startsAt} onChange={event => setForm({ ...form, startsAt: event.target.value })} /></label>
-          <label>Onde<input maxLength={160} value={form.location} onChange={event => setForm({ ...form, location: event.target.value })} placeholder="Ex.: Mercado do Benfica, Luanda" /></label>
-          <label>Detalhes <small>{form.description.length}/2000</small><textarea rows={3} maxLength={2000} value={form.description} onChange={event => setForm({ ...form, description: event.target.value })} placeholder="O que vai acontecer e o que as pessoas devem levar." /></label>
-        </div>
-        <div className="create-page-preview" aria-label="Pré-visualização">
-          <small>Pré-visualização</small>
-          <div className="event-card card is-preview">
-            {form.startsAt ? <EventDate value={form.startsAt} /> : <span className="event-date-tile" aria-hidden="true"><strong>--</strong><small>mês</small></span>}
-            <div className="event-card-body"><strong>{form.name || "Nome do evento"}</strong><small>{form.startsAt ? eventWhen(form.startsAt) : "Data e hora"}</small>{form.location && <small><Icon name="location" size={13} /> {form.location}</small>}</div>
+      <div className="create-page-grid event-dialog-grid">
+        <div className="create-page-fields event-dialog-fields">
+          <label className="event-field">
+            <span className="event-field-label">Nome do evento <small>{form.name.length}/120</small></span>
+            <input className="event-name-input" required autoFocus maxLength={120} value={form.name} onChange={set("name")}
+              placeholder={group ? "Ex.: Encontro de sábado" : "Ex.: Feira de artesanato no Benfica"} />
+          </label>
+          <label className="event-field">
+            <span className="event-field-label">Quando</span>
+            <DatePicker mode="datetime" required min={minDate} value={form.startsAt} onChange={set("startsAt")} aria-label="Dia e hora do evento" />
+          </label>
+          <label className="event-field">
+            <span className="event-field-label">Onde <small>Opcional</small></span>
+            <span className="event-input-icon"><Icon name="location" size={16} />
+              <input maxLength={160} value={form.location} onChange={set("location")} placeholder="Ex.: Mercado do Benfica, Luanda" /></span>
+          </label>
+          <label className="event-field">
+            <span className="event-field-label">Detalhes <small>{form.description.length}/2000</small></span>
+            <textarea rows={3} maxLength={2000} value={form.description} onChange={set("description")} placeholder="O que vai acontecer e o que as pessoas devem levar." />
+          </label>
+          <div className="event-field">
+            <span className="event-field-label">Imagem do evento <small>Opcional</small></span>
+            <FilePicker kind="image" wide file={image} onChange={setImage} accept={EVENT_IMAGE_TYPES} maxBytes={8 * 1024 * 1024} disabled={busy}
+              hint="JPEG, PNG, WebP ou GIF · até 8 MB · na horizontal fica melhor" label="Imagem do evento" />
           </div>
+        </div>
+        <div className="create-page-preview event-dialog-preview" aria-label="Pré-visualização">
+          <small>Assim vão ver o teu evento</small>
+          <article className="event-poster">
+            <div className="event-poster-cover">
+              {imagePreview ? <img src={imagePreview} alt="" /> : <span className="event-poster-waves" aria-hidden="true"><Icon name="events" size={30} /></span>}
+              {form.startsAt ? <EventDate value={form.startsAt} /> : <span className="event-date-tile" aria-hidden="true"><strong>--</strong><small>mês</small></span>}
+            </div>
+            <div className="event-poster-body">
+              <strong className={form.name ? "" : "is-placeholder"}>{form.name || "Nome do evento"}</strong>
+              <span><Icon name="clock" size={14} /> {form.startsAt ? (when => when[0].toUpperCase() + when.slice(1))(eventWhen(form.startsAt)) : "Dia e hora"}</span>
+              <span className={form.location ? "" : "is-placeholder"}><Icon name="location" size={14} /> {form.location || "Local"}</span>
+              {form.description && <p>{form.description}</p>}
+              <div className="event-poster-foot">
+                <small>{group ? <>Evento do grupo <b>{host}</b></> : <>Organizado por <b>{host}</b></>}</small>
+                <span className="event-poster-going" aria-hidden="true"><Icon name="check" size={14} /> Vou</span>
+              </div>
+            </div>
+          </article>
         </div>
       </div>
       {error && <p className="error" role="alert">{error}</p>}
-      <div className="modal-actions">
+      <div className="modal-actions event-dialog-actions">
         <button className="btn secondary" type="button" onClick={onClose} disabled={busy}>Cancelar</button>
-        <button className="btn" type="submit" disabled={busy || !form.name.trim() || !form.startsAt}>{busy ? "A criar..." : "Criar evento"}</button>
+        <button className="btn" type="submit" disabled={busy || !ready}><Icon name="events" size={16} /> {busy ? "A criar..." : "Criar evento"}</button>
       </div>
     </form>
   </div>, document.body);
@@ -124,13 +187,16 @@ export function Events() {
       {user && <button className="btn" type="button" onClick={() => setCreating(true)}><Icon name="plus" size={16} /> Criar evento</button>}
     </div>}
     {visible.length > 0 && <div className="event-list">{visible.map(item => <article className="event-card card" key={item.id}>
+      {item.image_url && <img className="event-card-cover" src={item.image_url} alt={`Imagem do evento ${item.name}`} loading="lazy" />}
       <EventDate value={item.starts_at} />
       <div className="event-card-body">
         <h2>{item.name}</h2>
         <small><Icon name="events" size={13} /> {eventWhen(item.starts_at)}</small>
         {item.location && <small><Icon name="location" size={13} /> {item.location}</small>}
         {item.description && <p>{item.description}</p>}
-        <small className="event-meta">{formatCount(item.attendee_count)} {item.attendee_count === 1 ? "pessoa vai" : "pessoas vão"} · organizado por <Link to={`/u/${item.creator_username}`}>{item.creator_name}</Link></small>
+        <small className="event-meta">{formatCount(item.attendee_count)} {item.attendee_count === 1 ? "pessoa vai" : "pessoas vão"} · organizado por {item.page_id && item.page_name
+          ? <Link to={`/pages/${item.page_id}`}>{item.page_name}</Link>
+          : <Link to={`/u/${item.creator_username}`}>{item.creator_name}</Link>}</small>
       </div>
       {user && <div className="event-card-actions">
         <button className={`btn${item.is_attending ? " secondary page-following" : ""}`} type="button" aria-pressed={item.is_attending} onClick={() => toggleRsvp(item)}>

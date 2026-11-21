@@ -60,7 +60,7 @@ function registerHomeRoutes(app, { pool, auth, blockedBetween }) {
       pool.query(`
         WITH my_types AS (
           SELECT DISTINCT p.page_type FROM page_followers f JOIN pages p ON p.id=f.page_id WHERE f.user_id=$1)
-        SELECT p.id,p.name,p.page_type,p.category,p.subcategory,
+        SELECT p.id,p.name,p.page_type,p.category,p.subcategory,p.is_official,
           (SELECT COUNT(*) FROM page_followers f WHERE f.page_id=p.id)::int AS follower_count,
           (SELECT COUNT(*) FROM page_followers f WHERE f.page_id=p.id AND f.user_id IN (${friendIds}))::int AS friend_count
         FROM pages p

@@ -7,7 +7,7 @@ const BUNDLE_ID = "ao.tchilar.app";
 
 // Caminhos que a app sabe abrir. Os links dos emails (confirmar conta, nova palavra-passe) e dos recibos
 // continuam no site.
-const APP_PATHS = ["/u/*", "/groups/*", "/pages/*", "/live", "/live/*", "/reels", "/search", "/messages", "/messages/*",
+const APP_PATHS = ["/u/*", "/posts/*", "/groups/*", "/pages/*", "/live", "/live/*", "/reels", "/search", "/messages", "/messages/*",
   "/notifications", "/events", "/estrelas", "/marcas", "/desafios", "/desafios/*", "/convidar", "/academia", "/academia/*", "/friends"];
 
 const TEAM_ID = /^[A-Z0-9]{10}$/;

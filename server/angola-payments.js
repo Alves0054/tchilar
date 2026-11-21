@@ -92,7 +92,11 @@ function createPaybyrd({ apiKey, currency = "AOA", fetchImpl = fetch }) {
     const response = await fetchImpl(`${base}${path}`, { method, headers, body: body ? JSON.stringify(body) : undefined });
     /** @type {any} Resposta da Paybyrd (formato da API deles). */
     const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(`Paybyrd ${method} ${path} falhou (${response.status}) ${data.description || ""}`.trim());
+    if (!response.ok) {
+      const code = typeof data.code === "string" ? ` ${data.code}` : "";
+      const description = typeof data.description === "string" ? ` ${data.description}` : "";
+      throw new Error(`Paybyrd ${method} ${path} falhou (${response.status})${code}${description}`);
+    }
     return data;
   }
 

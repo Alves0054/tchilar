@@ -6,9 +6,9 @@ import { accessibilityViolations, renderPage } from "./helpers.jsx";
 describe("preferências do dispositivo", () => {
   test("valores por omissão e valores estragados no armazenamento", () => {
     expect(readDevicePrefs()).toEqual({ textSize: "normal", autoplay: true, reduceMotion: false });
-    localStorage.setItem("biva-device", "{isto não é json");
+    localStorage.setItem("tchilar-device", "{isto não é json");
     expect(readDevicePrefs().textSize).toBe("normal");
-    localStorage.setItem("biva-device", JSON.stringify({ textSize: "gigante", autoplay: false }));
+    localStorage.setItem("tchilar-device", JSON.stringify({ textSize: "gigante", autoplay: false }));
     expect(readDevicePrefs()).toEqual({ textSize: "normal", autoplay: false, reduceMotion: false });
   });
 

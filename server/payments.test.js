@@ -1,6 +1,16 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const { createPayments } = require("./payments");
+const { discountedAmount, normalizePromotionCode } = require("./promotion-codes");
+
+test("promotion codes are normalised and discounts are capped", () => {
+  assert.equal(normalizePromotionCode("  tchilar-20  "), "TCHILAR-20");
+  assert.deepEqual(discountedAmount({ discount_percent: 25, max_discount_kz: 500 }, 3000), {
+    original: 3000,
+    discount: 500,
+    paid: 2500
+  });
+});
 
 test("without Stripe, payments fail closed outside development", async () => {
   // isProduction=true significa "não é NODE_ENV=development" (produção, staging ou variável esquecida).

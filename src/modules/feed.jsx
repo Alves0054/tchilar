@@ -4,9 +4,10 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { downscaleImage } from "../PhotoEditors.jsx";
 import { Auth } from "./auth.jsx";
 import { API_BASE, Avatar, Icon, UserContext, VideoPlayer, api, formatCount, formatPrice, token } from "./core.jsx";
-import { InfoLinks, LiveBadge, StoreButtons, SponsoredSlot, StarGiftButton, TextWithTags, VerifiedBadge, pageTone } from "./shared.jsx";
+import { InfoLinks, LiveBadge, StoreButtons, SponsoredSlot, StarGiftButton, TextWithTags, VerifiedBadge, pageMonogram, pageTone } from "./shared.jsx";
 import { HomeDiscover, HomeNow, PresenceAvatar } from "./home.jsx";
 import { DEFAULT_STORY_BACKGROUND, STORY_COLORS, STORY_THEMES, storyBackgroundStyle } from "./community-types.js";
+import { Select } from "./select.jsx";
 
 // Escolha do fundo de um story de texto: temas do Tchilar e cores.
 function StoryBackgroundPicker({ value, onChange }) {
@@ -42,6 +43,38 @@ export function ExclusiveToggle({ user, checked, onChange }) {
     <input type="checkbox" checked={checked} onChange={event => onChange(event.target.checked)} />
     Só para subscritores
   </label>;
+}
+function PageIdentityAvatar({ page, size = "" }) {
+  return <span className={`page-post-avatar tone-page-${pageTone(page.category)} ${size}`} aria-hidden="true">
+    {page.logo_url ? <img src={`${API_BASE}${page.logo_url}`} alt="" /> : pageMonogram(page.name)}
+  </span>;
+}
+function PostViewerImage({ src, alt }) {
+  const imageRef = useRef(null);
+  useEffect(() => {
+    const image = imageRef.current;
+    const stage = image?.parentElement;
+    if (!image || !stage) return undefined;
+    const fit = () => {
+      if (!image.naturalWidth || !image.naturalHeight) return;
+      const maxWidth = Math.max(1, stage.clientWidth - 32);
+      const maxHeight = Math.max(1, stage.clientHeight - 32);
+      const scale = Math.min(maxWidth / image.naturalWidth, maxHeight / image.naturalHeight);
+      image.style.width = `${Math.floor(image.naturalWidth * scale)}px`;
+      image.style.height = `${Math.floor(image.naturalHeight * scale)}px`;
+    };
+    const observer = typeof ResizeObserver === "function" ? new ResizeObserver(fit) : null;
+    observer?.observe(stage);
+    window.addEventListener("resize", fit);
+    image.addEventListener("load", fit);
+    if (image.complete) fit();
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", fit);
+      image.removeEventListener("load", fit);
+    };
+  }, [src]);
+  return <img ref={imageRef} src={src} alt={alt} />;
 }
 export function Composer({ onPosted, target }) {
   const { user } = useContext(UserContext);
@@ -90,7 +123,7 @@ export function Composer({ onPosted, target }) {
     setBusy(true);
     const formData = new FormData();
     formData.append("body", body);
-    if (file) formData.append("media", await downscaleImage(file, 2048, 2048));
+    if (file) formData.append("media", await downscaleImage(file, 1600, 1600, 0.85));
     if (target?.type === "group") formData.append("groupId", target.id);
     if (target?.type === "page") formData.append("pageId", target.id);
     if (!target && exclusive) formData.append("isExclusive", "true");
@@ -106,7 +139,8 @@ export function Composer({ onPosted, target }) {
     }
   };
 
-  const firstName = user?.display_name?.split(" ")[0];
+  const pageIdentity = target?.type === "page" ? target.page : null;
+  const firstName = pageIdentity?.name || user?.display_name?.split(" ")[0];
   return <form className="composer card" onSubmit={submit}>
     {published && <div className="composer-published" role="status">
       <Icon name="check" size={16} /><span>Publicado! Queres que mais pessoas vejam?</span>
@@ -116,11 +150,11 @@ export function Composer({ onPosted, target }) {
     <input ref={fileInput} className="sr-only" type="file" tabIndex={-1} aria-hidden="true"
       onChange={event => { const picked = event.target.files?.[0]; event.target.value = ""; if (picked) { setFile(picked); setExpanded(true); } }} />
     <div className="composer-row">
-      <Avatar user={user} />
+      {pageIdentity ? <PageIdentityAvatar page={pageIdentity} /> : <Avatar user={user} />}
       {expanded
         ? <textarea ref={textArea} aria-label="Nova publicação" rows={3} maxLength={5000} value={body} onChange={event => setBody(event.target.value)}
-          placeholder={firstName ? `No que estás a pensar, ${firstName}?` : "No que estás a pensar?"} />
-        : <button className="composer-prompt" type="button" onClick={open}>{firstName ? `No que estás a pensar, ${firstName}?` : "No que estás a pensar?"}</button>}
+          placeholder={pageIdentity ? `Escreve uma publicação para ${pageIdentity.name}.` : firstName ? `No que estás a pensar, ${firstName}?` : "No que estás a pensar?"} />
+        : <button className="composer-prompt" type="button" onClick={open}>{pageIdentity ? `Publicar como ${pageIdentity.name}` : firstName ? `No que estás a pensar, ${firstName}?` : "No que estás a pensar?"}</button>}
       {!expanded && <div className="composer-quick">
         <button type="button" className="composer-icon tone-video" aria-label="Publicar um vídeo" title="Vídeo" onClick={() => pick("video/*")}><Icon name="video" size={22} /></button>
         <button type="button" className="composer-icon tone-image" aria-label="Publicar uma fotografia" title="Fotografia" onClick={() => pick("image/*")}><Icon name="image" size={22} /></button>
@@ -263,7 +297,7 @@ export function useSeenOnce(ref, enabled, callback) {
 export const recordAdImpression = adId => { if (token()) api(`/ads/${adId}/impression`, { method: "POST" }).catch(() => {}); };
 export const recordAdClick = adId => api(`/ads/${adId}/click`, { method: "POST" }).catch(() => ({}));
 // Partilhar: escrever algo e escolher o perfil, uma página própria e/ou até 5 grupos.
-export function ShareDialog({ post, onClose, onShared }) {
+export function ShareDialog({ post, onClose, onShared, onOpenImage }) {
   const { user } = useContext(UserContext);
   const [text, setText] = useState("");
   const [toProfile, setToProfile] = useState(true);
@@ -327,7 +361,7 @@ export function ShareDialog({ post, onClose, onShared }) {
           <div className="share-author"><Avatar user={user} /><strong>{user?.display_name}</strong></div>
           <textarea className="share-text" aria-label="Escreve algo sobre esta publicação" placeholder="Diz algo sobre isto..." maxLength={5000} rows={3}
             value={text} onChange={event => setText(event.target.value)} autoFocus />
-          <SharedPostPreview post={post} compact />
+          <SharedPostPreview post={post} compact onOpenImage={onOpenImage} />
           <fieldset className="share-targets">
             <legend>Onde queres partilhar?</legend>
             <label className="share-target">
@@ -338,10 +372,10 @@ export function ShareDialog({ post, onClose, onShared }) {
             {pages.length > 0 && <label className="share-target share-target-select">
               <span className="share-target-icon tone-pages"><Icon name="pages" size={18} /></span>
               <span><strong>Numa página</strong><small>Só páginas que geres.</small></span>
-              <select value={pageId} onChange={event => setPageId(event.target.value)} aria-label="Página onde partilhar">
+              <Select value={pageId} onChange={event => setPageId(event.target.value)} aria-label="Página onde partilhar">
                 <option value="">Nenhuma</option>
                 {pages.map(page => <option key={page.id} value={page.id}>{page.name}</option>)}
-              </select>
+              </Select>
             </label>}
             {groups.length > 0 && <div className="share-groups">
               <div className="share-groups-head"><span className="share-target-icon tone-groups"><Icon name="groups" size={18} /></span>
@@ -369,16 +403,25 @@ export function ShareDialog({ post, onClose, onShared }) {
   </div>, document.body);
 }
 // Pré-visualização da publicação original dentro de uma partilha.
-export function SharedPostPreview({ post, compact = false }) {
+export function SharedPostPreview({ post, compact = false, onOpenImage }) {
   if (post.unavailable) return <div className="shared-post shared-post-unavailable"><Icon name="info" size={16} /> Esta publicação já não está disponível.</div>;
+  const pageAuthor = post.page_id ? { name: post.page_name, logo_url: post.page_logo_url, category: post.page_category } : null;
+  const authorName = pageAuthor?.name || post.display_name;
+  const authorHref = pageAuthor ? `/pages/${post.page_id}` : `/u/${post.username}`;
   return <div className={`shared-post${compact ? " is-compact" : ""}`}>
     {post.media_url && (post.media_type === "video"
       ? <video className="shared-post-media" controls={!compact} src={`${API_BASE}${post.media_url}`} />
-      : <img className="shared-post-media" src={`${API_BASE}${post.media_url}`} alt="" />)}
+      : onOpenImage
+        ? <button className="shared-post-image-open" type="button" aria-label="Abrir imagem da publicação original" onClick={() => onOpenImage(post)}>
+          <img className="shared-post-media" src={`${API_BASE}${post.media_url}`} alt="" />
+        </button>
+        : <img className="shared-post-media" src={`${API_BASE}${post.media_url}`} alt="" />)}
     <div className="shared-post-content">
       <div className="shared-post-head">
-        <Link to={`/u/${post.username}`} aria-label={`Perfil de ${post.display_name}`}><Avatar user={post} size="tiny" /></Link>
-        <span><Link className="post-author" to={`/u/${post.username}`}>{post.display_name}</Link><small>{relativeTime(post.created_at)}</small></span>
+        <Link to={authorHref} aria-label={pageAuthor ? `Página ${authorName}` : `Perfil de ${authorName}`}>
+          {pageAuthor ? <PageIdentityAvatar page={pageAuthor} size="tiny" /> : <Avatar user={post} size="tiny" />}
+        </Link>
+        <span><Link className="post-author" to={authorHref}>{authorName}</Link><small>{relativeTime(post.created_at)}</small></span>
       </div>
       {post.body && <p className="shared-post-body"><TextWithTags text={post.body} /></p>}
     </div>
@@ -387,8 +430,16 @@ export function SharedPostPreview({ post, compact = false }) {
 // "A ter sucesso": publicação pública com pelo menos 3 interações nas primeiras 72 horas.
 export const isTrending = (post, interactions) => !post.is_exclusive && !post.group_id && !post.shared_post_id && !post.hidden_at
   && interactions >= 3 && Date.now() - new Date(post.created_at).getTime() < 72 * 3600 * 1000;
+const POST_REACTIONS = [
+  { id: "like", label: "Gosto", activeLabel: "Gostaste", emoji: "👍" },
+  { id: "love", label: "Adoro", activeLabel: "Adoraste", emoji: "❤️" },
+  { id: "haha", label: "Haha", activeLabel: "Haha", emoji: "😂" },
+  { id: "wow", label: "Uau", activeLabel: "Uau", emoji: "😮" },
+  { id: "sad", label: "Triste", activeLabel: "Triste", emoji: "😢" },
+  { id: "angry", label: "Zangado", activeLabel: "Zangado", emoji: "😡" }
+];
 // extraActions: ações a mais no menu "..." (ex.: a equipa de um grupo fixa ou esconde a publicação).
-export function PostCard({ post, onChanged, startWithComments = false, extraActions = [] }) {
+export function PostCard({ post, onChanged, startWithComments = false, startWithImage = false, onImageViewerClose, extraActions = [], hideHeader = false, hideMedia = false, showZeroShares = false }) {
   const { user } = useContext(UserContext);
   const navigate = useNavigate();
   const [comments, setComments] = useState([]);
@@ -403,27 +454,59 @@ export function PostCard({ post, onChanged, startWithComments = false, extraActi
   const [body, setBody] = useState(post.body || "");
   const [editedAt, setEditedAt] = useState(post.edited_at || null);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [liked, setLiked] = useState(Boolean(post.liked));
+  const [reaction, setReaction] = useState(post.user_reaction || (post.liked ? "like" : null));
+  const [reactionPickerOpen, setReactionPickerOpen] = useState(false);
   const [likes, setLikes] = useState(Number(post.likes) || 0);
   const [commentCount, setCommentCount] = useState(Number(post.comments) || 0);
   const [shares, setShares] = useState(Number(post.shares) || 0);
   const [stars, setStars] = useState(Number(post.stars) || 0);
   const [sharing, setSharing] = useState(false);
   const [notice, setNotice] = useState("");
+  const [imagePost, setImagePost] = useState(null);
+  const [imageViewerError, setImageViewerError] = useState("");
   const likeBusy = useRef(false);
   const cardRef = useRef(null);
   usePostView(cardRef, post.id, Boolean(user) && String(user?.id) !== String(post.user_id));
   useSeenOnce(cardRef, Boolean(post.sponsored && user), () => recordAdImpression(post.sponsored.ad_id));
   const onSponsoredClick = event => { if (post.sponsored && event.target.closest("a")) recordAdClick(post.sponsored.ad_id); };
 
+  useEffect(() => {
+    if (!imagePost) return undefined;
+    const onKeyDown = event => {
+      if (event.key === "Escape") {
+        setImagePost(null);
+        onImageViewerClose?.();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [imagePost, onImageViewerClose]);
+
+  useEffect(() => {
+    if (startWithImage && post.media_type === "image") setImagePost(post);
+  }, []);
+
+  const openPostImage = async (target, fetchFullPost = false) => {
+    setImageViewerError("");
+    setImagePost(fetchFullPost ? { ...target, loading: true } : target);
+    if (!fetchFullPost) return;
+    try {
+      const result = await api(`/posts/${target.id}`);
+      setImagePost(result.post);
+    } catch (viewerError) {
+      setImageViewerError(viewerError.message);
+      setImagePost({ ...target, loading: false, failed: true });
+    }
+  };
+
   useEffect(() => { setBody(post.body || ""); setEditedAt(post.edited_at || null); }, [post.body, post.edited_at]);
   useEffect(() => {
-    setLiked(Boolean(post.liked));
+    setReaction(post.user_reaction || (post.liked ? "like" : null));
     setLikes(Number(post.likes) || 0);
     setCommentCount(Number(post.comments) || 0);
     setShares(Number(post.shares) || 0);
     setStars(Number(post.stars) || 0);
-  }, [post.id, post.liked, post.likes, post.comments, post.shares, post.stars]);
+  }, [post.id, post.user_reaction, post.liked, post.likes, post.comments, post.shares, post.stars]);
 
   const saveEdit = async event => {
     event.preventDefault();
@@ -469,21 +552,27 @@ export function PostCard({ post, onChanged, startWithComments = false, extraActi
     }
   };
 
-  // Otimista: o botão muda logo; se o servidor falhar, volta ao estado anterior.
-  const toggleLike = async () => {
+  // Otimista: a reação muda logo; se o servidor falhar, restaura a escolha anterior.
+  const chooseReaction = async selected => {
     if (!token()) return navigate("/login");
     if (likeBusy.current) return;
     likeBusy.current = true;
     setError("");
-    const before = { liked, likes };
-    setLiked(!liked);
-    setLikes(likes + (liked ? -1 : 1));
+    const before = { reaction, likes };
+    const next = reaction === selected ? null : selected;
+    setReaction(next);
+    setLikes(Math.max(0, likes + (reaction ? (next ? 0 : -1) : (next ? 1 : 0))));
+    setReactionPickerOpen(false);
     try {
-      const result = await api(`/posts/${post.id}/like`, { method: "POST" });
-      setLiked(result.liked);
+      const result = await api(`/posts/${post.id}/like`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reaction: next })
+      });
+      setReaction(result.reaction || null);
       setLikes(result.likes);
     } catch (actionError) {
-      setLiked(before.liked);
+      setReaction(before.reaction);
       setLikes(before.likes);
       setError(actionError.message);
     } finally {
@@ -551,13 +640,34 @@ export function PostCard({ post, onChanged, startWithComments = false, extraActi
   };
 
   const ownsPost = user && String(user.id) === String(post.user_id);
+  const pageAuthor = post.page_id ? {
+    id: post.page_id, name: post.page_name, logo_url: post.page_logo_url, category: post.page_category, isOfficial: post.page_is_official
+  } : null;
+  const authorName = pageAuthor?.name || post.display_name;
+  const authorHref = pageAuthor ? `/pages/${pageAuthor.id}` : `/u/${post.username}`;
 
   return <article className={`post card${post.sponsored ? " is-sponsored" : ""}`} ref={cardRef} onClickCapture={onSponsoredClick}>
-    <div className="post-head">
-      <Link to={`/u/${post.username}`} aria-label={`Perfil de ${post.display_name}`}><Avatar user={post} /></Link>
-      <div className="post-byline"><span className="post-author-line"><Link className="post-author" to={`/u/${post.username}`}>{post.display_name}</Link><VerifiedBadge show={post.is_verified} /></span><span className="post-meta">{post.sponsored && <><span className="sponsored-label"><Icon name="spark" size={12} /> Patrocinado</span><span aria-hidden="true">·</span></>}<span>@{post.username}</span><span aria-hidden="true">·</span><Link className="post-permalink" to={`/posts/${post.id}`}><time dateTime={post.created_at} title={new Date(post.created_at).toLocaleString("pt-PT")}>{relativeTime(post.created_at)}</time></Link><span aria-hidden="true">·</span><span className="post-audience" title={post.is_exclusive ? "Só subscritores" : post.group_name ? `Grupo: ${post.group_name}` : "Público"}><Icon name={post.is_exclusive ? "spark" : post.group_name ? "groups" : "globe"} size={12} /></span>{editedAt && <span title={new Date(editedAt).toLocaleString("pt-PT")}>· editado</span>}</span></div>
+    {!hideHeader && <div className="post-head">
+      <Link to={authorHref} aria-label={pageAuthor ? `Página ${authorName}` : `Perfil de ${authorName}`}>
+        {pageAuthor ? <PageIdentityAvatar page={pageAuthor} /> : <Avatar user={post} />}
+      </Link>
+      <div className="post-byline">
+        <span className="post-author-line">
+          <Link className="post-author" to={authorHref}>{authorName}</Link>
+          {pageAuthor
+            ? <VerifiedBadge show={Boolean(post.page_verification_tier)} tier={post.page_verification_tier} />
+            : <VerifiedBadge show={post.is_verified} tier={post.verification_tier} />}
+        </span>
+        <span className="post-meta">
+          {post.sponsored && <><span className="sponsored-label"><Icon name="spark" size={12} /> Patrocinado</span><span aria-hidden="true">·</span></>}
+          <span>{pageAuthor ? (pageAuthor.isOfficial ? "Página oficial" : "Página") : `@${post.username}`}</span><span aria-hidden="true">·</span>
+          <Link className="post-permalink" to={`/posts/${post.id}`}><time dateTime={post.created_at} title={new Date(post.created_at).toLocaleString("pt-PT")}>{relativeTime(post.created_at)}</time></Link><span aria-hidden="true">·</span>
+          <span className="post-audience" title={post.is_exclusive ? "Só subscritores" : post.group_name ? `Grupo: ${post.group_name}` : "Público"}><Icon name={post.is_exclusive ? "spark" : post.group_name ? "groups" : "globe"} size={12} /></span>
+          {editedAt && <span title={new Date(editedAt).toLocaleString("pt-PT")}>· editado</span>}
+        </span>
+      </div>
       {(post.is_creator || post.is_exclusive || user) && <div className="post-head-tools">
-        {post.is_creator && <span className="creator-badge">Criador</span>}
+        {post.is_creator && !pageAuthor && <span className="creator-badge">Criador</span>}
         {post.is_exclusive && <span className="exclusive-badge">Exclusivo</span>}
         {post.hidden_at && ownsPost && <span className="hidden-badge" title="Escondida pela moderação: só tu a vês.">Escondida</span>}
         {post.pinned_at && post.group_id && !post.hidden_at && <span className="pinned-badge" title="Fixada pela equipa do grupo"><Icon name="pin" size={12} /> Fixada</span>}
@@ -585,7 +695,7 @@ export function PostCard({ post, onChanged, startWithComments = false, extraActi
             </div>}
           </div>)}
       </div>}
-    </div>
+    </div>}
     {editing
       ? <form className="post-edit" onSubmit={saveEdit}>
         <textarea aria-label="Editar publicação" maxLength={5000} rows={4} value={draft} onChange={event => setDraft(event.target.value)} autoFocus />
@@ -595,21 +705,35 @@ export function PostCard({ post, onChanged, startWithComments = false, extraActi
         </div>
       </form>
       : body && <p className="post-body"><TextWithTags text={body} /></p>}
-    {post.shared && <SharedPostPreview post={post.shared} />}
-    {post.media_url && (post.media_type === "video"
-      ? <VideoPlayer className="media" src={`${API_BASE}${post.media_url}`} edit={post.video_edit} label={`Vídeo de ${post.display_name}`}
+    {post.shared && !hideMedia && <SharedPostPreview post={post.shared} onOpenImage={target => openPostImage(target, true)} />}
+    {!hideMedia && post.media_url && (post.media_type === "video"
+      ? <VideoPlayer className="media" src={`${API_BASE}${post.media_url}`} edit={post.video_edit} label={`Vídeo de ${authorName}`}
+        onWatched={user && !ownsPost ? () => api(`/posts/${post.id}/watched`, { method: "POST" }).catch(() => {}) : undefined}
         music={post.music ? { title: post.music.title, artist: post.music.artist, src: `${API_BASE}${post.music.audio_url}` } : null} />
-      : <img className="media" src={`${API_BASE}${post.media_url}`} alt="Publicação" />)}
+      : <button className="post-image-open" type="button" aria-label={`Abrir imagem publicada por ${authorName}`} onClick={() => openPostImage(post)}>
+        <img className="media" src={`${API_BASE}${post.media_url}`} alt="Publicação" />
+      </button>)}
     <div className="post-counts">
       <span><span className="post-count-mark" aria-hidden="true"><Icon name="heart" size={11} /></span>{formatCount(likes)} {likes === 1 ? "gosto" : "gostos"}</span>
       <span className="post-counts-right">
         <button className="text-button" onClick={toggleComments}>{formatCount(commentCount)} {commentCount === 1 ? "comentário" : "comentários"}</button>
-        {shares > 0 && <span>{formatCount(shares)} {shares === 1 ? "partilha" : "partilhas"}</span>}
+        {(shares > 0 || showZeroShares) && <span>{formatCount(shares)} {shares === 1 ? "partilha" : "partilhas"}</span>}
         {stars > 0 && <span className="post-stars-count"><Icon name="star" size={13} /> {formatCount(stars)}</span>}
       </span>
     </div>
     <div className="post-actions">
-      <button className={liked ? "active" : ""} type="button" aria-pressed={liked} onClick={toggleLike}><span className="post-like-icon" aria-hidden="true"><Icon name="like" size={18} /></span>{liked ? "Gostaste" : "Gosto"}</button>
+      <div className="post-reaction-control">
+        {(() => {
+          const selectedReaction = POST_REACTIONS.find(item => item.id === reaction);
+          return <button className={`post-reaction-main ${reaction ? "active" : ""} ${reaction ? `is-${reaction}` : ""}`} data-reaction={reaction || ""} type="button" aria-pressed={Boolean(reaction)} onClick={() => chooseReaction(reaction || "like")}>
+            <span className="post-like-icon" aria-hidden="true">{reaction && reaction !== "like" ? selectedReaction?.emoji : <Icon name="like" size={18} />}</span>{selectedReaction?.activeLabel || "Gosto"}
+          </button>;
+        })()}
+        <button className="post-reaction-more" type="button" aria-label="Mais reações" aria-expanded={reactionPickerOpen} title="Mais reações" onClick={() => setReactionPickerOpen(open => !open)}>+</button>
+        {reactionPickerOpen && <div className="post-reaction-picker" role="group" aria-label="Escolher reação">
+          {POST_REACTIONS.map(item => <button key={item.id} className={`post-reaction-option ${reaction === item.id ? "selected" : ""}`} data-reaction={item.id} type="button" aria-label={item.label} aria-pressed={reaction === item.id} title={item.label} onClick={() => chooseReaction(item.id)}>{item.emoji}</button>)}
+        </div>}
+      </div>
       <button type="button" aria-expanded={showComments} onClick={toggleComments}><span aria-hidden="true"><Icon name="messages" size={18} /></span>Comentar</button>
       <button type="button" onClick={share} disabled={!canShare} title={canShare ? "Partilhar" : "Só publicações públicas podem ser partilhadas"}><span aria-hidden="true"><Icon name="share" size={18} /></span>Partilhar</button>
       {user && !ownsPost && <StarGiftButton post={post} onGifted={setStars} />}
@@ -628,11 +752,42 @@ export function PostCard({ post, onChanged, startWithComments = false, extraActi
     </div>}
     {error && <p className="error" role="alert">{error}</p>}
     {notice && <p className="success" role="status">{notice}</p>}
-    {sharing && <ShareDialog post={shareSource} onClose={() => setSharing(false)} onShared={count => {
+    {sharing && <ShareDialog post={shareSource} onClose={() => setSharing(false)} onOpenImage={target => openPostImage(target, true)} onShared={count => {
       if (shareSource.id === post.id) setShares(value => value + count);
       setNotice(count === 1 ? "Publicação partilhada." : `Publicação partilhada em ${count} sítios.`);
     }} />}
     {reporting && <ReportDialog {...reporting} onClose={() => setReporting(null)} />}
+    {imagePost && createPortal(<div className="modal-backdrop post-image-viewer-backdrop" onMouseDown={event => {
+      if (event.target === event.currentTarget) { setImagePost(null); onImageViewerClose?.(); }
+    }}>
+      <div className="post-image-viewer" role="dialog" aria-modal="true" aria-label={`Publicação de ${imagePost.page_id ? imagePost.page_name : imagePost.display_name}`}>
+        <div className="post-image-viewer-stage">
+          <button className="round-button post-image-viewer-close" type="button" aria-label="Fechar imagem" onClick={() => {
+            setImagePost(null);
+            onImageViewerClose?.();
+          }}><Icon name="close" size={18} /></button>
+          {imagePost.loading
+            ? <span className="muted">A carregar publicação...</span>
+            : imagePost.failed
+              ? <p className="post-image-viewer-error" role="alert">{imageViewerError}</p>
+              : <PostViewerImage src={`${API_BASE}${imagePost.media_url}`} alt={imagePost.body || "Imagem da publicação"} />}
+        </div>
+        {!imagePost.loading && !imagePost.failed && <aside className="post-image-viewer-sidebar">
+          <div className="post-image-viewer-author">
+            <Link to={imagePost.page_id ? `/pages/${imagePost.page_id}` : `/u/${imagePost.username}`} onClick={() => setImagePost(null)}>
+              {imagePost.page_id
+                ? <PageIdentityAvatar page={{ name: imagePost.page_name, logo_url: imagePost.page_logo_url, category: imagePost.page_category }} />
+                : <Avatar user={imagePost} />}
+            </Link>
+            <span><strong>{imagePost.page_id ? imagePost.page_name : imagePost.display_name}</strong>
+              <time dateTime={imagePost.created_at}>{new Date(imagePost.created_at).toLocaleString("pt-PT", { dateStyle: "medium", timeStyle: "short" })}</time>
+            </span>
+          </div>
+          {imageViewerError && <p className="error" role="alert">{imageViewerError}</p>}
+          <PostCard key={`image-details-${imagePost.id}`} post={imagePost} onChanged={onChanged} startWithComments hideHeader hideMedia showZeroShares />
+        </aside>}
+      </div>
+    </div>, document.body)}
   </article>;
 }
 export const STORY_SECONDS = 10;
@@ -927,8 +1082,8 @@ export const HOME_MORE_LINKS = [
 export function HomeLeft({ user, data }) {
   const [more, setMore] = useState(false);
   const shortcuts = [
-    ...data.groups.map(group => ({ key: `g${group.id}`, to: `/groups/${group.id}`, name: group.name, kind: "groups" })),
-    ...data.pages.map(page => ({ key: `p${page.id}`, to: `/pages/${page.id}`, name: page.name, kind: "pages" }))
+    ...data.groups.map(group => ({ key: `g${group.id}`, to: `/groups/${group.id}`, name: group.name, kind: "groups", image: group.owner_avatar })),
+    ...data.pages.map(page => ({ key: `p${page.id}`, to: `/pages/${page.id}`, name: page.name, kind: "pages", image: page.logo_url }))
   ].slice(0, 8);
   const links = more ? [...HOME_LINKS, ...HOME_MORE_LINKS, ...(user?.is_admin ? [["/admin", "shield", "Administração"]] : [])] : HOME_LINKS;
   return <aside className="home-left" aria-label="Atalhos">
@@ -941,7 +1096,9 @@ export function HomeLeft({ user, data }) {
     <h2 className="home-heading">Os teus atalhos</h2>
     {shortcuts.length
       ? shortcuts.map(item => <Link className="home-link" key={item.key} to={item.to}>
-        <span className={`home-shortcut tone-${item.kind}`}>{item.name.charAt(0).toUpperCase()}</span><span>{item.name}</span>
+        <span className={`home-shortcut tone-${item.kind}`}>{item.image
+          ? <img src={`${API_BASE}${item.image}`} alt="" loading="lazy" />
+          : item.name.charAt(0).toUpperCase()}</span><span>{item.name}</span>
       </Link>)
       : <p className="home-empty">Os grupos e páginas que segues aparecem aqui. <Link to="/groups">Descobrir grupos</Link></p>}
     <StoreButtons />
@@ -1030,7 +1187,7 @@ export function Feed() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [nextCursor, setNextCursor] = useState(null);
   const [scope, setScope] = useState(() => {
-    try { return (localStorage.getItem("biva-feed") || localStorage.getItem("buala-feed")) === "following" ? "following" : "all"; } catch { return "all"; }
+    try { return (localStorage.getItem("tchilar-feed") || localStorage.getItem("biva-feed") || localStorage.getItem("buala-feed")) === "following" ? "following" : "all"; } catch { return "all"; }
   });
   const activeScope = user ? scope : "all";
   const [sidebars, reloadSidebars] = useHomeSidebars(user);
@@ -1080,7 +1237,7 @@ export function Feed() {
   const changeScope = value => {
     setScope(value);
     setLoading(true);
-    try { localStorage.setItem("biva-feed", value); } catch { /* preferência opcional */ }
+    try { localStorage.setItem("tchilar-feed", value); localStorage.removeItem("biva-feed"); } catch { /* preferência opcional */ }
   };
 
   useEffect(() => { load(); }, [activeScope]);

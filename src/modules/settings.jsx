@@ -3,7 +3,11 @@ import { Link, Navigate, NavLink, useNavigate, useParams } from "react-router-do
 import { PASSWORD_MIN } from "./auth.jsx";
 import { API, API_BASE, Avatar, Icon, ThemeContext, UserContext, api, readDevicePrefs, saveDevicePrefs, token } from "./core.jsx";
 import { InfoLinks } from "./shared.jsx";
+import { PHONE_COUNTRIES, PHONE_ERROR, PhoneInput, SMS_CHANNEL_LABELS, formatPhone, maskPhone, parsePhone, splitPhone, useSmsChannels } from "./phones.jsx";
 import { SettingsPayments } from "./payments.jsx";
+import { disableWebPush, enableWebPush, webPushStatus } from "./web-push.js";
+import { Select } from "./select.jsx";
+import { DatePicker } from "./date-picker.jsx";
 
 export function BlockedAccounts() {
   const [blocked, setBlocked] = useState(null);
@@ -61,12 +65,13 @@ export function AudienceSettings() {
   return <>
     {data && <form className="audience-form" onSubmit={save}>
       <div className="field-pair">
-        <label className="field">Província<select value={form.province} onChange={event => setForm({ ...form, province: event.target.value })}>
+        <label className="field">Província<Select value={form.province} onChange={event => setForm({ ...form, province: event.target.value })}>
           <option value="">Prefiro não dizer</option>
           {data.provinces.map(province => <option key={province} value={province}>{province}</option>)}
-        </select></label>
-        <label className="field">Data de nascimento<input type="date" value={form.birthDate} disabled={Boolean(data.birth_date)}
-          aria-describedby="birth-date-note" onChange={event => setForm({ ...form, birthDate: event.target.value })} /></label>
+        </Select></label>
+        <label className="field">Data de nascimento<DatePicker mode="date" shortcuts={false} value={form.birthDate} disabled={Boolean(data.birth_date)}
+          min="1900-01-01" max={new Date().toISOString().slice(0, 10)} placeholder="Escolhe a data" aria-label="Data de nascimento"
+          onChange={event => setForm({ ...form, birthDate: event.target.value })} /></label>
       </div>
       <p className="muted field-note" id="birth-date-note">{data.birth_date
         ? "A data de nascimento fica fixa depois de indicada, porque decide o acesso aos grupos para maiores de 18. Se está errada, contacta o suporte."
@@ -184,11 +189,11 @@ export function DataRequests() {
   return <div className="prefs-stack">
     {data && <form className="prefs-form" onSubmit={submit}>
       <label>O que precisas?
-        <select value={form.kind} onChange={event => setForm({ ...form, kind: event.target.value })}>
+        <Select value={form.kind} onChange={event => setForm({ ...form, kind: event.target.value })}>
           {Object.entries(data.kinds).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
-        </select>
+        </Select>
       </label>
-      <label>Detalhes {needsDetails ? "" : <small>(opcional)</small>}
+      <label>Detalhes {needsDetails ? "" : <small>Opcional</small>}
         <textarea rows={3} maxLength={1000} required={needsDetails} value={form.details} onChange={event => setForm({ ...form, details: event.target.value })}
           placeholder={form.kind === "correct" ? "Que dado está errado e qual é o certo?" : "Algo que a equipa deva saber"} />
       </label>
@@ -323,9 +328,9 @@ function DeviceSessions({ busy, onEndOthers }) {
         <span className="device-icon"><Icon name={session.client === "app" ? "phone" : "devices"} size={20} /></span>
         <span className="device-text">
           <strong>{session.device || (session.client === "app" ? "App Tchilar" : "Browser")}</strong>
-          <small>{session.client === "app" ? "App" : "Site"} · {session.current ? "Este aparelho" : seen(session.last_seen_at)}</small>
+          <small>{session.client === "app" ? "App" : "Site"} · {session.current ? "Ativo agora" : seen(session.last_seen_at)}</small>
         </span>
-        {session.current ? <span className="device-badge">Aqui</span>
+        {session.current ? <span className="device-badge"><i aria-hidden="true" /> Este aparelho</span>
           : <button type="button" className="device-end" onClick={() => end(session)}>Terminar</button>}
       </li>)}
     </ul>}
@@ -546,36 +551,145 @@ export function PrefsStatus({ error, saved }) {
     {saved && <><Icon name="check" size={14} />Guardado</>}
   </p>;
 }
-// Telemóvel da conta: privado, só tu e a equipa o veem. Também preenche o Multicaixa Express nos pagamentos.
-export const formatPhone = phone => phone ? phone.replace(/^(\d{3})(\d{3})(\d{3})$/, "$1 $2 $3") : "";
+// Telemóvel da conta: privado (só tu e a equipa o veem). Serve para entrar no Tchilar em vez do email e,
+// se for angolano, preenche o Multicaixa Express nos pagamentos. Um número só pode estar numa conta.
+// Depois de guardado fica só para ler; alterar ou remover pede a palavra-passe (o servidor também a exige).
 
 function PhoneSetting() {
   const { user, refreshUser } = useContext(UserContext);
-  const [value, setValue] = useState(formatPhone(user.phone));
+  const initial = splitPhone(user.phone);
+  const [mode, setMode] = useState(user.phone ? "view" : "edit");   // view · edit · remove
+  const [country, setCountry] = useState(initial.country);
+  const [value, setValue] = useState(initial.national);
+  const [password, setPassword] = useState("");
   const [state, setState] = useState({ busy: false, message: "", error: "" });
+  const hasPhone = Boolean(user.phone);
+  const reset = () => {
+    const current = splitPhone(user.phone);
+    setCountry(current.country);
+    setValue(current.national);
+    setPassword("");
+    setState({ busy: false, message: "", error: "" });
+    setMode(user.phone ? "view" : "edit");
+  };
   const save = async phone => {
+    if (phone && !parsePhone(phone, country)) {
+      setState({ busy: false, message: "", error: `${PHONE_ERROR} Exemplo: ${PHONE_COUNTRIES.find(item => item.code === country)?.example}.` });
+      return;
+    }
     setState({ busy: true, message: "", error: "" });
     try {
-      await api("/auth/me", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ phone }) });
+      const result = await api("/auth/me", { method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone, phoneCountry: country, ...(hasPhone ? { password } : {}) }) });
       await refreshUser();
-      setValue(phone ? formatPhone(phone.replace(/\D/g, "").slice(-9)) : "");
+      const saved = splitPhone(result.user?.phone);
+      setCountry(saved.country);
+      setValue(saved.national);
+      setPassword("");
+      setMode(result.user?.phone ? "view" : "edit");
       setState({ busy: false, message: phone ? "Telemóvel guardado." : "Telemóvel removido.", error: "" });
     } catch (saveError) {
       setState({ busy: false, message: "", error: saveError.message });
     }
   };
-  return <form className="prefs-phone" onSubmit={event => { event.preventDefault(); save(value.trim()); }}>
-    <label className="field">Número de telemóvel
-      <input type="tel" inputMode="tel" autoComplete="tel-national" maxLength={16} placeholder="9XX XXX XXX"
-        value={value} onChange={event => setValue(event.target.value)} aria-describedby="phone-note" /></label>
-    <p className="entry-hint" id="phone-note">Não aparece no perfil. Serve para a equipa te contactar e para preencher o Multicaixa Express nos pagamentos.</p>
+  const status = (state.message || state.error) && <p className={state.error ? "error prefs-status" : "prefs-saved prefs-status is-visible"} role="status">
+    {state.message && <Icon name="check" size={14} />}{state.message || state.error}</p>;
+  const passwordField = <label className="phone-password">
+    Confirma com a tua palavra-passe
+    <input type="password" required autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)}
+      placeholder="A tua palavra-passe" disabled={state.busy} />
+  </label>;
+
+  // ----- Guardado: só para ler -----
+  if (mode === "view") return <div className="prefs-phone">
+    <div className="phone-saved">
+      <span className="phone-saved-icon" aria-hidden="true"><Icon name="phone" size={18} /></span>
+      <span className="phone-saved-text">
+        <strong>{maskPhone(user.phone)}</strong>
+        <small>{user.phone_verified_at ? <span className="phone-tag is-ok"><Icon name="verified" size={12} /> Confirmado</span>
+          : <span className="phone-tag is-pending"><Icon name="info" size={12} /> Por confirmar</span>} Só tu e a equipa o veem.</small>
+      </span>
+      <span className="phone-saved-actions">
+        <button className="btn secondary" type="button" onClick={() => { setState({ busy: false, message: "", error: "" }); setMode("edit"); }}><Icon name="create" size={15} /> Alterar</button>
+        <button className="text-button phone-remove" type="button" onClick={() => { setState({ busy: false, message: "", error: "" }); setMode("remove"); }}>Remover</button>
+      </span>
+    </div>
+    {status}
+    {!user.phone_verified_at && <PhoneVerification />}
+  </div>;
+
+  // ----- Remover: pede a palavra-passe -----
+  if (mode === "remove") return <form className="prefs-phone" onSubmit={event => { event.preventDefault(); save(""); }}>
+    <p className="phone-confirm-text">Vais remover <strong>{formatPhone(user.phone)}</strong>. Deixas de poder entrar com ele e de recuperar a conta por SMS.</p>
+    {passwordField}
     <div className="prefs-actions">
-      <button className="btn primary" type="submit" disabled={state.busy || !value.trim()}>{state.busy ? "A guardar..." : "Guardar"}</button>
-      {user.phone && <button className="btn" type="button" disabled={state.busy} onClick={() => save("")}>Remover</button>}
+      <button className="btn danger" type="submit" disabled={state.busy || !password}>{state.busy ? "A remover..." : "Remover número"}</button>
+      <button className="btn secondary" type="button" disabled={state.busy} onClick={reset}>Cancelar</button>
+    </div>
+    {status}
+  </form>;
+
+  // ----- Adicionar ou alterar -----
+  return <form className="prefs-phone" onSubmit={event => { event.preventDefault(); save(value.trim()); }}>
+    <PhoneInput id="settings-phone" label={hasPhone ? "Novo número de telemóvel" : "Número de telemóvel"} country={country} onCountryChange={setCountry} disabled={state.busy}
+      value={value} onChange={event => setValue(event.target.value)} invalid={Boolean(state.error)} describedBy="phone-note" />
+    <p className="entry-hint" id="phone-note">Não aparece no perfil. Podes usá-lo para entrar no Tchilar em vez do email. Se for angolano, também preenche o Multicaixa Express nos pagamentos.{hasPhone ? " O número novo fica por confirmar até receberes o código por SMS." : ""}</p>
+    {hasPhone && passwordField}
+    <div className="prefs-actions">
+      <button className="btn primary" type="submit" disabled={state.busy || !value.trim() || (hasPhone && !password)}>{state.busy ? "A guardar..." : "Guardar"}</button>
+      {hasPhone && <button className="btn secondary" type="button" disabled={state.busy} onClick={reset}>Cancelar</button>}
+    </div>
+    {status}
+  </form>;
+}
+
+// Confirmar o número com o código por SMS (Twilio). Só um número confirmado serve para entrar e recuperar a conta.
+function PhoneVerification() {
+  const { user, refreshUser } = useContext(UserContext);
+  const [sent, setSent] = useState(false);
+  const [code, setCode] = useState("");
+  const [state, setState] = useState({ busy: false, message: "", error: "" });
+  const channels = useSmsChannels();
+  useEffect(() => { setSent(false); setCode(""); }, [user.phone]);
+  if (user.phone_verified_at) {
+    return <p className="phone-verified"><Icon name="verified" size={15} /> Número confirmado: podes usá-lo para entrar e para recuperar a conta.</p>;
+  }
+  const call = async (path, body, after) => {
+    setState({ busy: true, message: "", error: "" });
+    try {
+      const result = await api(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      await after(result);
+    } catch (callError) {
+      setState({ busy: false, message: "", error: callError.message });
+    }
+  };
+  const sendCode = channel => call("/auth/phone/send-code", { channel }, result => {
+    setSent(result.channel || channel);
+    if (result.devCode) setCode(result.devCode);
+    setState({ busy: false, message: `Enviámos um código por ${SMS_CHANNEL_LABELS[result.channel || channel] || "SMS"} para ${formatPhone(user.phone)}.`, error: "" });
+  });
+  const confirm = () => call("/auth/phone/verify", { code: code.trim() }, async result => {
+    await refreshUser();
+    setState({ busy: false, message: result.message, error: "" });
+  });
+  return <div className="phone-verify" role="group" aria-labelledby="phone-verify-title">
+    {/* Opcional: o email continua a servir para entrar e recuperar a conta. Cada código custa dinheiro ao Tchilar. */}
+    <p id="phone-verify-title"><Icon name="info" size={16} /><span><strong>Confirmar o número é opcional.</strong> Só precisas se quiseres
+      entrar com o telemóvel ou recuperar a conta sem o email. O teu email continua a servir para tudo.</span></p>
+    {sent && <input inputMode="numeric" autoComplete="one-time-code" maxLength={10} placeholder="Código recebido" aria-label="Código recebido"
+      value={code} onChange={event => setCode(event.target.value.replace(/\D/g, ""))} />}
+    <div className="prefs-actions">
+      {sent
+        ? <>
+          <button className="btn primary" type="button" disabled={state.busy || code.length < 4} onClick={confirm}>{state.busy ? "A confirmar..." : "Confirmar número"}</button>
+          <button className="btn secondary" type="button" disabled={state.busy} onClick={() => sendCode(sent)}>Enviar outro código</button>
+        </>
+        : channels.map((channel, index) => <button key={channel} className={`btn ${index === 0 ? "primary" : "secondary"}`} type="button" disabled={state.busy}
+          onClick={() => sendCode(channel)}>{state.busy ? "A enviar..." : `Confirmar por ${SMS_CHANNEL_LABELS[channel]}`}</button>)}
     </div>
     {(state.message || state.error) && <p className={state.error ? "error prefs-status" : "prefs-saved prefs-status is-visible"} role="status">
       {state.message && <Icon name="check" size={14} />}{state.message || state.error}</p>}
-  </form>;
+  </div>;
 }
 
 export function SettingsAccount() {
@@ -674,11 +788,41 @@ export const NOTIFY_OPTIONS = [
   { key: "lives", icon: "live", title: "Diretos", hint: "Quando alguém que segues começa um direto." },
   { key: "community", icon: "groups", title: "Grupos, páginas e eventos", hint: "Quando alguém entra no teu grupo, segue a tua página ou vai ao teu evento." }
 ];
+// Avisos no browser (web push): ligar ou desligar neste browser. Cada browser escolhe por si.
+const BROWSER_PUSH_HINTS = {
+  unsupported: "Este browser não recebe notificações. No iPhone, junta o Tchilar ao ecrã principal (Partilhar → Adicionar ao ecrã principal) e abre-o a partir daí.",
+  off: "Os avisos no browser ainda não estão disponíveis.",
+  blocked: "Bloqueaste as notificações do Tchilar neste browser. Para as ligar, carrega no cadeado ao lado do endereço e autoriza as notificações.",
+  disabled: "Recebe os avisos mesmo com o Tchilar fechado, neste computador ou telemóvel.",
+  enabled: "Ligado neste browser. Os avisos seguem as escolhas de cima."
+};
+function BrowserPushToggle() {
+  const [status, setStatus] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => { webPushStatus().then(setStatus).catch(() => setStatus("unsupported")); }, []);
+  const change = async on => {
+    setBusy(true); setError("");
+    try { setStatus(on ? await enableWebPush() : await disableWebPush()); }
+    catch (failure) { setError(failure.message); setStatus(await webPushStatus().catch(() => "unsupported")); }
+    finally { setBusy(false); }
+  };
+  if (!status) return <p className="prefs-loading">A carregar...</p>;
+  return <>
+    <PrefsToggle icon="notifications" title="Avisos no browser" checked={status === "enabled"} disabled={busy || !["enabled", "disabled"].includes(status)} onChange={change}>
+      {BROWSER_PUSH_HINTS[status]}
+    </PrefsToggle>
+    {error && <p className="error prefs-status" role="alert">{error}</p>}
+  </>;
+}
 export function SettingsNotifications() {
   const { preferences, save, error, saved } = useAccountPreferences();
   const allOn = preferences && NOTIFY_OPTIONS.every(option => preferences.notify[option.key]);
   return <>
     <PrefsStatus error={error} saved={saved} />
+    <PrefsCard title="Com o Tchilar fechado" note="Na app, os avisos ligam-se no próprio telemóvel. Aqui escolhes para este browser.">
+      <BrowserPushToggle />
+    </PrefsCard>
     <PrefsCard title="O que te avisamos" note="O que desligares deixa de aparecer nas notificações a partir de agora.">
       {preferences
         ? <>

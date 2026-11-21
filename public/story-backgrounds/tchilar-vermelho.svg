@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 1920" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2=".6" y2="1"><stop offset="0" stop-color="#FF2A35"/><stop offset=".55" stop-color="#E30613"/><stop offset="1" stop-color="#7A0009"/></linearGradient>
+    <radialGradient id="glow" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#FFFFFF" stop-opacity=".22"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/></radialGradient>
+    <pattern id="t" width="200" height="200" patternUnits="userSpaceOnUse" patternTransform="rotate(-14)">
+      <path d="M40 40h120v30h-45v100H85V70H40z" fill="#FFFFFF" fill-opacity=".03"/>
+    </pattern>
+  </defs>
+  <rect width="1080" height="1920" fill="url(#bg)"/>
+  <rect width="1080" height="1920" fill="url(#t)"/>
+  <circle cx="860" cy="300" r="420" fill="url(#glow)"/>
+  <circle cx="160" cy="1660" r="360" fill="#0B0B0C" opacity=".22"/>
+  <g fill="none" stroke="#FFFFFF" stroke-opacity=".28" stroke-width="5">
+    <ellipse cx="540" cy="960" rx="560" ry="210" transform="rotate(-24 540 960)"/>
+    <ellipse cx="540" cy="960" rx="440" ry="150" transform="rotate(18 540 960)"/>
+  </g>
+  <circle cx="1000" cy="760" r="14" fill="#FFFFFF" opacity=".8"/>
+  <circle cx="110" cy="1230" r="10" fill="#FFFFFF" opacity=".6"/>
+</svg>

@@ -417,6 +417,13 @@ test("partner programme and promotion payments require a session", async () => {
   }
 });
 
+test("verification status and checkout require a session", async () => {
+  for (const [method, url] of [["GET", "/api/creator/verification"], ["POST", "/api/creator/verification/checkout"]]) {
+    const response = await fetch(`${baseUrl}${url}`, { method });
+    assert.equal(response.status, 401, `${method} ${url}`);
+  }
+});
+
 test("stars, invites, campaigns and audience require a session", async () => {
   for (const [method, url] of [["GET", "/api/stars"], ["POST", "/api/stars/purchase"], ["POST", "/api/posts/1/stars"], ["GET", "/api/referrals"],
     ["GET", "/api/campaigns"], ["POST", "/api/campaigns"], ["PATCH", "/api/auth/me/audience"], ["POST", "/api/challenges/1/entries"]]) {

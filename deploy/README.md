@@ -33,7 +33,7 @@ No `.env`, para produção:
 | `PAYOUT_ENCRYPTION_KEY` | `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` — **guarda uma cópia fora do servidor**: sem ela, os IBAN e a verificação em dois passos ficam ilegíveis |
 | `POSTGRES_PASSWORD` | uma palavra-passe longa e aleatória |
 | `PUBLIC_CLIENT_URL` / `PUBLIC_APP_URL` | `https://tchilar.ao` |
-| `SMTP_*` | os dados do email (obrigatório para confirmar contas) |
+| `SMTP_*` | a conta de email do alojamento **AngoWeb** (ver «Email pela AngoWeb» abaixo; obrigatório para confirmar contas) |
 | `TRUST_PROXY` | `1` (há um nginx à frente) |
 | `PAYMENTS_DEMO` | `false` (ou apaga a linha) |
 
@@ -213,12 +213,13 @@ Uma cópia aguenta bem o início. Quando o CPU do servidor passar muitas vezes d
 
 1. No `.env`: `REDIS_URL=redis://redis:6379` (os limites de tentativas passam a ser partilhados;
    sem isto, cada cópia dava a cada pessoa as suas próprias tentativas de login).
-2. Arranca com 3 cópias: `docker compose --profile scale up -d --scale app=3`
-   (ficam nas portas 4000, 4001 e 4002 do próprio servidor).
-3. Em `/etc/nginx/sites-available/tchilar`, acrescenta as cópias nos **dois** blocos `upstream`:
+2. Arranca as três cópias e o Redis: `docker compose --profile scale up -d --build`.
+   A primeira fica na porta 4003 e as outras nas portas 4004 e 4005 do próprio servidor.
+3. Em `/etc/nginx/sites-available/tchilar`, acrescenta as cópias nas portas 4004 e 4005 aos
+   **dois** blocos `upstream`:
    ```
-   server 127.0.0.1:4001;
-   server 127.0.0.1:4002;
+   server 127.0.0.1:4004;
+   server 127.0.0.1:4005;
    ```
    e `nginx -t && systemctl reload nginx`.
 
@@ -241,3 +242,37 @@ Em vez do PostgreSQL do docker compose:
    a funcionar com `pg_dump` para teres também uma cópia tua.
 
 As fotos e vídeos continuam no disco do VPS.
+
+
+## Email pela AngoWeb
+
+Os emails do Tchilar (confirmar a conta, recuperar a palavra-passe, avisos) saem pelo plano **E-mail Profissional**
+da AngoWeb (https://angoweb.ao/email-profissional.php), sem serviços externos. Planos (pagamento anual, por caixa):
+Correio Básico 553 Kz/mês (1 800 emails/dia), **Correio Essencial 833 Kz/mês (2 800 emails/dia)**,
+Correio Premium 1 330 Kz/mês (4 800 emails/dia).
+
+1. Na área de cliente da AngoWeb, cria a caixa `nao-responder@tchilar.ao` com uma palavra-passe forte.
+2. Copia o servidor de saída (SMTP) e a porta. A página da AngoWeb não os indica: vê na área de cliente ou pede
+   ao suporte (o habitual é `mail.tchilar.ao`, porta `465` com SSL ou `587` com STARTTLS).
+3. No `.env` do servidor:
+
+   ```
+   SMTP_HOST=mail.tchilar.ao
+   SMTP_PORT=465
+   SMTP_SECURE=true          # false se usares a porta 587
+   SMTP_USER=nao-responder@tchilar.ao
+   SMTP_PASSWORD=...         # a palavra-passe da conta de email
+   SMTP_FROM="Tchilar <nao-responder@tchilar.ao>"
+   ```
+4. Para os emails não irem para o spam, confirma no painel (**Entregabilidade do email**) que o domínio tem
+   **SPF** e **DKIM** válidos, e acrescenta um registo **DMARC** (`v=DMARC1; p=none; rua=mailto:...`).
+5. **Limite de envios:** 2 800 emails por dia por caixa no Correio Essencial. No orçamento, o pico é de cerca de 680
+   contas novas por dia (cenário B) e 1 140 (cenário C): chega, mas em lançamentos ou campanhas grandes passa para o
+   Correio Premium (4 800/dia).
+
+## Servidor na AngoWeb
+
+O **alojamento de sites** da AngoWeb não corre Node.js nem Docker, por isso a API do Tchilar precisa de um **VPS**
+(https://angoweb.ao/servidor-dedicado-vps.php): para começar, o **CX33** (4 vCPU, 8 GB de RAM, 80 GB SSD, 20 TB de
+tráfego; 14 216 Kz/mês no pagamento anual), com Debian ou Ubuntu e acesso root. As cópias de segurança são uma opção
+paga à parte (marca-a na encomenda). Com mais pessoas: CX43 (8 vCPU, 16 GB, 160 GB) e um 2.º VPS para vídeos e diretos.

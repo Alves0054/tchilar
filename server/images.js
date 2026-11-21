@@ -12,7 +12,8 @@ const IMAGE_PROFILES = {
   avatar: { width: 640, height: 640, quality: 85 },
   // A capa só limita a largura: a altura extra é o que o utilizador pode reposicionar.
   cover: { width: 1920, height: undefined, quality: 82 },
-  post: { width: 2048, height: 2048, quality: 80 },
+  post: { width: 1600, height: 1600, quality: 80 },
+  event: { width: 1600, height: 1200, quality: 82 },
   story: { width: 1080, height: 1920, quality: 80 }
 };
 

@@ -1,6 +1,10 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
+// O servidor local mais comum é a API no Docker, publicada em 4003.
+// Permite substituir o destino quando a API corre diretamente em 4000.
+const apiProxyTarget = process.env.VITE_API_PROXY_TARGET || "http://localhost:4003";
+
 // O build corre por scripts/build.mjs, que garante NODE_ENV=production antes do Vite arrancar.
 export default defineConfig(() => ({
   plugins: [react()],
@@ -21,8 +25,8 @@ export default defineConfig(() => ({
     // Permite abrir o servidor de desenvolvimento por um túnel Cloudflare (link para fora de casa).
     allowedHosts: [".trycloudflare.com"],
     proxy: {
-      "/api": "http://localhost:4000",
-      "/uploads": "http://localhost:4000"
+      "/api": apiProxyTarget,
+      "/uploads": apiProxyTarget
     }
   }
 }));

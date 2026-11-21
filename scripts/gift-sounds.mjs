@@ -7,7 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const appDir = ["tchilar-app", "biva-expo"].map(name => path.join(root, "mobile", name)).find(dir => existsSync(dir));
+const appDir = ["tchilar-app"].map(name => path.join(root, "mobile", name)).find(dir => existsSync(dir));
 const RATE = 22050;
 const note = n => 440 * 2 ** ((n - 69) / 12); // número MIDI → Hz
 

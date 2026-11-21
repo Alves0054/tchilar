@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 1920" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1C1C1E"/><stop offset="1" stop-color="#0B0B0C"/></linearGradient>
+    <radialGradient id="red" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#E30613" stop-opacity=".75"/><stop offset="1" stop-color="#E30613" stop-opacity="0"/></radialGradient>
+    <pattern id="d" width="60" height="60" patternUnits="userSpaceOnUse"><circle cx="30" cy="30" r="2.4" fill="#FFFFFF" fill-opacity=".07"/></pattern>
+  </defs>
+  <rect width="1080" height="1920" fill="url(#bg)"/>
+  <rect width="1080" height="1920" fill="url(#d)"/>
+  <circle cx="820" cy="1500" r="560" fill="url(#red)"/>
+  <circle cx="200" cy="380" r="300" fill="url(#red)" opacity=".45"/>
+  <g fill="none" stroke="#FFFFFF" stroke-opacity=".16" stroke-width="4">
+    <circle cx="540" cy="960" r="430"/>
+    <circle cx="540" cy="960" r="300"/>
+  </g>
+  <rect x="470" y="840" width="140" height="140" rx="34" fill="#FFFFFF" opacity=".08"/>
+  <path d="M500 878h80v22h-29v62h-22v-62h-29z" fill="#FFFFFF" opacity=".22"/>
+  <circle cx="598" cy="955" r="9" fill="#E30613" opacity=".9"/>
+</svg>

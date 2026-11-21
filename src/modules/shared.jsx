@@ -75,9 +75,13 @@ export function SponsoredSlot() {
 // Crescimento e monetização: selo, Estrelas, marcas, desafios, convites, academia
 // ---------------------------------------------------------------------------------------------
 
-export function VerifiedBadge({ show }) {
+export function VerifiedBadge({ show, tier }) {
   if (!show) return null;
-  return <span className="verified-badge" title="Parceiro verificado do Tchilar" aria-label="Parceiro verificado"><Icon name="verified" size={15} /></span>;
+  const plan = { kazola: "Kazola", bolado: "Bolado", benga: "Benga" }[tier];
+  const label = tier === "benga" ? "Selo dourado exclusivo · Benga" : tier === "bolado" ? "Selo vermelho · Bolado"
+    : plan ? `Verificado · ${plan}` : "Parceiro verificado do Tchilar";
+  const tone = tier === "benga" || tier === "bolado" ? ` is-${tier}` : "";
+  return <span className={`verified-badge${tone}`} title={label} aria-label={label}><Icon name="verified" size={15} /></span>;
 }
 // Botão "Estrelas" numa publicação de outra pessoa: escolhe quantas oferecer.
 export function StarGiftButton({ post, onGifted }) {
@@ -203,7 +207,7 @@ export function CreatorPartnerships() {
     </li>;
   };
   return <>
-    {paying && <PaymentDialog title={`Pagar a campanha «${paying.campaign.title}»`} amountKz={paying.campaign.budget} onPay={paying.onPay}
+    {paying && <PaymentDialog title={`Pagar a campanha «${paying.campaign.title}»`} amountKz={paying.campaign.budget} purpose="campaign" onPay={paying.onPay}
       onDone={() => { setNotice("Campanha paga. O criador já pode começar."); load(); }} onClose={() => { setPaying(null); load(); }} />}
     <section className="creator-card" aria-labelledby="partnerships-title">
       <div className="creator-card-head"><div><h2 id="partnerships-title">Parcerias com marcas</h2><p>Propostas de campanhas pagas. O Tchilar fica com 15% de cada campanha.</p></div>
@@ -226,21 +230,52 @@ export function CreatorPartnerships() {
 export const PAYMENT_METHODS = {
   express: ["Multicaixa Express", "Recebes o pedido na app do teu telemóvel.", "phone"],
   reference: ["Pagamento por Referência", "Paga no ATM, no Multicaixa Express ou no internet banking.", "reference"],
-  card: ["Cartão", "Visa ou Mastercard.", "card"]
+  card: ["Cartão", "Visa ou Mastercard.", "card"],
+  paypal: ["PayPal", "Pagas em dólares (USD) na página do PayPal. Bom para quem está fora de Angola.", "globe"],
+  redotpay: ["RedotPay", "Cripto (USDT, USDC…) ou cartão RedotPay, em dólares.", "bolt"],
+  paypay: ["PayPay Africa", "Aprovas na app PayPay, em kwanzas.", "phone"]
 };
+// Bandeiras de cartão aceites por cada método (só texto, sem logótipos oficiais).
+export const PAYMENT_BRANDS = { express: ["Multicaixa"], reference: ["Multicaixa"], card: ["Visa", "Mastercard"], paypal: ["Visa", "Mastercard"] };
+// Logótipo em miniatura do sítio onde se recebe um levantamento (os mesmos de public/payment-logos); o banco usa o ícone.
+export function PayoutLogo({ method, size = 20 }) {
+  if (method && method !== "iban") return <img className="payout-logo" src={`/payment-logos/${method}.jpg`} alt="" width={size} height={size} loading="lazy" />;
+  return <span className="payout-logo is-bank" style={{ width: size, height: size }} aria-hidden="true"><Icon name="brand" size={Math.round(size * 0.7)} /></span>;
+}
+// Logótipos de cada método (96 px, em public/payment-logos). Cartão = logótipo Visa.
+const PAYMENT_LOGOS = new Set(["express", "reference", "paypay", "card", "paypal", "redotpay"]);
+// Ordem visual da grelha: Referência ao lado do PayPal e Cartão ao lado do RedotPay.
+const PAYMENT_METHOD_ORDER = ["express", "reference", "paypal", "card", "redotpay", "paypay"];
+function PaymentMethodBody({ id }) {
+  const [label, hint, icon] = PAYMENT_METHODS[id];
+  return <>
+    {PAYMENT_LOGOS.has(id)
+      ? <img className="payment-method-logo" src={`/payment-logos/${id}.jpg`} alt="" width="44" height="44" loading="lazy" />
+      : <span className={`payment-method-icon is-${id}`}><Icon name={icon} size={20} /></span>}
+    <span><strong>{label}</strong><small>{hint}</small>
+      {PAYMENT_BRANDS[id] && <span className="payment-brands" aria-label={`Aceita ${PAYMENT_BRANDS[id].join(" e ")}`}>
+        {PAYMENT_BRANDS[id].map(brand => <span key={brand} className={`payment-brand is-${brand.toLowerCase()}`}>{brand}</span>)}
+      </span>}
+    </span>
+  </>;
+}
 // onPay(choice) faz o pedido ao servidor e devolve a resposta (checkoutUrl, demo, express ou reference).
-export function PaymentDialog({ title, amountKz, onPay, onDone, onClose }) {
+export function PaymentDialog({ title, amountKz, purpose, onPay, onDone, onClose }) {
   const [methods, setMethods] = useState(null);
+  const [upcoming, setUpcoming] = useState([]);
   const [mode, setMode] = useState("stripe");
   const [method, setMethod] = useState("");
   const [phone, setPhone] = useState("");
+  const [promoCode, setPromoCode] = useState("");
+  const [payAmount, setPayAmount] = useState(Number(amountKz));
+  const [promoNotice, setPromoNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [pending, setPending] = useState(null);
   const [state, setState] = useState("pending");
 
   useEffect(() => {
-    api("/payments/methods").then(result => { setMethods(result.methods); setMode(result.mode); setMethod(result.methods[0] || ""); })
+    api("/payments/methods").then(result => { setMethods(result.methods); setUpcoming(result.upcoming || []); setMode(result.mode); setMethod(result.methods[0] || ""); })
       .catch(() => { setMethods([]); setMode("off"); });
   }, []);
 
@@ -259,19 +294,40 @@ export function PaymentDialog({ title, amountKz, onPay, onDone, onClose }) {
         setState(result.status);
         if (result.status === "paid") onDone();
       } catch { /* tenta outra vez no próximo intervalo */ }
-    }, pending.method === "express" ? 3000 : 8000);
+    }, pending.method === "express" || pending.method === "paypay" ? 3000 : 8000);
     return () => window.clearInterval(timer);
   }, [pending, state]);
+
+  const applyPromo = async event => {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    setPromoNotice("");
+    try {
+      const result = await api("/promotion-codes/validate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: promoCode, purpose, amountKz })
+      });
+      setPayAmount(result.amount);
+      setPromoNotice(`Código aplicado: desconto de ${formatPrice(result.discountAmount)}.`);
+    } catch (validateError) {
+      setPayAmount(Number(amountKz));
+      setError(validateError.message);
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const pay = async event => {
     event.preventDefault();
     setBusy(true);
     setError("");
     try {
-      const result = await onPay(mode === "demo" ? {} : { method, ...(method === "express" && { phone }) });
+      const result = await onPay(mode === "demo" ? { promoCode } : { method, promoCode, ...(method === "express" && { phone }) });
       if (result.checkoutUrl) return window.location.assign(result.checkoutUrl);
       if (result.demo || result.activated) { setState("paid"); onDone(result); return; }
-      if (result.method === "express" || result.method === "reference") { setPending(result); setState("pending"); return; }
+      if (["express", "reference", "paypay"].includes(result.method)) { setPending(result); setState("pending"); return; }
       if (result.error) setError(result.error);
     } catch (payError) {
       setError(payError.message);
@@ -286,6 +342,9 @@ export function PaymentDialog({ title, amountKz, onPay, onDone, onClose }) {
 
   const copy = text => navigator.clipboard?.writeText(String(text)).catch(() => {});
   const close = () => { if (!busy) onClose(); };
+  const activeMethods = new Set(methods || []);
+  const upcomingMethods = new Set(upcoming);
+  const visibleMethods = PAYMENT_METHOD_ORDER.filter(id => activeMethods.has(id) || upcomingMethods.has(id));
 
   return createPortal(<div className="modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) close(); }}>
     <div className="modal card payment-dialog" role="dialog" aria-modal="true" aria-labelledby="payment-title">
@@ -293,7 +352,7 @@ export function PaymentDialog({ title, amountKz, onPay, onDone, onClose }) {
         <h2 id="payment-title">{state === "paid" ? "Pagamento confirmado" : title}</h2>
         <button className="round-button" type="button" aria-label="Fechar" onClick={close}><Icon name="close" size={18} /></button>
       </div>
-      <div className="payment-amount"><small>Valor a pagar</small><strong>{formatPrice(amountKz)}</strong></div>
+      <div className="payment-amount"><small>Valor a pagar</small><strong>{formatPrice(payAmount)}</strong>{payAmount !== Number(amountKz) && <small>Antes: {formatPrice(amountKz)}</small>}</div>
 
       {state === "paid" ? <div className="payment-result is-ok">
         <span className="payment-result-icon"><Icon name="check" size={28} /></span>
@@ -301,7 +360,14 @@ export function PaymentDialog({ title, amountKz, onPay, onDone, onClose }) {
         <button className="btn" type="button" onClick={onClose}>Concluir</button>
       </div>
 
-      : pending ? (pending.method === "express" ? <div className="payment-wait">
+      : pending ? (pending.method === "paypay" ? <div className="payment-wait">
+        <span className="payment-pulse" aria-hidden="true"><Icon name="phone" size={26} /></span>
+        <h3>Paga na app PayPay</h3>
+        <p>No telemóvel, toca em "Abrir a app PayPay". No computador, lê o código com a app PayPay. Esta janela atualiza sozinha.</p>
+        {pending.qrCodeUrl && <figure className="payment-qr"><img src={pending.qrCodeUrl} alt="Código QR para pagar com a app PayPay" /><figcaption>Lê este código com a app PayPay.</figcaption></figure>}
+        {pending.deeplink && <a className="btn secondary" href={pending.deeplink}>Abrir a app PayPay</a>}
+        <PaymentState state={state} />
+      </div> : pending.method === "express" ? <div className="payment-wait">
         <span className="payment-pulse" aria-hidden="true"><Icon name="phone" size={26} /></span>
         <h3>Confirma na app Multicaixa Express</h3>
         <p>Enviámos o pedido para o número {pending.phone}. Abre a app e aceita o pagamento.</p>
@@ -322,24 +388,35 @@ export function PaymentDialog({ title, amountKz, onPay, onDone, onClose }) {
 
       : <form className="payment-form" onSubmit={pay}>
         {mode === "demo" && <p className="info-draft" role="note"><Icon name="info" size={15} /> Modo de demonstração: o pagamento é aprovado sem cobrança.</p>}
-        {mode === "off" && <p className="error">Os pagamentos ainda não estão disponíveis.</p>}
-        {mode !== "demo" && methods && methods.length > 0 && <div className="payment-methods" role="radiogroup" aria-label="Método de pagamento">
-          {methods.map(id => {
-            const [label, hint, icon] = PAYMENT_METHODS[id];
-            return <label key={id} className={`payment-method${method === id ? " is-selected" : ""}`}>
-              <input type="radio" name="payment-method" checked={method === id} onChange={() => setMethod(id)} />
-              <span className={`payment-method-icon is-${id}`}><Icon name={icon} size={20} /></span>
-              <span><strong>{label}</strong><small>{hint}</small></span>
-            </label>;
-          })}
+        {purpose && mode !== "off" && <div className="payment-promo">
+          <span>Código promocional</span>
+          <span><input type="text" autoCapitalize="characters" maxLength={40} placeholder="EXEMPLO20" value={promoCode}
+            onChange={event => { setPromoCode(event.target.value.toUpperCase()); setPromoNotice(""); }} />
+            <button type="button" className="text-button" onClick={applyPromo} disabled={!promoCode || busy}>Aplicar</button></span>
+        </div>}
+        {promoNotice && <p className="prefs-saved" role="status"><Icon name="check" size={14} />{promoNotice}</p>}
+        {mode === "off" && <div className="payment-unavailable" role="status">
+          <Icon name="info" size={18} />
+          <span><strong>Pagamentos temporariamente indisponíveis</strong><small>Não há métodos de pagamento ativos. Tenta novamente mais tarde.</small></span>
+        </div>}
+        {mode !== "off" && mode !== "demo" && methods && (methods.length > 0 || upcoming.length > 0) && <div className="payment-methods" role="radiogroup" aria-label="Método de pagamento">
+          {visibleMethods.map(id => activeMethods.has(id) ? <label key={id} className={`payment-method payment-method--${id}${method === id ? " is-selected" : ""}`}>
+            <input type="radio" name="payment-method" checked={method === id} onChange={() => setMethod(id)} />
+            <PaymentMethodBody id={id} />
+          </label> : <div key={id} className={`payment-method payment-method--${id} is-soon`} aria-disabled="true">
+            <PaymentMethodBody id={id} />
+            <span className="payment-soon">Em breve</span>
+          </div>)}
         </div>}
         {method === "express" && mode !== "demo" && <label className="payment-phone">Número do Multicaixa Express
           <span><b>+244</b><input type="tel" inputMode="numeric" autoComplete="tel-national" placeholder="9XX XXX XXX" maxLength={11} required value={phone}
             onChange={event => setPhone(event.target.value.replace(/[^\d ]/g, ""))} /></span></label>}
         {error && <p className="error" role="alert">{error}</p>}
         <div className="modal-actions">
-          <button className="btn secondary" type="button" onClick={close} disabled={busy}>Cancelar</button>
-          <button className="btn" type="submit" disabled={busy || mode === "off" || !methods}>{busy ? "A preparar..." : `Pagar ${formatPrice(amountKz)}`}</button>
+          {mode === "off"
+            ? <button className="btn" type="button" onClick={close}>Fechar</button>
+            : <><button className="btn secondary" type="button" onClick={close} disabled={busy}>Cancelar</button>
+              <button className="btn" type="submit" disabled={busy || !methods}>{busy ? "A preparar..." : `Pagar ${formatPrice(amountKz)}`}</button></>}
         </div>
       </form>}
     </div>

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
 import { Icon, api, formatCount, formatPrice } from "./core.jsx";
+import { Select } from "./select.jsx";
 
 const post = (path, body) => api(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
 const patch = (path, body) => api(path, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
@@ -35,7 +36,7 @@ function TemplateForm({ initial, canGiveCash, onSave, onCancel }) {
     <label>Título<input required maxLength={100} value={form.title} onChange={event => setForm({ ...form, title: event.target.value })} /></label>
     <label>Regras<textarea rows={3} maxLength={1000} value={form.description} onChange={event => setForm({ ...form, description: event.target.value })} /></label>
     <div className="field-pair">
-      <label>Nível<select value={form.level} onChange={event => setForm({ ...form, level: event.target.value })}>{Object.entries(LEVEL_NAMES).map(([key, label]) => <option key={key} value={key}>{key} · {label}</option>)}</select></label>
+      <label>Nível<Select value={form.level} onChange={event => setForm({ ...form, level: event.target.value })}>{Object.entries(LEVEL_NAMES).map(([key, label]) => <option key={key} value={key}>{key} · {label}</option>)}</Select></label>
       <label>Categoria<input maxLength={40} value={form.category} onChange={event => setForm({ ...form, category: event.target.value })} /></label>
     </div>
     <fieldset className="prize-table">

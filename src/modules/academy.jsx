@@ -12,6 +12,8 @@ import { ReportDialog } from "./feed.jsx";
 import { ACADEMY_GUIDES } from "./growth.jsx";
 import { PaymentDialog } from "./shared.jsx";
 import GUIDE from "../data/tchilar-guide.json";
+import { Select } from "./select.jsx";
+import { FilePicker } from "./file-picker.jsx";
 
 const CATEGORY_LABELS = { criacao: "Criação de conteúdo", video: "Vídeo", fotografia: "Fotografia", musica: "Música", negocios: "Negócios",
   marketing: "Marketing", tecnologia: "Tecnologia", idiomas: "Idiomas", "bem-estar": "Bem-estar", outro: "Outro" };
@@ -38,22 +40,17 @@ export function AcademyPage() {
   const { tab, courseId } = useParams();
   const inCourse = (tab === "cursos" && courseId) || tab === "editar";
   return <div className="page academy-v2">
-    {!inCourse && <header className="academy-hero card">
-      <div>
-        <p className="feed-section-kicker">Academia Tchilar</p>
+    {!inCourse && <header className="tc-head">
+      <div className="tc-head-text">
+        <p className="tc-head-kicker">Academia</p>
         <h1>Aprende, ensina e cresce</h1>
         <p>Cursos de criadores e da equipa, guias para crescer e tudo o que precisas de saber sobre o Tchilar.</p>
-        <div className="academy-hero-actions">
-          <Link className="btn" to="/academia/cursos"><Icon name="academy" size={16} /> Ver cursos</Link>
-          <Link className="btn ghost-light" to="/academia/os-meus-cursos"><Icon name="plus" size={16} /> Vender um curso</Link>
-        </div>
+        <p className="tc-head-facts">Aulas em vídeo e texto · Aulas de amostra grátis · Paga por Multicaixa Express, Referência ou cartão · Quem ensina fica com 85%</p>
       </div>
-      <ul className="academy-hero-points">
-        <li><Icon name="play" size={16} /> Aulas em vídeo e texto</li>
-        <li><Icon name="check" size={16} /> Aulas de amostra grátis</li>
-        <li><Icon name="card" size={16} /> Multicaixa Express, Referência ou cartão</li>
-        <li><Icon name="stats" size={16} /> Quem ensina fica com 85%</li>
-      </ul>
+      <div className="tc-head-actions">
+        <Link className="btn" to="/academia/cursos"><Icon name="academy" size={16} /> Ver cursos</Link>
+        <Link className="btn secondary" to="/academia/os-meus-cursos"><Icon name="plus" size={16} /> Vender um curso</Link>
+      </div>
     </header>}
     {!inCourse && <AcademyTabs />}
     {!tab && <AcademyHome />}
@@ -284,7 +281,7 @@ function CourseDetail({ courseId }) {
       </section>
     </div>
     {reporting && <ReportDialog targetType="course" targetId={course.id} onClose={() => setReporting(false)} />}
-    {paying && <PaymentDialog title={`Curso «${course.title}»`} amountKz={course.price_kz}
+    {paying && <PaymentDialog title={`Curso «${course.title}»`} amountKz={course.price_kz} purpose="course"
       onPay={choice => api(`/courses/${course.id}/buy`, json(choice))}
       onDone={() => { setPaying(false); load(); }} onClose={() => { setPaying(false); load(); }} />}
   </div>;
@@ -338,8 +335,8 @@ function MyCourses() {
         <div className="course-new-grid">
           <label>Título<input required maxLength={120} value={form.title} onChange={event => setForm({ ...form, title: event.target.value })} placeholder="Ex.: Reels que vendem" /></label>
           <label>Resumo<input maxLength={240} value={form.summary} onChange={event => setForm({ ...form, summary: event.target.value })} placeholder="O que se aprende, numa frase" /></label>
-          <label>Categoria<select value={form.category} onChange={event => setForm({ ...form, category: event.target.value })}>{Object.entries(CATEGORY_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
-          <label>Nível<select value={form.level} onChange={event => setForm({ ...form, level: event.target.value })}>{Object.entries(LEVEL_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
+          <label>Categoria<Select value={form.category} onChange={event => setForm({ ...form, category: event.target.value })}>{Object.entries(CATEGORY_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</Select></label>
+          <label>Nível<Select value={form.level} onChange={event => setForm({ ...form, level: event.target.value })}>{Object.entries(LEVEL_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</Select></label>
           <label>Preço (Kz) <small className="muted">vazio = grátis · 500 a 500 000</small><input type="number" min="0" max="500000" value={form.priceKz} onChange={event => setForm({ ...form, priceKz: event.target.value })} /></label>
           {data.isTeam && <label className="checkbox"><input type="checkbox" checked={form.byTeam} onChange={event => setForm({ ...form, byTeam: event.target.checked })} /> Curso da equipa Tchilar</label>}
         </div>
@@ -371,7 +368,6 @@ function CourseEditor({ courseId }) {
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const videoInput = useRef(null);
   const coverInput = useRef(null);
   const load = () => api(`/courses/${courseId}`).then(result => {
     setData(result);
@@ -399,7 +395,6 @@ function CourseEditor({ courseId }) {
     if (lesson.video) body.append("video", lesson.video);
     await api(`/courses/${course.id}/lessons`, { method: "POST", body });
     setLesson({ title: "", body: "", isPreview: false, video: null });
-    if (videoInput.current) videoInput.current.value = "";
   }, "Aula adicionada."); };
   const uploadCover = file => file && run("cover", () => { const body = new FormData(); body.append("image", file); return api(`/courses/${course.id}/cover`, { method: "POST", body }); }, "Capa atualizada.");
   const removeLesson = item => window.confirm(`Apagar a aula «${item.title}»?`) && run(`del${item.id}`, () => api(`/courses/${course.id}/lessons/${item.id}`, { method: "DELETE" }));
@@ -436,8 +431,8 @@ function CourseEditor({ courseId }) {
         <label>Resumo<input maxLength={240} value={form.summary} onChange={event => setForm({ ...form, summary: event.target.value })} /></label>
         <label>Descrição<textarea rows={5} maxLength={8000} value={form.description} onChange={event => setForm({ ...form, description: event.target.value })} placeholder="Para quem é, o que se aprende, o que é preciso." /></label>
         <div className="field-pair">
-          <label>Categoria<select value={form.category} onChange={event => setForm({ ...form, category: event.target.value })}>{Object.entries(CATEGORY_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
-          <label>Nível<select value={form.level} onChange={event => setForm({ ...form, level: event.target.value })}>{Object.entries(LEVEL_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
+          <label>Categoria<Select value={form.category} onChange={event => setForm({ ...form, category: event.target.value })}>{Object.entries(CATEGORY_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</Select></label>
+          <label>Nível<Select value={form.level} onChange={event => setForm({ ...form, level: event.target.value })}>{Object.entries(LEVEL_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</Select></label>
         </div>
         <label>Preço (Kz) <small>0 ou vazio = grátis · 500 a 500 000 Kz{course.by_team ? "" : " · ficas com 85%"}</small><input type="number" min="0" max="500000" value={form.priceKz} onChange={event => setForm({ ...form, priceKz: event.target.value })} /></label>
         <div className="prefs-form-foot">
@@ -458,7 +453,9 @@ function CourseEditor({ courseId }) {
         <h3>Nova aula</h3>
         <label>Título<input required maxLength={120} value={lesson.title} onChange={event => setLesson({ ...lesson, title: event.target.value })} /></label>
         <label>Texto da aula<textarea rows={5} maxLength={20000} value={lesson.body} onChange={event => setLesson({ ...lesson, body: event.target.value })} placeholder="Explicação, passos, links úteis..." /></label>
-        <label>Vídeo (opcional)<input ref={videoInput} type="file" accept="video/mp4,video/webm,video/quicktime" onChange={event => setLesson({ ...lesson, video: event.target.files[0] || null })} /></label>
+        <div className="field-block"><span className="field-block-label">Vídeo (opcional)</span>
+          <FilePicker kind="video" file={lesson.video} onChange={video => setLesson({ ...lesson, video })} accept="video/mp4,video/webm,video/quicktime"
+            hint="MP4, WebM ou MOV" label="Vídeo da aula" disabled={busy === "lesson"} /></div>
         <label className="checkbox"><input type="checkbox" checked={lesson.isPreview} onChange={event => setLesson({ ...lesson, isPreview: event.target.checked })} /> Amostra grátis (qualquer pessoa vê antes de comprar)</label>
         <div className="prefs-form-foot"><button className="btn" type="submit" disabled={busy === "lesson" || !lesson.title.trim() || (!lesson.body.trim() && !lesson.video)}>{busy === "lesson" ? "A enviar..." : "Adicionar aula"}</button></div>
       </form>
