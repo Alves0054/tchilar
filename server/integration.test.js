@@ -575,8 +575,15 @@ test("official Tchilar page is followed by all users and assigned to its configu
     phone: "923000431"
   });
   assert.equal(registeredAdmin.status, 201, registeredAdmin.body.error);
+  assert.equal((await pool.query("SELECT owner_id FROM pages WHERE is_official")).rows[0].owner_id, null,
+    "registering with the admin email does not give the page before the email is confirmed");
+
+  // Confirmar o email (o que a ligação do email faz) passa a página para essa conta.
+  await pool.query("UPDATE users SET email_verified=TRUE WHERE id=$1", [registeredAdmin.body.user.id]);
   const assigned = (await pool.query("SELECT owner_id FROM pages WHERE is_official")).rows[0];
-  assert.equal(assigned.owner_id, registeredAdmin.body.user.id, "the email becomes page owner without granting site-wide admin");
+  assert.equal(assigned.owner_id, registeredAdmin.body.user.id, "the confirmed email becomes page owner without granting site-wide admin");
+  assert.equal((await pool.query("SELECT 1 FROM page_followers WHERE page_id=$1 AND user_id=$2", [official.id, registeredAdmin.body.user.id])).rowCount, 0,
+    "the owner is not listed as a follower of the page");
 
   const newUser = await call("POST", "/auth/register", null, {
     username: `novo_tchilar_${stamp}`,
