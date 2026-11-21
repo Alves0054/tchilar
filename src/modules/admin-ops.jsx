@@ -167,6 +167,22 @@ export function AdminContent() {
 // ---------------------------------------------------------------------------------------------
 const CHANNEL_LABELS = { notification: "Notificação na app", email: "Email", both: "Notificação e email" };
 
+// Estado da fila de emails: o que espera, o que saiu nas últimas 24 h e o que falhou.
+function EmailQueueCard({ queue }) {
+  const limit = queue.dailyLimit ? `${queue.sent_day} / ${queue.dailyLimit}` : queue.sent_day;
+  const full = queue.dailyLimit && queue.sent_day >= queue.dailyLimit;
+  return <section className="creator-card">
+    <div className="creator-card-head"><div><h2>Fila de emails</h2>
+      <p>Os emails de conta (confirmar, recuperar) saem primeiro; os avisos esperam a vez.{full ? " Chegou ao limite do dia: o resto sai quando houver margem." : ""}</p></div></div>
+    <dl className="admin-kpis">
+      <div><dt>À espera</dt><dd>{queue.waiting}</dd></div>
+      <div className={full ? "admin-kpi is-warning" : undefined}><dt>Enviados (24 h)</dt><dd>{limit}</dd></div>
+      <div><dt>Falhados (7 dias)</dt><dd>{queue.failed_week}</dd></div>
+      <div><dt>Fora de prazo (7 dias)</dt><dd>{queue.expired_week}</dd></div>
+    </dl>
+  </section>;
+}
+
 export function AdminBroadcasts() {
   const [data, setData] = useState(null);
   const [form, setForm] = useState({ title: "", body: "", audience: "all", channel: "notification" });
@@ -188,7 +204,7 @@ export function AdminBroadcasts() {
     setBusy(true); setError(""); setNotice("");
     try {
       const result = await post("/admin/broadcasts", form);
-      setNotice(`Aviso enviado a ${result.recipients} pessoas.${form.channel !== "notification" ? " Os emails seguem aos poucos, em segundo plano." : ""}`);
+      setNotice(`Aviso enviado a ${result.recipients} pessoas.${form.channel !== "notification" ? " Os emails entram na fila e saem ao ritmo permitido." : ""}`);
       setForm({ ...form, title: "", body: "" });
       await load();
     } catch (sendError) { setError(sendError.message); } finally { setBusy(false); }
@@ -221,6 +237,7 @@ export function AdminBroadcasts() {
       {error && <p className="error" role="alert">{error}</p>}
       {notice && <p className="prefs-saved" role="status"><Icon name="check" size={14} />{notice}</p>}
     </section>
+    {data?.emailQueue?.enabled && <EmailQueueCard queue={data.emailQueue} />}
     <section className="creator-card">
       <h2>Avisos enviados</h2>
       {data && !data.broadcasts.length && <p className="muted">Ainda não enviaste avisos.</p>}
@@ -228,7 +245,7 @@ export function AdminBroadcasts() {
         <span className="muted">#{item.id}</span>
         <span><strong>{item.title}</strong><small>{item.body}</small>
           <small>{item.audience} · {CHANNEL_LABELS[item.channel]} · por @{item.admin_username || "equipa"} · {dateTime(item.created_at)}</small></span>
-        <span>{item.recipients} pessoas{item.channel !== "notification" && <small>{item.emails_sent} emails enviados</small>}</span>
+        <span>{item.recipients} pessoas{item.channel !== "notification" && <small>{item.emails_sent} emails enviados{item.emails_waiting > 0 ? ` · ${item.emails_waiting} na fila` : ""}</small>}</span>
         <span />
       </li>)}</ul>}
     </section>

@@ -37,6 +37,8 @@ services:
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       SMTP_FROM: ${SMTP_FROM:-}
+      EMAIL_DAILY_LIMIT: ${EMAIL_DAILY_LIMIT:-0}
+      EMAIL_HOURLY_LIMIT: ${EMAIL_HOURLY_LIMIT:-0}
       # Obrigatória em produção: cifra os IBAN dos criadores e os segredos da verificação em dois passos.
       PAYOUT_ENCRYPTION_KEY: ${PAYOUT_ENCRYPTION_KEY:?Set PAYOUT_ENCRYPTION_KEY in .env}
       # 1 = há um nginx à frente (o IP real de cada pessoa vem do nginx).

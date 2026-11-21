@@ -394,9 +394,14 @@ function Broadcasts() {
       <Button label="Enviar aviso" onPress={send} disabled={!form.title.trim() || !form.body.trim()} />
       <Notice {...notice} />
     </Card>
+    {data.emailQueue?.enabled && <Card title="Fila de emails" subtitle="Os emails de conta saem primeiro; os avisos esperam a vez.">
+      <Row icon="hourglass" title={`${data.emailQueue.waiting} à espera`}
+        subtitle={`${data.emailQueue.sent_day}${data.emailQueue.dailyLimit ? ` de ${data.emailQueue.dailyLimit}` : ""} enviados nas últimas 24 h`} />
+      <Row icon="alert-circle" title={`${data.emailQueue.failed_week} falhados · ${data.emailQueue.expired_week} fora de prazo`} subtitle="Últimos 7 dias" />
+    </Card>}
     <Card title="Avisos enviados">
       {data.broadcasts.length === 0 ? <Empty text="Ainda não enviaste avisos." /> : data.broadcasts.map(item => <Row key={item.id} icon="megaphone" title={item.title}
-        subtitle={`${item.audience} · ${item.recipients} pessoas · @${item.admin_username || "equipa"} · ${dateTime(item.created_at)}`} />)}
+        subtitle={`${item.audience} · ${item.recipients} pessoas${item.channel !== "notification" ? ` · ${item.emails_sent} emails${item.emails_waiting ? ` (${item.emails_waiting} na fila)` : ""}` : ""} · @${item.admin_username || "equipa"} · ${dateTime(item.created_at)}`} />)}
     </Card>
   </>;
 }

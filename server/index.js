@@ -9,6 +9,7 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const { Pool } = require("pg");
 const nodemailer = require("nodemailer");
+const { createEmailQueue } = require("./email-queue");
 const { connectRateLimitStore, makeRateLimit } = require("./rate-limit");
 // Com REDIS_URL, os limites de pedidos são partilhados entre todas as cópias da API.
 connectRateLimitStore();
@@ -107,6 +108,8 @@ const mailTransport = process.env.SMTP_HOST
       : undefined
   })
   : null;
+// Todos os emails passam pela fila (limites do fornecedor, novas tentativas, conta antes de avisos).
+const emailQueue = createEmailQueue({ pool, transport: mailTransport, from: process.env.SMTP_FROM });
 const authRateLimit = makeRateLimit("auth", {
   windowMs: 15 * 60 * 1000,
   limit: 10,
@@ -582,20 +585,16 @@ async function sendAccountEmail(email, purpose, token) {
   const instruction = purpose === "verify_email"
     ? "Confirma o teu endereço de email"
     : "Redefine a tua palavra-passe";
-  await mailTransport.sendMail({
-    from: process.env.SMTP_FROM,
+  // A ligação vale 1 hora (createAuthToken): se a fila não a conseguir enviar até lá, o email é descartado.
+  await emailQueue.enqueue({
     to: email,
     subject,
-    text: `${instruction} através desta ligação (válida por 1 hora): ${url.toString()}`
+    text: `${instruction} através desta ligação (válida por 1 hora): ${url.toString()}`,
+    kind: "account",
+    expiresAt: new Date(Date.now() + 60 * 60 * 1000)
   });
+  emailQueue.kick();
   return null;
-}
-
-// Email de texto simples (avisos da equipa). Devolve false quando não há SMTP configurado.
-async function sendPlainEmail(to, subject, text) {
-  if (!mailTransport) return false;
-  await mailTransport.sendMail({ from: process.env.SMTP_FROM, to, subject, text });
-  return true;
 }
 
 function signMedia(filename) {
@@ -3320,7 +3319,7 @@ registerPaymentRoutes(app, { pool, auth, requireAdmin: requireRole("finance"), p
 registerAdminRoutes(app, { pool, auth, requireAdmin, requireRole, parseId, cleanText, transaction });
 registerAdminOperations(app, {
   pool, auth, requireAdmin, requireRole, parseId, cleanText, isRecord, transaction, payments, payoutKey,
-  buildUserExport, deleteAccount, sendPlainEmail
+  buildUserExport, deleteAccount, emailQueue
 });
 
 app.use((req, res) => {
@@ -3409,6 +3408,7 @@ async function startServer() {
   }
   await initDb();
   if (process.env.PUSH_NOTIFICATIONS !== "false") push.start();
+  emailQueue.start();
   // Aviso de renovação das subscrições pagas mês a mês (3 dias antes do fim), de hora a hora.
   const renewals = () => localSubscriptions.remindRenewals().catch(error => console.error("Avisos de renovação:", error.message));
   renewals();

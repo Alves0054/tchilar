@@ -54,7 +54,7 @@ const CONTENT_TYPES = ["post", "comment", "group", "page"];
 
 function registerAdminOperations(app, deps) {
   const { pool, auth, requireAdmin, requireRole, parseId, cleanText, isRecord, transaction, payments, payoutKey,
-    buildUserExport, deleteAccount, sendPlainEmail } = deps;
+    buildUserExport, deleteAccount, emailQueue } = deps;
   const finance = requireRole("finance");
   const moderation = requireRole("moderation");
   const superOnly = requireRole("super");
@@ -384,10 +384,15 @@ function registerAdminOperations(app, deps) {
   // Avisos gerais
   // -------------------------------------------------------------------------------------------
   app.get("/api/admin/broadcasts", auth, superOnly, async (_req, res) => {
+    // emails_sent conta os que já saíram da fila; emails_waiting os que ainda esperam a vez.
     const result = await pool.query(`
-      SELECT b.*, u.username AS admin_username FROM broadcasts b LEFT JOIN users u ON u.id=b.admin_id
+      SELECT b.*, u.username AS admin_username,
+        GREATEST(b.emails_sent, (SELECT COUNT(*) FROM email_queue q WHERE q.broadcast_id=b.id AND q.status='sent'))::int AS emails_sent,
+        (SELECT COUNT(*) FROM email_queue q WHERE q.broadcast_id=b.id AND q.status IN ('pending','sending'))::int AS emails_waiting
+      FROM broadcasts b LEFT JOIN users u ON u.id=b.admin_id
       ORDER BY b.created_at DESC LIMIT 30`);
-    res.json({ broadcasts: result.rows, provinces: ANGOLA_PROVINCES, emailEnabled: Boolean(process.env.SMTP_HOST) });
+    res.json({ broadcasts: result.rows, provinces: ANGOLA_PROVINCES, emailEnabled: Boolean(process.env.SMTP_HOST),
+      emailQueue: emailQueue ? await emailQueue.stats() : null });
   });
 
   // Quantas pessoas recebem, antes de enviar.
@@ -427,21 +432,15 @@ function registerAdminOperations(app, deps) {
       await logAdminAction(client, req.user.id, "broadcast", "broadcast", row.rows[0].id, `${title} · ${audience.label}`);
       return { id: row.rows[0].id, recipients };
     });
-    // Os emails seguem em segundo plano, um a um (os fornecedores limitam envios por segundo).
+    // Os emails vão para a fila: saem ao ritmo do fornecedor, depois dos emails de conta.
     if (channel !== "notification" && process.env.SMTP_HOST) {
-      const emails = (await pool.query(`SELECT u.email FROM users u WHERE ${where} AND u.email_verified`, audience.params)).rows;
-      (async () => {
-        let sent = 0;
-        for (const { email } of emails) {
-          try {
-            if (await sendPlainEmail(email, `${title} — Tchilar`, `${text}\n\n— A equipa do Tchilar`)) sent += 1;
-          } catch (error) {
-            console.error("Aviso por email:", error.message);
-          }
-          await new Promise(resolve => setTimeout(resolve, 600));
-        }
-        await pool.query("UPDATE broadcasts SET emails_sent=$2 WHERE id=$1", [created.id, sent]);
-      })().catch(error => console.error("Avisos por email:", error.message));
+      // Uma só inserção, mesmo para dezenas de milhares de pessoas.
+      const next = audience.params.length + 1;
+      await pool.query(`
+        INSERT INTO email_queue(to_email,subject,body,kind,priority,broadcast_id)
+        SELECT u.email,$${next},$${next + 1},'notice',1,$${next + 2} FROM users u WHERE ${where} AND u.email_verified`,
+      [...audience.params, `${title} — Tchilar`.slice(0, 200), `${text}\n\n— A equipa do Tchilar`, created.id]);
+      emailQueue?.kick();
     }
     res.status(201).json(created);
   });

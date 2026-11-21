@@ -1768,3 +1768,53 @@ test("video monetization: only videos watched to the end count, and the Partner 
   assert.equal(earnings.body.sources.partnerKz, 0);
   assert.equal(earnings.body.accruing.partnerKz, 0);
 });
+
+test("email queue: account emails first, daily limit, retries and expired links", { skip }, async () => {
+  const { createEmailQueue, retryDelayMs } = require("./email-queue");
+  const sent = [];
+  let failNext = 0;
+  const transport = { sendMail: async message => {
+    if (failNext > 0) { failNext -= 1; throw new Error("421 tente mais tarde"); }
+    sent.push(message);
+  } };
+  await pool.query("DELETE FROM email_queue");
+  const queue = createEmailQueue({ pool, transport, from: "Tchilar <teste@example.com>", dailyLimit: 3, hourlyLimit: 0, logger: { error() {} } });
+
+  // Avisos entram primeiro na fila, mas o email de conta passa à frente.
+  for (let i = 1; i <= 3; i += 1) await queue.enqueue({ to: `aviso${i}@example.com`, subject: "Aviso", text: "Olá" });
+  await queue.enqueue({ to: "conta@example.com", subject: "Confirma", text: "Liga", kind: "account", expiresAt: new Date(Date.now() + 3600_000) });
+  await queue.enqueue({ to: "velho@example.com", subject: "Confirma", text: "Liga", kind: "account", expiresAt: new Date(Date.now() - 1000) });
+
+  assert.deepEqual(await queue.processBatch(), { sent: 3, failed: 0 }, "o limite diário (3) trava o resto");
+  assert.equal(sent[0].to, "conta@example.com", "o email de conta sai primeiro");
+  assert.equal(sent[0].from, "Tchilar <teste@example.com>");
+  assert.deepEqual(await queue.processBatch(), { sent: 0, failed: 0 }, "sem margem até passarem 24 h");
+  let stats = await queue.stats();
+  assert.equal(stats.waiting, 1);
+  assert.equal(stats.sent_day, 3);
+  assert.equal(stats.expired_week, 1, "a ligação expirada não é enviada");
+
+  // Passadas 24 h há margem outra vez; um erro do fornecedor volta à fila com espera.
+  await pool.query("UPDATE email_queue SET sent_at=sent_at - INTERVAL '25 hours' WHERE status='sent'");
+  failNext = 1;
+  assert.deepEqual(await queue.processBatch(), { sent: 0, failed: 1 });
+  const retry = (await pool.query("SELECT status,attempts,last_error,next_attempt_at > NOW() AS later FROM email_queue WHERE status='pending'")).rows[0];
+  assert.deepEqual([retry.status, retry.attempts, retry.later], ["pending", 1, true]);
+  assert.match(retry.last_error, /421/);
+  await pool.query("UPDATE email_queue SET next_attempt_at=NOW() WHERE status='pending'");
+  assert.deepEqual(await queue.processBatch(), { sent: 1, failed: 0 }, "a nova tentativa sai");
+
+  // Ao fim de 5 tentativas desiste; esperas de 1, 2, 4... minutos, no máximo 1 hora.
+  await queue.enqueue({ to: "falha@example.com", subject: "Aviso", text: "Olá" });
+  await pool.query("UPDATE email_queue SET attempts=4 WHERE to_email='falha@example.com'");
+  failNext = 1;
+  await queue.processBatch();
+  assert.equal((await pool.query("SELECT status FROM email_queue WHERE to_email='falha@example.com'")).rows[0].status, "failed");
+  assert.deepEqual([1, 2, 3, 10].map(retryDelayMs), [60_000, 120_000, 240_000, 3_600_000]);
+  stats = await queue.stats();
+  assert.equal(stats.failed_week, 1);
+
+  // Sem SMTP a fila não faz nada (em desenvolvimento a ligação vai para o terminal).
+  assert.deepEqual(await createEmailQueue({ pool, transport: null }).processBatch(), { sent: 0, failed: 0 });
+  await pool.query("DELETE FROM email_queue");
+});
