@@ -31,21 +31,8 @@ function parseTicketInput(body) {
 
 const checkInUrl = (appUrl, eventId, code) => `${appUrl.replace(/\/$/, "")}/events/${eventId}?checkin=${encodeURIComponent(code)}`;
 
-// Devolve as estrelas de todos os bilhetes de um evento (antes de o apagar). Corre dentro de uma transação.
-// As estrelas dos bilhetes só podem ser levantadas 1 dia depois de o evento começar (finance-routes.js), por isso
-// até lá nunca saíram do Tchilar. Depois de o evento começar já não se apaga nem se devolve (ver assertCanDelete).
-async function refundEventTickets(client, eventId) {
-  const tickets = (await client.query(`
-    SELECT t.user_id,t.stars,e.name FROM event_tickets t JOIN events e ON e.id=t.event_id
-    WHERE t.event_id=$1 AND t.stars > 0`, [eventId])).rows;
-  for (const ticket of tickets) {
-    await client.query("INSERT INTO star_ledger(user_id,amount,kind,event_id) VALUES($1,$2,'refund',$3)", [ticket.user_id, ticket.stars, eventId]);
-    await client.query("INSERT INTO notifications(user_id,type,text) VALUES($1,'event_refund',$2)",
-      [ticket.user_id, `O evento «${ticket.name}» foi cancelado. Devolvemos-te ${ticket.stars} estrelas do bilhete.`]);
-  }
-  await client.query("DELETE FROM star_ledger WHERE event_id=$1 AND kind='gift_received'", [eventId]);
-  return tickets.length;
-}
+// A devolução quando um evento desaparece antes de começar é feita na base de dados (gatilho da migração 071),
+// para valer em todos os caminhos: apagar o evento, a página, o grupo ou a conta de quem organiza.
 
 // Um evento pago com bilhetes vendidos só pode ser apagado (e devolvido) antes de começar.
 async function deleteBlockedReason(client, eventId) {
@@ -83,9 +70,9 @@ function registerEventTickets(app, deps) {
       const balance = (await client.query(balanceSql, [req.user.id])).rows[0].balance;
       if (balance < event.ticket_stars) return { status: 402, error: "Não tens estrelas suficientes.", balance, price: event.ticket_stars };
       await client.query(`
-        INSERT INTO star_ledger(user_id,amount,kind,counterpart_id,event_id)
-        VALUES($1,$2,'gift_sent',$3,$4),($3,$5,'gift_received',$1,$4)`,
-      [req.user.id, -event.ticket_stars, event.creator_id, eventId, event.ticket_stars]);
+        INSERT INTO star_ledger(user_id,amount,kind,counterpart_id,event_id,available_at)
+        VALUES($1,$2,'gift_sent',$3,$4,NULL),($3,$5,'gift_received',$1,$4,$6::timestamptz + INTERVAL '1 day')`,
+      [req.user.id, -event.ticket_stars, event.creator_id, eventId, event.ticket_stars, event.starts_at]);
       let code;
       for (let attempt = 0; attempt < 5 && !code; attempt += 1) {
         const candidate = ticketCode();
@@ -152,4 +139,4 @@ function registerEventTickets(app, deps) {
   });
 }
 
-module.exports = { MAX_TICKET_STARS, checkInUrl, deleteBlockedReason, normalizeCode, parseTicketInput, refundEventTickets, registerEventTickets, ticketCode };
+module.exports = { MAX_TICKET_STARS, checkInUrl, deleteBlockedReason, normalizeCode, parseTicketInput, registerEventTickets, ticketCode };

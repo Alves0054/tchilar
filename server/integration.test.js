@@ -1947,8 +1947,18 @@ test("event tickets: paid in stars, QR check-in once, refunded when the event is
   assert.equal(await earned(), 10, "quem organiza perde as estrelas do evento apagado");
   // Depois de começar, um evento com bilhetes vendidos já não se apaga (as estrelas já podem ter sido levantadas).
   await pool.query("UPDATE events SET starts_at=NOW() - INTERVAL '2 days' WHERE id=$1", [sold.id]);
+  await pool.query("UPDATE star_ledger SET available_at=NOW() - INTERVAL '1 day' WHERE event_id=$1 AND kind='gift_received'", [sold.id]);
   assert.equal((await call("GET", "/payouts", organizer)).body.sources.starsKz > 0, true, "depois do evento as estrelas contam");
   assert.equal((await call("DELETE", `/events/${sold.id}`, organizer)).status, 409);
+  // Apagar a página de um evento futuro também devolve as estrelas (e não as liberta para levantar).
+  const page = (await call("POST", "/pages", organizer, { name: `Bilhetes ${stamp}`, pageType: "loja", category: "negocios" })).body.page;
+  const pageEvent = (await call("POST", "/events", organizer, { name: "Na página", startsAt, ticketStars: 20, pageId: page.id })).body.event;
+  assert.equal((await call("POST", `/events/${pageEvent.id}/tickets`, buyer)).status, 201);
+  const before = (await call("GET", "/payouts", organizer)).body.sources.starsKz;
+  assert.equal((await call("DELETE", `/pages/${page.id}`, organizer)).status, 200);
+  assert.equal((await call("GET", "/payouts", organizer)).body.sources.starsKz, before, "as estrelas do evento apagado não ficam levantáveis");
+  const after = (await pool.query("SELECT COALESCE(SUM(amount) FILTER (WHERE kind <> 'gift_received'),0)::int AS n FROM star_ledger WHERE user_id=$1", [buyer.id])).rows[0].n;
+  assert.equal(after, 90, "quem comprou recebe as 20 estrelas de volta");
 });
 
 test("paid lives: entry in stars before video, chat and P2P signals", { skip }, async () => {

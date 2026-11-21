@@ -62,7 +62,7 @@ const { SESSION_IDLE_DAYS, createSession, deviceLabel, registerSessionRoutes, to
 const { DOCUMENT_TYPES, registerGroupFeatures } = require("./group-features");
 const { parseGroupKind, parseGroupPrivacy, parsePageType, parseStoryBackground } = require("./community-types");
 const QRCode = require("qrcode");
-const { deleteBlockedReason, parseTicketInput, refundEventTickets, registerEventTickets } = require("./event-tickets");
+const { deleteBlockedReason, parseTicketInput, registerEventTickets } = require("./event-tickets");
 const { MODERATION_ACTIONS, REPORT_REASONS, blockedBetween, shouldAutoHide } = require("./moderation");
 const {
   ACTIVE_SUBSCRIPTION_SQL,
@@ -3159,14 +3159,13 @@ app.get("/api/events/:eventId", optionalAuth, async (req, res) => {
 app.delete("/api/events/:eventId", auth, async (req, res) => {
   const eventId = parseId(req.params.eventId);
   if (!eventId) return res.status(400).json({ error: "Evento inválido." });
-  // Se houver bilhetes vendidos, as estrelas voltam a quem comprou antes de o evento desaparecer.
+  // Se houver bilhetes vendidos, as estrelas voltam a quem comprou (gatilho da migração 071).
   const result = await transaction(async client => {
     const owned = await client.query(`SELECT e.id FROM events e
       WHERE e.id=$1 AND (e.creator_id=$2 OR EXISTS(SELECT 1 FROM pages p WHERE p.id=e.page_id AND p.owner_id=$2)) FOR UPDATE`, [eventId, req.user.id]);
     if (!owned.rowCount) return owned;
     const blocked = await deleteBlockedReason(client, eventId);
     if (blocked) return { blocked };
-    await refundEventTickets(client, eventId);
     return client.query("DELETE FROM events WHERE id=$1 RETURNING id,image_url", [eventId]);
   });
   if (result.blocked) return res.status(409).json({ error: result.blocked });
