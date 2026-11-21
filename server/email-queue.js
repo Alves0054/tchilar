@@ -7,7 +7,11 @@
 
 const MAX_ATTEMPTS = 5;
 const BATCH_SIZE = 20;
-const STUCK_MINUTES = 10;          // um envio "a sair" há mais do que isto (a API caiu a meio) volta à fila
+const STUCK_MINUTES = 10;
+const KEEP_DAYS = 30;              // histórico (sem o texto dos emails de conta) guardado durante 30 dias
+// Os emails de conta levam ligações de uso único (confirmar, recuperar a palavra-passe). Depois de saírem,
+// falharem ou expirarem, o texto é apagado: uma cópia da base de dados não pode servir para entrar numa conta.
+const REDACTED = "[ligação removida]";          // um envio "a sair" há mais do que isto (a API caiu a meio) volta à fila
 
 const readLimit = value => Math.max(0, Number.parseInt(value || "0", 10) || 0);
 
@@ -48,8 +52,9 @@ function createEmailQueue({ pool, transport, from, dailyLimit = readLimit(proces
     let failed = 0;
     try {
       await pool.query(`
-        UPDATE email_queue SET status='expired'
-        WHERE status='pending' AND expires_at IS NOT NULL AND expires_at <= NOW()`);
+        UPDATE email_queue SET status='expired', body=CASE WHEN kind='account' THEN $1 ELSE body END
+        WHERE status='pending' AND expires_at IS NOT NULL AND expires_at <= NOW()`, [REDACTED]);
+      await pool.query("DELETE FROM email_queue WHERE status IN ('sent','failed','expired') AND created_at < NOW() - make_interval(days => $1)", [KEEP_DAYS]);
       await pool.query(`
         UPDATE email_queue SET status='pending'
         WHERE status='sending' AND next_attempt_at < NOW() - make_interval(mins => $1)`, [STUCK_MINUTES]);
@@ -62,21 +67,24 @@ function createEmailQueue({ pool, transport, from, dailyLimit = readLimit(proces
           WHERE status='pending' AND next_attempt_at <= NOW()
           ORDER BY priority, next_attempt_at, id
           LIMIT $1 FOR UPDATE SKIP LOCKED)
-        RETURNING id,to_email,subject,body,attempts,priority`, [left]);
+        RETURNING id,to_email,subject,body,attempts,priority,kind`, [left]);
       // O RETURNING não garante ordem: os emails de conta saem primeiro dentro do lote.
       rows.sort((a, b) => a.priority - b.priority || Number(a.id) - Number(b.id));
       for (const row of rows) {
         try {
           await transport.sendMail({ from, to: row.to_email, subject: row.subject, text: row.body });
-          await pool.query("UPDATE email_queue SET status='sent', sent_at=NOW(), last_error=NULL WHERE id=$1", [row.id]);
+          await pool.query(`
+            UPDATE email_queue SET status='sent', sent_at=NOW(), last_error=NULL, body=CASE WHEN kind='account' THEN $2 ELSE body END
+            WHERE id=$1`, [row.id, REDACTED]);
           sent += 1;
         } catch (error) {
           failed += 1;
           const giveUp = row.attempts >= MAX_ATTEMPTS;
           await pool.query(`
-            UPDATE email_queue SET status=$2, last_error=$3, next_attempt_at=NOW() + make_interval(secs => $4)
+            UPDATE email_queue SET status=$2::varchar, last_error=$3, next_attempt_at=NOW() + make_interval(secs => $4),
+              body=CASE WHEN $2::varchar='failed' AND kind='account' THEN $5 ELSE body END
             WHERE id=$1`,
-          [row.id, giveUp ? "failed" : "pending", String(error.message || error).slice(0, 300), retryDelayMs(row.attempts) / 1000]);
+          [row.id, giveUp ? "failed" : "pending", String(error.message || error).slice(0, 300), retryDelayMs(row.attempts) / 1000, REDACTED]);
           logger.error(`Email ${row.id} ${giveUp ? "falhou de vez" : "falhou, nova tentativa mais tarde"}: ${error.message}`);
         }
       }
@@ -116,4 +124,4 @@ function createEmailQueue({ pool, transport, from, dailyLimit = readLimit(proces
   return { enqueue, processBatch, kick, start, stop, stats };
 }
 
-module.exports = { MAX_ATTEMPTS, createEmailQueue, retryDelayMs };
+module.exports = { MAX_ATTEMPTS, REDACTED, createEmailQueue, retryDelayMs };

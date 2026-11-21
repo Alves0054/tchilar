@@ -1770,7 +1770,7 @@ test("video monetization: only videos watched to the end count, and the Partner 
 });
 
 test("email queue: account emails first, daily limit, retries and expired links", { skip }, async () => {
-  const { createEmailQueue, retryDelayMs } = require("./email-queue");
+  const { REDACTED, createEmailQueue, retryDelayMs } = require("./email-queue");
   const sent = [];
   let failNext = 0;
   const transport = { sendMail: async message => {
@@ -1793,6 +1793,10 @@ test("email queue: account emails first, daily limit, retries and expired links"
   assert.equal(stats.waiting, 1);
   assert.equal(stats.sent_day, 3);
   assert.equal(stats.expired_week, 1, "a ligação expirada não é enviada");
+  const kept = Object.fromEntries((await pool.query("SELECT to_email,body FROM email_queue")).rows.map(row => [row.to_email, row.body]));
+  assert.equal(kept["conta@example.com"], REDACTED, "a ligação de uso único não fica guardada depois de enviada");
+  assert.equal(kept["velho@example.com"], REDACTED, "nem quando expira");
+  assert.equal(kept["aviso1@example.com"], "Olá", "os avisos ficam como foram escritos");
 
   // Passadas 24 h há margem outra vez; um erro do fornecedor volta à fila com espera.
   await pool.query("UPDATE email_queue SET sent_at=sent_at - INTERVAL '25 hours' WHERE status='sent'");
@@ -1813,6 +1817,10 @@ test("email queue: account emails first, daily limit, retries and expired links"
   assert.deepEqual([1, 2, 3, 10].map(retryDelayMs), [60_000, 120_000, 240_000, 3_600_000]);
   stats = await queue.stats();
   assert.equal(stats.failed_week, 1);
+  // O histórico com mais de 30 dias é apagado.
+  await pool.query("UPDATE email_queue SET created_at=NOW() - INTERVAL '31 days' WHERE to_email='falha@example.com'");
+  await queue.processBatch();
+  assert.equal((await pool.query("SELECT 1 FROM email_queue WHERE to_email='falha@example.com'")).rowCount, 0);
 
   // Sem SMTP a fila não faz nada (em desenvolvimento a ligação vai para o terminal).
   assert.deepEqual(await createEmailQueue({ pool, transport: null }).processBatch(), { sent: 0, failed: 0 });
