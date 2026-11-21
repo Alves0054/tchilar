@@ -9,9 +9,24 @@ Requisitos mínimos do VPS: 2 vCPU, 4 GB de RAM, 60 GB de disco (as fotos e víd
 
 ```bash
 apt update && apt upgrade -y
-apt install -y docker.io docker-compose-v2 nginx certbot python3-certbot-nginx ufw fail2ban
-ufw allow OpenSSH && ufw allow 'Nginx Full' && ufw enable
+apt install -y docker.io docker-compose-v2 certbot python3-certbot-nginx ufw fail2ban curl gnupg2 ca-certificates lsb-release ubuntu-keyring
+
+# nginx do repositório oficial (nginx.org), ramo estável: o do Ubuntu atrasa as correções de segurança.
+curl -fsSL https://nginx.org/keys/nginx_signing.key | gpg --dearmor -o /usr/share/keyrings/nginx-archive-keyring.gpg
+echo "deb [signed-by=/usr/share/keyrings/nginx-archive-keyring.gpg] http://nginx.org/packages/ubuntu $(lsb_release -cs) nginx" \
+  > /etc/apt/sources.list.d/nginx.list
+printf 'Package: *\nPin: origin nginx.org\nPin: release o=nginx\nPin-Priority: 900\n' > /etc/apt/preferences.d/99nginx
+apt update && apt install -y nginx
+nginx -v          # tem de ser 1.30.7 ou mais recente (correções de 18/11/2026)
+systemctl enable --now nginx
+
+ufw allow OpenSSH && ufw allow 80/tcp && ufw allow 443/tcp && ufw enable
 ```
+
+- **nginx sempre atualizado:** a 18/11/2026 saiu a 1.30.7 com 10 correções de segurança (a mais grave, CVE-2026-123007,
+  no HTTP/2, permite a um atacante sem conta correr código no servidor). Com o repositório oficial, `apt update && apt upgrade`
+  traz as correções no mesmo dia. Confirma a versão com `nginx -v` e acompanha https://nginx.org/en/security_advisories.html.
+  Se um dia não puderes atualizar logo, desliga o HTTP/2 (tira `http2` das linhas `listen 443`) até atualizares.
 
 - **ufw** fecha todas as portas menos SSH, HTTP e HTTPS. A base de dados só escuta em 127.0.0.1.
 - **fail2ban** bloqueia quem tenta adivinhar a palavra-passe do SSH.
@@ -49,8 +64,8 @@ O administrador tem de ativar a **verificação em dois passos** (Definições �
 ## 3. Domínio e HTTPS
 
 ```bash
-cp deploy/nginx-tchilar.conf /etc/nginx/sites-available/tchilar   # troca tchilar.ao pelo teu domínio
-ln -s /etc/nginx/sites-available/tchilar /etc/nginx/sites-enabled/
+cp deploy/nginx-tchilar.conf /etc/nginx/conf.d/tchilar.conf   # troca tchilar.ao pelo teu domínio
+rm -f /etc/nginx/conf.d/default.conf                           # a página de boas-vindas do nginx
 nginx -t && systemctl reload nginx
 certbot --nginx -d tchilar.ao -d www.tchilar.ao
 ```
@@ -215,7 +230,7 @@ Uma cópia aguenta bem o início. Quando o CPU do servidor passar muitas vezes d
    sem isto, cada cópia dava a cada pessoa as suas próprias tentativas de login).
 2. Arranca as três cópias e o Redis: `docker compose --profile scale up -d --build`.
    A primeira fica na porta 4003 e as outras nas portas 4004 e 4005 do próprio servidor.
-3. Em `/etc/nginx/sites-available/tchilar`, acrescenta as cópias nas portas 4004 e 4005 aos
+3. Em `/etc/nginx/conf.d/tchilar.conf`, acrescenta as cópias nas portas 4004 e 4005 aos
    **dois** blocos `upstream`:
    ```
    server 127.0.0.1:4004;
