@@ -1931,6 +1931,10 @@ test("event tickets: paid in stars, QR check-in once, refunded when the event is
   assert.deepEqual([list.sold, list.checked_in, list.stars], [1, 1, 60]);
   const earned = async () => (await pool.query("SELECT COALESCE(SUM(amount),0)::int AS n FROM star_ledger WHERE user_id=$1 AND kind='gift_received'", [organizer.id])).rows[0].n;
   assert.equal(await earned(), 60, "as estrelas contam para quem organiza");
+  // Antes de o evento acontecer, as estrelas dos bilhetes ainda não se podem levantar.
+  const payouts = (await call("GET", "/payouts", organizer)).body;
+  assert.equal(payouts.sources.starsKz, 0, "bilhetes de eventos futuros ficam à espera");
+  assert.ok(payouts.accruing.ticketsKz > 0);
   // Esgotado.
   const sold = (await call("POST", "/events", organizer, { name: "Lotação 1", startsAt, ticketStars: 10, ticketsTotal: 1 })).body.event;
   assert.equal((await call("POST", `/events/${sold.id}/tickets`, buyer)).status, 201);
@@ -1941,6 +1945,10 @@ test("event tickets: paid in stars, QR check-in once, refunded when the event is
   const balance = (await pool.query("SELECT COALESCE(SUM(amount) FILTER (WHERE kind <> 'gift_received'),0)::int AS n FROM star_ledger WHERE user_id=$1", [buyer.id])).rows[0].n;
   assert.equal(balance, 90, "100 - 60 - 10 + 60 devolvidas");
   assert.equal(await earned(), 10, "quem organiza perde as estrelas do evento apagado");
+  // Depois de começar, um evento com bilhetes vendidos já não se apaga (as estrelas já podem ter sido levantadas).
+  await pool.query("UPDATE events SET starts_at=NOW() - INTERVAL '2 days' WHERE id=$1", [sold.id]);
+  assert.equal((await call("GET", "/payouts", organizer)).body.sources.starsKz > 0, true, "depois do evento as estrelas contam");
+  assert.equal((await call("DELETE", `/events/${sold.id}`, organizer)).status, 409);
 });
 
 test("paid lives: entry in stars before video, chat and P2P signals", { skip }, async () => {

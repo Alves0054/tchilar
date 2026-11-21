@@ -32,6 +32,8 @@ function parseTicketInput(body) {
 const checkInUrl = (appUrl, eventId, code) => `${appUrl.replace(/\/$/, "")}/events/${eventId}?checkin=${encodeURIComponent(code)}`;
 
 // Devolve as estrelas de todos os bilhetes de um evento (antes de o apagar). Corre dentro de uma transação.
+// As estrelas dos bilhetes só podem ser levantadas 1 dia depois de o evento começar (finance-routes.js), por isso
+// até lá nunca saíram do Tchilar. Depois de o evento começar já não se apaga nem se devolve (ver assertCanDelete).
 async function refundEventTickets(client, eventId) {
   const tickets = (await client.query(`
     SELECT t.user_id,t.stars,e.name FROM event_tickets t JOIN events e ON e.id=t.event_id
@@ -43,6 +45,14 @@ async function refundEventTickets(client, eventId) {
   }
   await client.query("DELETE FROM star_ledger WHERE event_id=$1 AND kind='gift_received'", [eventId]);
   return tickets.length;
+}
+
+// Um evento pago com bilhetes vendidos só pode ser apagado (e devolvido) antes de começar.
+async function deleteBlockedReason(client, eventId) {
+  const row = (await client.query(`
+    SELECT e.starts_at <= NOW() AS started, (SELECT COUNT(*) FROM event_tickets t WHERE t.event_id=e.id AND t.stars > 0)::int AS sold
+    FROM events e WHERE e.id=$1`, [eventId])).rows[0];
+  return row?.started && row.sold > 0 ? "Este evento já começou e tem bilhetes vendidos: já não pode ser apagado." : null;
 }
 
 function registerEventTickets(app, deps) {
@@ -142,4 +152,4 @@ function registerEventTickets(app, deps) {
   });
 }
 
-module.exports = { MAX_TICKET_STARS, checkInUrl, normalizeCode, parseTicketInput, refundEventTickets, registerEventTickets, ticketCode };
+module.exports = { MAX_TICKET_STARS, checkInUrl, deleteBlockedReason, normalizeCode, parseTicketInput, refundEventTickets, registerEventTickets, ticketCode };

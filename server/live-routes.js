@@ -126,10 +126,10 @@ function registerLiveRoutes(app, deps) {
   }
 
   // Diretos pagos: o endereço do vídeo leva um token de leitura (só para quem pagou, quem emite e moderadores).
-  const playbackFor = live => {
+  const playbackFor = (live, userId) => {
     if (!media || live.status !== "live") return null;
     const hls = media.hlsUrl(live.host_id);
-    return { hls: live.entry_stars > 0 ? `${hls}${hls.includes("?") ? "&" : "?"}v=${encodeURIComponent(readToken(live.id, config.secret))}` : hls };
+    return { hls: live.entry_stars > 0 ? `${hls}${hls.includes("?") ? "&" : "?"}v=${encodeURIComponent(readToken(live.id, userId, config.secret))}` : hls };
   };
   // Quem pode ver um direto pago: quem pagou a entrada, quem emite e os moderadores.
   const accessCache = new Map(); // "liveId:userId" → { ok, at }
@@ -274,7 +274,7 @@ function registerLiveRoutes(app, deps) {
     const isHost = Boolean(req.user && req.user.id === live.host_id);
     const access = await hasAccess(live, req.user?.id);
     res.json({
-      live: { ...live, is_host: isHost, has_access: access, playback: access ? playbackFor(live) : null,
+      live: { ...live, is_host: isHost, has_access: access, playback: access ? playbackFor(live, req.user?.id) : null,
         ...(isHost ? { signal: signalFor(live), stats: presence.stats(id) } : {}) },
       supporters: supporters.rows
     });
@@ -533,7 +533,7 @@ function registerLiveRoutes(app, deps) {
     const live = await loadLive(id, req.user.id);
     if (!live || live.status !== "live") return res.status(409).json({ error: "Este direto já terminou." });
     if (!live.entry_stars) return res.status(409).json({ error: "Este direto é grátis." });
-    if (await hasAccess(live, req.user.id)) return res.json({ has_access: true, playback: playbackFor(live) });
+    if (await hasAccess(live, req.user.id)) return res.json({ has_access: true, playback: playbackFor(live, req.user.id) });
     const outcome = await transaction(async client => {
       await client.query("SELECT pg_advisory_xact_lock(42, $1)", [req.user.id]);
       const balance = (await client.query(balanceSql, [req.user.id])).rows[0].balance;
@@ -550,7 +550,7 @@ function registerLiveRoutes(app, deps) {
     if (outcome.error) return res.status(402).json(outcome);
     accessCache.delete(`${id}:${req.user.id}`);
     feedCache.delete(id);
-    res.status(201).json({ ...outcome, has_access: true, playback: playbackFor(live) });
+    res.status(201).json({ ...outcome, has_access: true, playback: playbackFor(live, req.user.id) });
   });
 
   // ----- Modo p2p: sinalização WebRTC entre quem emite e cada espectador -----
@@ -591,10 +591,12 @@ function registerLiveRoutes(app, deps) {
     liveOn: async userId => {
       const cached = liveOnCache.get(userId);
       if (cached && Date.now() - cached.at < 5000) return cached.value;
-      const value = (await pool.query("SELECT id,entry_stars FROM lives WHERE host_id=$1 AND status='live'", [userId])).rows[0] || null;
+      const value = (await pool.query("SELECT id,host_id,entry_stars FROM lives WHERE host_id=$1 AND status='live'", [userId])).rows[0] || null;
       liveOnCache.set(userId, { value, at: Date.now() });
       return value;
-    }
+    },
+    // Diretos pagos: o dono do token ainda tem bilhete (ou modera)? Guardado alguns segundos em memória.
+    canWatch: (live, viewerId) => hasAccess(live, viewerId)
   };
   app.post("/api/media/auth", async (req, res) => {
     const given = String(req.query.secret || "");

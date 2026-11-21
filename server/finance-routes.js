@@ -19,7 +19,11 @@ const EARNINGS_SQL = `
         AND v.viewed_on < date_trunc('month', CURRENT_DATE)::date)::int AS partner_views,
     (SELECT COUNT(*) FROM video_full_views v JOIN posts p ON p.id=v.post_id
       WHERE p.user_id=u.id AND u.partner_since IS NOT NULL AND v.viewed_on >= GREATEST(u.partner_since::date, date_trunc('month', CURRENT_DATE)::date))::int AS partner_views_this_month,
-    (SELECT COALESCE(SUM(amount),0) FROM star_ledger WHERE user_id=u.id AND kind='gift_received')::int AS stars_received,
+    (SELECT COALESCE(SUM(s.amount),0) FROM star_ledger s LEFT JOIN events e ON e.id=s.event_id
+      WHERE s.user_id=u.id AND s.kind='gift_received' AND (s.event_id IS NULL OR e.starts_at <= NOW() - INTERVAL '1 day'))::int AS stars_received,
+    -- Bilhetes de eventos que ainda não aconteceram: ficam à espera (podem ser devolvidos se o evento for cancelado).
+    (SELECT COALESCE(SUM(s.amount),0) FROM star_ledger s JOIN events e ON e.id=s.event_id
+      WHERE s.user_id=u.id AND s.kind='gift_received' AND e.starts_at > NOW() - INTERVAL '1 day')::int AS stars_on_hold,
     (SELECT COALESCE(SUM(budget),0) FROM brand_campaigns WHERE creator_id=u.id AND status='completed')::float AS campaigns_gross,
     (SELECT COALESCE(SUM(amount_kz),0) FROM group_access_purchases WHERE owner_id=u.id AND status='paid' AND refund_status IS NULL)::float AS groups_gross,
     (SELECT COALESCE(SUM(cash_kz),0) FROM challenge_awards WHERE user_id=u.id)::float AS prizes_kz,
@@ -38,7 +42,7 @@ function earningsFrom(row) {
   const subscriptionsKz = subscriptionShareKz(row.subscriptions_gross);
   return {
     sources: { partnerKz, starsKz, campaignsKz, groupsKz, prizesKz, coursesKz, subscriptionsKz },
-    accruing: { partnerKz: partnerPayout(row.partner_views_this_month) },
+    accruing: { partnerKz: partnerPayout(row.partner_views_this_month), ticketsKz: starsValueKz(row.stars_on_hold || 0) },
     withdrawn: row.withdrawn,
     ...payoutBalance({ partnerKz, starsKz, campaignsKz, groupsKz, prizesKz, coursesKz, subscriptionsKz, withdrawnKz: row.withdrawn })
   };

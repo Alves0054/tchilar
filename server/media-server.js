@@ -53,17 +53,20 @@ function verifyPublishToken(token, userId, secret, now = Date.now()) {
 }
 
 // Diretos pagos: o vídeo (HLS) só abre com um token de leitura que a API dá a quem pagou a entrada.
-// "liveId.expira.assinatura", válido 3 h. A CDN tem de passar a query (?v=) à origem nos pedidos do .m3u8.
+// "liveId.userId.expira.assinatura", válido 3 h e ligado a quem pagou: a cada pedido o MediaMTX pergunta à API,
+// que confirma que essa pessoa ainda tem bilhete (ou modera). Um token partilhado fica sempre ligado a quem o
+// comprou, e deixa de abrir se o bilhete for retirado. A CDN tem de passar a query (?v=) à origem nos .m3u8.
 const READ_TOKEN_TTL_SECONDS = 3 * 60 * 60;
-function readToken(liveId, secret, now = Date.now()) {
-  const payload = `${liveId}.${Math.floor(now / 1000) + READ_TOKEN_TTL_SECONDS}`;
+function readToken(liveId, userId, secret, now = Date.now()) {
+  const payload = `${liveId}.${userId}.${Math.floor(now / 1000) + READ_TOKEN_TTL_SECONDS}`;
   return `${payload}.${crypto.createHmac("sha256", secret).update(`read:${payload}`).digest("base64url")}`;
 }
+// Devolve o userId do token quando é válido para aquele direto; senão null.
 function verifyReadToken(token, liveId, secret, now = Date.now()) {
-  const [id, expires, signature] = String(token || "").split(".");
-  if (!signature || Number(id) !== liveId || !(Number(expires) > now / 1000)) return false;
-  const expected = crypto.createHmac("sha256", secret).update(`read:${id}.${expires}`).digest("base64url");
-  return safeEqual(signature, expected);
+  const [id, userId, expires, signature] = String(token || "").split(".");
+  if (!signature || Number(id) !== liveId || !(Number(expires) > now / 1000) || !(Number(userId) > 0)) return null;
+  const expected = crypto.createHmac("sha256", secret).update(`read:${id}.${userId}.${expires}`).digest("base64url");
+  return safeEqual(signature, expected) ? Number(userId) : null;
 }
 
 // Decide um pedido de autorização do MediaMTX.
@@ -86,7 +89,11 @@ async function authorizeMedia(request, secret, lookups, now = Date.now()) {
   if (request.action === "read") {
     const live = await lookups.liveOn(userId);
     if (!live) return { ok: false, reason: "sem direto aberto" };
-    if (live.entry_stars > 0 && !verifyReadToken(query.get("v"), live.id, secret, now)) return { ok: false, reason: "direto pago: falta o bilhete" };
+    if (live.entry_stars > 0) {
+      const viewerId = verifyReadToken(query.get("v"), live.id, secret, now);
+      if (!viewerId) return { ok: false, reason: "direto pago: falta o bilhete" };
+      if (lookups.canWatch && !(await lookups.canWatch(live, viewerId))) return { ok: false, reason: "direto pago: bilhete retirado" };
+    }
     return { ok: true };
   }
   if (request.action !== "publish") return { ok: false, reason: "ação não permitida" };

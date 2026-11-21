@@ -62,7 +62,7 @@ const { SESSION_IDLE_DAYS, createSession, deviceLabel, registerSessionRoutes, to
 const { DOCUMENT_TYPES, registerGroupFeatures } = require("./group-features");
 const { parseGroupKind, parseGroupPrivacy, parsePageType, parseStoryBackground } = require("./community-types");
 const QRCode = require("qrcode");
-const { parseTicketInput, refundEventTickets, registerEventTickets } = require("./event-tickets");
+const { deleteBlockedReason, parseTicketInput, refundEventTickets, registerEventTickets } = require("./event-tickets");
 const { MODERATION_ACTIONS, REPORT_REASONS, blockedBetween, shouldAutoHide } = require("./moderation");
 const {
   ACTIVE_SUBSCRIPTION_SQL,
@@ -3164,9 +3164,12 @@ app.delete("/api/events/:eventId", auth, async (req, res) => {
     const owned = await client.query(`SELECT e.id FROM events e
       WHERE e.id=$1 AND (e.creator_id=$2 OR EXISTS(SELECT 1 FROM pages p WHERE p.id=e.page_id AND p.owner_id=$2)) FOR UPDATE`, [eventId, req.user.id]);
     if (!owned.rowCount) return owned;
+    const blocked = await deleteBlockedReason(client, eventId);
+    if (blocked) return { blocked };
     await refundEventTickets(client, eventId);
     return client.query("DELETE FROM events WHERE id=$1 RETURNING id,image_url", [eventId]);
   });
+  if (result.blocked) return res.status(409).json({ error: result.blocked });
   if (!result.rowCount) return res.status(404).json({ error: "Evento não encontrado." });
   await removeUpload(result.rows[0].image_url);
   res.json({ deleted: true });

@@ -156,10 +156,15 @@ test("the media client authenticates every call to the control API", async () =>
 
 test("paid lives: the video only opens with a read token for that live", async () => {
   const { readToken, verifyReadToken } = require("./media-server");
-  const lookups = { publisher: async () => null, liveOn: async () => ({ id: 7, entry_stars: 50 }) };
+  const paying = new Set([33]);
+  const lookups = { publisher: async () => null, liveOn: async () => ({ id: 7, host_id: 12, entry_stars: 50 }), canWatch: async (_live, viewer) => paying.has(viewer) };
   assert.equal((await authorizeMedia({ action: "read", path: "live/u12" }, SECRET, lookups)).ok, false);
-  const token = readToken(7, SECRET);
+  const token = readToken(7, 33, SECRET);
   assert.equal((await authorizeMedia({ action: "read", path: "live/u12", query: `v=${token}` }, SECRET, lookups)).ok, true);
-  assert.equal(verifyReadToken(token, 8, SECRET), false, "o token é só daquele direto");
-  assert.equal(verifyReadToken(readToken(7, SECRET, Date.now() - 4 * 3600 * 1000), 7, SECRET), false, "expira");
+  assert.equal(verifyReadToken(token, 7, SECRET), 33, "o token diz de quem é");
+  assert.equal(verifyReadToken(token, 8, SECRET), null, "o token é só daquele direto");
+  assert.equal(verifyReadToken(token.replace(".33.", ".34."), 7, SECRET), null, "não se pode trocar a pessoa");
+  assert.equal(verifyReadToken(readToken(7, 33, SECRET, Date.now() - 4 * 3600 * 1000), 7, SECRET), null, "expira");
+  paying.delete(33);
+  assert.equal((await authorizeMedia({ action: "read", path: "live/u12", query: `v=${token}` }, SECRET, lookups)).ok, false, "bilhete retirado, vídeo fechado");
 });
