@@ -9,7 +9,9 @@ export const NOTIFICATION_ICONS = {
   follow: ["profile", "lagoa"], group_join: ["groups", "lagoa"], group_call: ["video", "coral"], call: ["video", "coral"], event_rsvp: ["events", "coral"], share: ["share", "ceu"],
   stars: ["star", "coral"], campaign: ["brand", "lagoa"], challenge: ["trophy", "coral"], referral: ["gift", "coral"],
   ad: ["ad", "coral"], payout: ["gift", "lagoa"], live: ["live", "coral"], moderation: ["shield", "tinta"],
-  payment: ["card", "lagoa"], privacy: ["lock", "tinta"], announcement: ["info", "ceu"], subscription: ["spark", "coral"]
+  payment: ["card", "lagoa"], privacy: ["lock", "tinta"], announcement: ["info", "ceu"], subscription: ["spark", "coral"],
+  event_reminder: ["clock", "coral"], event_update: ["events", "ceu"], event_ticket: ["card", "lagoa"], event_refund: ["card", "tinta"],
+  business: ["shield", "lagoa"]
 };
 export function notificationGroup(value) {
   const date = new Date(value);
@@ -27,6 +29,7 @@ export function notificationPath(item) {
   if (item.type === "payment") return "/settings/pagamentos";
   if (item.type === "privacy") return /^Novo início de sessão/.test(item.text || "") ? "/settings/seguranca" : "/settings/conta";
   if (item.call_id) return `/calls/${item.call_id}`;
+  if (item.event_id) return `/events/${item.event_id}`;
   if (item.post_id) return `/posts/${item.post_id}`;
   if (item.group_id) return `/groups/${item.group_id}`;
   if (item.actor_username) return `/u/${item.actor_username}`;

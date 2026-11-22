@@ -29,6 +29,7 @@ function pushPath(row) {
   if (row.type === "payment") return "/settings/pagamentos";
   if (row.type === "privacy") return /^Novo início de sessão/.test(row.text || "") ? "/settings/seguranca" : "/settings/conta";
   if (row.call_id) return `/call/direct/${row.call_id}`;
+  if (row.event_id) return `/event/${row.event_id}`;
   if (row.post_id) return `/post/${row.post_id}`;
   if (row.group_id) return `/group/${row.group_id}`;
   if (row.actor_username) return `/u/${row.actor_username}`;
@@ -46,6 +47,7 @@ function sitePath(row) {
   if (row.type === "payment") return "/settings/pagamentos";
   if (row.type === "privacy") return /^Novo início de sessão/.test(row.text || "") ? "/settings/seguranca" : "/settings/conta";
   if (row.call_id) return `/calls/${row.call_id}`;
+  if (row.event_id) return `/events/${row.event_id}`;
   if (row.post_id) return `/posts/${row.post_id}`;
   if (row.group_id) return `/groups/${row.group_id}`;
   if (row.actor_username) return `/u/${row.actor_username}`;
@@ -164,9 +166,9 @@ function createPush({ pool, fetchImpl = globalThis.fetch, accessToken = "", log 
         WITH claimed AS (
           UPDATE notifications SET pushed_at=NOW()
           WHERE id IN (SELECT id FROM notifications WHERE pushed_at IS NULL ORDER BY id LIMIT 500 FOR UPDATE SKIP LOCKED)
-          RETURNING id,user_id,actor_id,type,text,post_id,group_id,call_id,created_at
+          RETURNING id,user_id,actor_id,type,text,post_id,group_id,call_id,event_id,created_at
         )
-        SELECT c.id,c.user_id,c.actor_id,c.type,c.text,c.post_id,c.group_id,c.call_id,a.display_name AS actor_name,a.username AS actor_username,t.token,
+        SELECT c.id,c.user_id,c.actor_id,c.type,c.text,c.post_id,c.group_id,c.call_id,c.event_id,a.display_name AS actor_name,a.username AS actor_username,t.token,
           (SELECT COUNT(*) FROM notifications n WHERE n.user_id=c.user_id AND n.read=FALSE)::int AS badge
         FROM claimed c
         JOIN users u ON u.id=c.user_id AND u.suspended_at IS NULL

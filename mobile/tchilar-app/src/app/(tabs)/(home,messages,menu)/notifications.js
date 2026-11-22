@@ -15,6 +15,7 @@ export function notificationRoute(item) {
   if (item.type === "payment") return "/settings/pagamentos";
   if (item.type === "privacy") return /^Novo início de sessão/.test(item.text || "") ? "/settings/seguranca" : "/settings/conta";
   if (item.call_id) return `/call/direct/${item.call_id}`;
+  if (item.event_id) return `/event/${item.event_id}`;
   if (item.post_id) return `/post/${item.post_id}`;
   if (item.group_id) return `/group/${item.group_id}`;
   if (item.actor_username) return `/u/${item.actor_username}`;

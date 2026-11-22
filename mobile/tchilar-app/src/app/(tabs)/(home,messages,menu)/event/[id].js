@@ -4,10 +4,12 @@ import { Ionicons } from "@expo/vector-icons";
 import { Stack, router, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Image } from "expo-image";
-import { Alert, Linking, Platform, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, Vibration, View } from "react-native";
+import { Alert, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, Vibration, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { DateTimeField } from "../../../../components/DateTimeField";
 import { Avatar } from "../../../../components/Avatar";
 import { PaymentSheet } from "../../../../components/PaymentSheet";
-import { Button, Card, Empty, Loading, Notice, Page, count, kz } from "../../../../components/ui";
+import { Button, Card, Empty, Field, Loading, Notice, Page, count, kz } from "../../../../components/ui";
 import { API_URL, WEB_URL, api, mediaUri, readToken } from "../../../../lib/api";
 import { colors } from "../../../../lib/theme";
 
@@ -29,6 +31,50 @@ const COVER_TONES = [["#FDE7E8", "#B4000F"], ["#FFF1D6", "#8A5A00"], ["#E3F1FF",
 // O QR do próprio bilhete (pedido com a sessão; nunca fica em cache partilhada).
 const MAX_PER_ORDER = 10;
 const ofText = of => (of ? ` · bilhete ${of.position} de ${of.quantity}` : "");
+
+// Data no formato do campo de data (hora local do telemóvel).
+const localInput = value => { const date = new Date(value); return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16); };
+
+// Editar o evento (quem organiza). Mudar a data ou o local avisa quem vai e quem tem bilhete.
+function EditEvent({ event, visible, onClose, onSaved }) {
+  const blank = () => ({ name: event.name, startsAt: localInput(event.starts_at), location: event.location || "", description: event.description || "",
+    ticketsTotal: event.tickets_total ? String(event.tickets_total) : "" });
+  const [form, setForm] = useState(blank);
+  const [state, setState] = useState({ busy: false, error: "" });
+  const set = key => value => setForm(current => ({ ...current, [key]: value }));
+  const paid = event.ticket_price_kz > 0;
+  const save = async () => {
+    setState({ busy: true, error: "" });
+    try {
+      const result = await api(`/events/${event.id}`, { method: "PATCH", body: {
+        name: form.name, location: form.location, description: form.description, startsAt: new Date(form.startsAt).toISOString(),
+        ...(paid ? { ticketsTotal: form.ticketsTotal ? Number(form.ticketsTotal) : null } : {})
+      } });
+      setState({ busy: false, error: "" });
+      onSaved(result.notified);
+    } catch (saveError) { setState({ busy: false, error: saveError.message }); }
+  };
+  return <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose} onShow={() => setForm(blank())}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.surface }} edges={["top", "bottom"]}>
+      <View style={styles.sheetHead}><Text style={styles.sheetTitle}>Editar evento</Text>
+        <Pressable onPress={onClose} hitSlop={10}><Text style={styles.link}>Fechar</Text></Pressable></View>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+        <ScrollView contentContainerStyle={{ padding: 16, gap: 14 }} keyboardShouldPersistTaps="handled">
+          <Field label="Nome" value={form.name} onChangeText={set("name")} maxLength={120} />
+          <View style={{ gap: 6 }}><Text style={styles.fieldLabel}>Quando</Text>
+            <DateTimeField value={form.startsAt} onChange={set("startsAt")} label="Dia e hora do evento" /></View>
+          <Field label="Onde" value={form.location} onChangeText={set("location")} maxLength={160} placeholder="Ex.: Cine Atlântico, Luanda" />
+          <Field label="Detalhes" value={form.description} onChangeText={set("description")} multiline maxLength={2000} style={{ minHeight: 100, textAlignVertical: "top" }} />
+          {paid && <Field label="Bilhetes à venda (vazio = sem limite)" value={form.ticketsTotal} keyboardType="number-pad" maxLength={6}
+            onChangeText={value => set("ticketsTotal")(value.replace(/\D/g, ""))} />}
+          <Text style={{ color: colors.muted }}>Se mudares a data ou o local, avisamos quem vai e quem tem bilhete. O preço não muda depois de haver vendas.</Text>
+          <Notice error={state.error} />
+          <Button label="Guardar" onPress={save} busy={state.busy} disabled={!form.name.trim() || !form.startsAt} />
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
+  </Modal>;
+}
 
 function TicketQr({ eventId, code }) {
   const [headers, setHeaders] = useState(null);
@@ -75,6 +121,7 @@ export default function EventScreen() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [paying, setPaying] = useState(false);
+  const [editing, setEditing] = useState(false);
   const [quantity, setQuantity] = useState(1);
   const load = useCallback(() => api(`/events/${id}`).then(setData).catch(loadError => setError(loadError.message)), [id]);
   useEffect(() => { load(); }, [load]);
@@ -195,6 +242,9 @@ export default function EventScreen() {
         </Pressable>)}</View>}
     </Card>
 
+    {event.is_creator && !past && <Button variant="secondary" label="Editar evento" icon="create-outline" onPress={() => setEditing(true)} />}
+    {event.is_creator && <EditEvent event={event} visible={editing} onClose={() => setEditing(false)}
+      onSaved={notified => { setEditing(false); load(); Alert.alert("Evento", notified ? "Evento atualizado. Avisámos quem vai." : "Evento atualizado."); }} />}
     {event.is_creator && <Button variant="ghost" label="Apagar evento" onPress={remove} />}
     <PaymentSheet visible={paying} title={`${quantity === 1 ? "Bilhete" : `${quantity} bilhetes`} «${event.name}»`} amount={event.ticket_price_kz * quantity} purpose="event_ticket"
       start={choice => api(`/events/${event.id}/tickets`, { method: "POST", body: { ...choice, quantity } })}
@@ -226,6 +276,9 @@ const styles = StyleSheet.create({
   personName: { color: colors.text, fontSize: 12, textAlign: "center" },
   friend: { color: "#30B350", fontSize: 11, fontWeight: "700" },
   qr: { width: 220, height: 220, borderRadius: 12, backgroundColor: "#fff" },
+  sheetHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 16, borderBottomWidth: 1, borderBottomColor: colors.line },
+  sheetTitle: { color: colors.text, fontSize: 18, fontWeight: "800" },
+  fieldLabel: { color: colors.text, fontWeight: "700" },
   qtyRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   qty: { flexDirection: "row", alignItems: "center", borderWidth: 1, borderColor: colors.line, borderRadius: 999 },
   qtyButton: { width: 42, height: 40, alignItems: "center", justifyContent: "center" },

@@ -1,4 +1,6 @@
 import { useContext, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
+import { DatePicker } from "./date-picker.jsx";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { API_BASE, Avatar, Icon, UserContext, api, formatCount, token } from "./core.jsx";
 import { PaymentDialog } from "./shared.jsx";
@@ -52,6 +54,48 @@ function downloadCalendar(event) {
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 const mapsUrl = place => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(place)}`;
+
+// Data no formato do campo (hora local do aparelho), como no Criar evento.
+const localInput = value => { const date = new Date(value); return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16); };
+
+// Editar o evento (quem organiza). Mudar a data ou o local avisa quem vai e quem tem bilhete.
+function EditEventDialog({ event, onClose, onSaved }) {
+  const [form, setForm] = useState({ name: event.name, startsAt: localInput(event.starts_at), location: event.location || "", description: event.description || "",
+    ticketsTotal: event.tickets_total ? String(event.tickets_total) : "" });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const set = key => changeEvent => setForm(current => ({ ...current, [key]: changeEvent.target.value }));
+  const paid = event.ticket_price_kz > 0;
+  const save = async submitEvent => {
+    submitEvent.preventDefault();
+    setBusy(true); setError("");
+    try {
+      const result = await api(`/events/${event.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
+        name: form.name, location: form.location, description: form.description, startsAt: new Date(form.startsAt).toISOString(),
+        ...(paid ? { ticketsTotal: form.ticketsTotal ? Number(form.ticketsTotal) : null } : {})
+      }) });
+      onSaved(result.notified);
+    } catch (saveError) { setError(saveError.message); setBusy(false); }
+  };
+  return createPortal(<div className="modal-backdrop" onMouseDown={mouseEvent => { if (mouseEvent.target === mouseEvent.currentTarget && !busy) onClose(); }}>
+    <form className="modal card evp-edit" role="dialog" aria-modal="true" aria-labelledby="evp-edit-title" onSubmit={save}>
+      <div className="share-dialog-head"><h2 id="evp-edit-title">Editar evento</h2>
+        <button className="round-button" type="button" aria-label="Fechar" disabled={busy} onClick={onClose}><Icon name="close" size={18} /></button></div>
+      <label>Nome<input required maxLength={120} value={form.name} onChange={set("name")} /></label>
+      <label>Quando<DatePicker mode="datetime" required value={form.startsAt} onChange={set("startsAt")} aria-label="Dia e hora do evento" /></label>
+      <label>Onde<input maxLength={160} value={form.location} onChange={set("location")} placeholder="Ex.: Cine Atlântico, Luanda" /></label>
+      <label>Detalhes<textarea rows={4} maxLength={2000} value={form.description} onChange={set("description")} /></label>
+      {paid && <label>Bilhetes à venda <small>vazio = sem limite</small>
+        <input type="text" inputMode="numeric" maxLength={6} value={form.ticketsTotal} onChange={changeEvent => setForm(current => ({ ...current, ticketsTotal: changeEvent.target.value.replace(/\D/g, "") }))} /></label>}
+      <p className="evp-muted">Se mudares a data ou o local, avisamos quem vai e quem tem bilhete. O preço não muda depois de haver vendas.</p>
+      {error && <p className="error" role="alert">{error}</p>}
+      <div className="modal-actions">
+        <button className="btn secondary" type="button" disabled={busy} onClick={onClose}>Cancelar</button>
+        <button className="btn" type="submit" disabled={busy || !form.name.trim() || !form.startsAt}>{busy ? "A guardar..." : "Guardar"}</button>
+      </div>
+    </form>
+  </div>, document.body);
+}
 
 function TicketQr({ eventId, code }) {
   const [src, setSrc] = useState("");
@@ -139,6 +183,7 @@ export function EventPage() {
   const [notice, setNotice] = useState(searchParams.get("pagamento") === "sucesso" ? "Pagamento recebido. Os teus bilhetes aparecem aqui assim que for confirmado." : "");
   const [paying, setPaying] = useState(false);
   const [quantity, setQuantity] = useState(1);
+  const [editing, setEditing] = useState(false);
   const checkinCode = searchParams.get("checkin");
   const load = () => api(`/events/${eventId}`).then(result => { setEvent(result.event); setAttendees(result.attendees || []); }).catch(loadError => setError(loadError.message));
   useEffect(() => { if (authReady) load(); }, [eventId, authReady, user?.id]);
@@ -234,6 +279,7 @@ export function EventPage() {
         <div className="evp-tools">
           <button className="btn secondary evp-share" type="button" onClick={share}><Icon name="share" size={15} /> Partilhar evento</button>
           {!past && <button className="btn secondary evp-share" type="button" onClick={() => downloadCalendar(event)}><Icon name="events" size={15} /> Adicionar ao calendário</button>}
+          {event.is_creator && !past && <button className="btn secondary evp-share" type="button" onClick={() => setEditing(true)}><Icon name="settings" size={15} /> Editar evento</button>}
         </div>
       </div>
       <div className="evp-side">{ticketBox}</div>
@@ -262,6 +308,8 @@ export function EventPage() {
       </div>)}</div>
     </section>}
     {event.is_creator && paid && <OrganizerTickets event={event} autoCode={checkinCode} />}
+    {editing && <EditEventDialog event={event} onClose={() => setEditing(false)}
+      onSaved={notified => { setEditing(false); setNotice(notified ? "Evento atualizado. Avisámos quem vai." : "Evento atualizado."); load(); }} />}
     {paying && <PaymentDialog title={`${quantity === 1 ? "Bilhete" : `${quantity} bilhetes`} «${event.name}»`} amountKz={event.ticket_price_kz * quantity} purpose="event_ticket"
       onPay={choice => api(`/events/${event.id}/tickets`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...choice, quantity }) })}
       onDone={() => { setPaying(false); load(); }} onClose={() => { setPaying(false); load(); }} />}

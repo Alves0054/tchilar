@@ -20,6 +20,7 @@ const { runMigrations } = require("./migrate");
 const { optimizeUpload, smallVariantName } = require("./images");
 const { activatePaidAd, registerCreatorRoutes } = require("./creator-routes");
 const { launchMonthlyChallenges, registerGrowthRoutes } = require("./growth-routes");
+const { sendEventReminders } = require("./event-reminders");
 const { registerHomeRoutes } = require("./home-routes");
 const { registerPaymentRoutes } = require("./payment-records");
 const { logAdminAction, registerAdminRoutes } = require("./admin-routes");
@@ -344,8 +345,13 @@ const writeLimit = () => Math.max(1, Number(process.env.RATE_LIMIT_WRITES) || 30
 const paymentLimit = () => Math.max(1, Number(process.env.RATE_LIMIT_PAYMENTS) || 30);
 const LIVE_SIGNAL_PATH = /^\/api\/lives\/\d+\/(heartbeat|signals|react|leave)$/;
 const PAYMENT_START_PATH = /^\/api\/(events\/\d+\/tickets|lives\/\d+\/ticket|courses\/\d+\/buy|stars\/purchase|groups\/\d+\/access|subscriptions\/\d+|creator\/verification\/checkout|pages\/\d+\/verification\/checkout|campaigns(\/\d+\/[a-z-]+)?|ads(\/\d+\/checkout)?|creator\/partner\/join)$/;
-const isWrite = req => !["GET", "HEAD", "OPTIONS"].includes(req.method) && req.path.startsWith("/api/")
-  && !req.path.startsWith("/api/webhooks/") && !req.path.startsWith("/api/media/") && !LIVE_SIGNAL_PATH.test(req.path);
+// O Express aceita /API/Stars/Purchase/ como /api/stars/purchase: compara-se sempre o caminho normalizado.
+const cleanPath = req => String(req.path || "").toLowerCase().replace(/\/{2,}/g, "/").replace(/\/+$/, "");
+const isWrite = req => {
+  const path = cleanPath(req);
+  return !["GET", "HEAD", "OPTIONS"].includes(req.method) && path.startsWith("/api/")
+    && !path.startsWith("/api/webhooks/") && !path.startsWith("/api/media/") && !LIVE_SIGNAL_PATH.test(path);
+};
 const writeRateLimit = makeRateLimit("writes", {
   windowMs: 5 * 60 * 1000, limit: writeLimit, standardHeaders: "draft-8", legacyHeaders: false,
   skip: req => !isWrite(req),
@@ -353,7 +359,7 @@ const writeRateLimit = makeRateLimit("writes", {
 });
 const paymentRateLimit = makeRateLimit("paymentStarts", {
   windowMs: 10 * 60 * 1000, limit: paymentLimit, standardHeaders: "draft-8", legacyHeaders: false,
-  skip: req => req.method !== "POST" || !PAYMENT_START_PATH.test(req.path),
+  skip: req => req.method !== "POST" || !PAYMENT_START_PATH.test(cleanPath(req)),
   message: { error: "Demasiados pagamentos começados. Espera 10 minutos e tenta outra vez." }
 });
 app.use(writeRateLimit);
@@ -986,22 +992,34 @@ app.get("/api/auth/username-available", usernameCheckRateLimit, async (req, res)
   res.json({ available: result.rowCount === 0, reason: result.rowCount ? "taken" : null });
 });
 
-// Por conta (email ou telemóvel), além do limite por IP: no máximo 20 tentativas falhadas em 15 minutos,
-// mesmo vindas de muitos IPs diferentes. Só as falhas contam (um login certo não gasta tentativas).
-const loginAccountKey = req => {
-  const raw = isRecord(req.body) ? (typeof req.body.identifier === "string" ? req.body.identifier : req.body.email) : "";
-  return `acct:${String(raw || "").trim().toLowerCase().replace(/[\s()-]/g, "").slice(0, 120)}`;
+// Tentativas falhadas por conta, contadas pela mesma forma normalizada que a pesquisa da conta usa
+// (email em minúsculas; telemóvel no formato internacional), para "923…", "+244923…" e "00244923…" serem a mesma conta.
+// Dois limites, só com as falhas a contar:
+// - conta + IP: 10 falhas em 15 min (trava quem tenta adivinhar a partir de um sítio);
+// - conta, de qualquer IP: 60 falhas por hora (trava quem usa muitos IPs, sem deixar um estranho bloquear o dono
+//   facilmente; a recuperação por email continua sempre disponível).
+const loginAccountId = req => {
+  const body = isRecord(req.body) ? req.body : {};
+  const raw = String(typeof body.identifier === "string" ? body.identifier : body.email || "").trim();
+  if (raw.includes("@")) return raw.toLowerCase().slice(0, 254);
+  const phone = parsePhoneNumber(raw, typeof body.phoneCountry === "string" ? body.phoneCountry : undefined);
+  return phone ? phone.e164 : raw.toLowerCase().replace(/\D/g, "").slice(0, 32);
 };
+const loginAccountIpRateLimit = makeRateLimit("loginAccountIp", {
+  windowMs: 15 * 60 * 1000, limit: 10, standardHeaders: "draft-8", legacyHeaders: false,
+  skipSuccessfulRequests: true, keyGenerator: req => `acct:${loginAccountId(req)}:ip:${req.ip}`,
+  message: { error: "Demasiadas tentativas. Espera 15 minutos ou recupera a palavra-passe." }
+});
 const loginAccountRateLimit = makeRateLimit("loginAccount", {
-  windowMs: 15 * 60 * 1000, limit: 20, standardHeaders: "draft-8", legacyHeaders: false,
-  skipSuccessfulRequests: true, keyGenerator: loginAccountKey,
-  message: { error: "Demasiadas tentativas para esta conta. Espera 15 minutos ou recupera a palavra-passe." }
+  windowMs: 60 * 60 * 1000, limit: 60, standardHeaders: "draft-8", legacyHeaders: false,
+  skipSuccessfulRequests: true, keyGenerator: req => `acct:${loginAccountId(req)}`,
+  message: { error: "Demasiadas tentativas para esta conta. Espera um pouco ou recupera a palavra-passe pelo email." }
 });
 // Hash de uma palavra-passe que ninguém tem: quando a conta não existe, comparamos na mesma, para a resposta
 // demorar o mesmo e não revelar que contas existem.
 const DUMMY_PASSWORD_HASH = bcrypt.hashSync(crypto.randomBytes(24).toString("hex"), 12);
 
-app.post("/api/auth/login", authRateLimit, loginAccountRateLimit, async (req, res) => {
+app.post("/api/auth/login", authRateLimit, loginAccountIpRateLimit, loginAccountRateLimit, async (req, res) => {
   const body = isRecord(req.body) ? req.body : {};
   // "identifier" (ou "email", nas apps antigas): o email ou o número de telemóvel da conta.
   const identifier = cleanText(typeof body.identifier === "string" ? body.identifier : body.email);
@@ -1813,10 +1831,10 @@ const searchRateLimit = makeRateLimit("search", {
 // que já aplica as regras de quem pode ver o quê. Grupos secretos nunca aparecem aqui.
 app.get("/api/search", auth, searchRateLimit, async (req, res) => {
   const term = searchTerm(req.query.q);
-  if (!term) return res.json({ users: [], groups: [], pages: [], hashtags: [] });
+  if (!term) return res.json({ users: [], groups: [], pages: [], hashtags: [], events: [] });
   const tagPrefix = parseHashtag(term.replace(/^#/, "").split(" ")[0]);
   const like = likePattern(term.replace(/^#/, ""));
-  const [users, groups, pages, hashtags] = await Promise.all([
+  const [users, groups, pages, hashtags, events] = await Promise.all([
     pool.query(`
       SELECT id,username,display_name,avatar_url,is_creator,
         COALESCE(partner_since IS NOT NULL OR verification_expires_at > NOW(), FALSE) AS is_verified,
@@ -1845,9 +1863,17 @@ app.get("/api/search", auth, searchRateLimit, async (req, res) => {
       FROM posts p CROSS JOIN LATERAL regexp_matches(p.body, '#([[:alnum:]_]{1,50})', 'g') m
       WHERE p.hidden_at IS NULL AND p.group_id IS NULL AND NOT p.is_exclusive
         AND p.created_at > NOW() - INTERVAL '180 days' AND lower(m[1]) LIKE $1 ESCAPE '\\'
-      GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT 10`, [`${tagPrefix.toLowerCase().replace(/_/g, "\\_")}%`]) : { rows: [] }
+      GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT 10`, [`${tagPrefix.toLowerCase().replace(/_/g, "\\_")}%`]) : { rows: [] },
+    // Eventos ainda por acontecer (fora dos grupos), pelo nome, local ou descrição.
+    pool.query(`
+      SELECT e.id,e.name,e.location,e.starts_at,e.image_url,e.ticket_price_kz::float AS ticket_price_kz,
+        (SELECT COUNT(*) FROM event_attendees a WHERE a.event_id=e.id)::int AS attendee_count
+      FROM events e
+      WHERE e.group_id IS NULL AND e.starts_at > NOW() - INTERVAL '6 hours' AND NOT ${blockedBetween("$1", "e.creator_id")}
+        AND (e.name ILIKE $2 ESCAPE '\\' OR e.location ILIKE $2 ESCAPE '\\' OR e.description ILIKE $2 ESCAPE '\\')
+      ORDER BY e.starts_at LIMIT 10`, [req.user.id, like])
   ]);
-  res.json({ users: users.rows, groups: groups.rows, pages: pages.rows, hashtags: hashtags.rows });
+  res.json({ users: users.rows, groups: groups.rows, pages: pages.rows, hashtags: hashtags.rows, events: events.rows });
 });
 
 app.get("/api/users/search", auth, async (req, res) => {
@@ -2776,7 +2802,7 @@ app.post("/api/events/:eventId/rsvp", auth, async (req, res) => {
 app.get("/api/notifications", auth, async (req, res) => {
   const [notifications, unread] = await Promise.all([
     pool.query(`
-      SELECT n.id,n.type,n.text,n.read,n.created_at,n.actor_id,n.post_id,n.group_id,n.call_id,
+      SELECT n.id,n.type,n.text,n.read,n.created_at,n.actor_id,n.post_id,n.group_id,n.call_id,n.event_id,
         u.username AS actor_username,u.display_name AS actor_name,u.avatar_url AS actor_avatar
       FROM notifications n LEFT JOIN users u ON u.id=n.actor_id
       WHERE n.user_id=$1 ORDER BY n.created_at DESC LIMIT 50`, [req.user.id]),
@@ -3199,6 +3225,74 @@ app.get("/api/events/:eventId", optionalAuth, async (req, res) => {
   res.json({ event: event.rows[0], attendees: attendees.rows });
 });
 
+// Editar um evento (quem o criou ou quem gere a página): nome, data, local, descrição e lotação.
+// O preço não muda depois de criado (quem já comprou pagou esse preço). A lotação nunca fica abaixo do já vendido.
+// Se a data ou o local mudarem, quem vai e quem tem bilhete é avisado, e os lembretes voltam a ser enviados.
+app.patch("/api/events/:eventId", auth, async (req, res) => {
+  const eventId = parseId(req.params.eventId);
+  if (!eventId) return res.status(400).json({ error: "Evento inválido." });
+  const body = isRecord(req.body) ? req.body : {};
+  const current = (await pool.query(`
+    SELECT e.id,e.name,e.description,e.location,e.starts_at,e.tickets_total,e.ticket_price_kz::float AS price,
+      COALESCE((SELECT SUM(t.quantity) FROM event_tickets t WHERE t.event_id=e.id AND t.status='paid' AND t.refund_status IS NULL), 0)::int AS sold
+    FROM events e WHERE e.id=$1 AND (e.creator_id=$2 OR EXISTS(SELECT 1 FROM pages p WHERE p.id=e.page_id AND p.owner_id=$2))`,
+  [eventId, req.user.id])).rows[0];
+  if (!current) return res.status(404).json({ error: "Evento não encontrado." });
+  if (new Date(current.starts_at).getTime() < Date.now() - 6 * 3600000) return res.status(409).json({ error: "Este evento já aconteceu: já não se edita." });
+  const next = { name: current.name, description: current.description, location: current.location, startsAt: new Date(current.starts_at), total: current.tickets_total };
+  if (body.name !== undefined) {
+    const name = cleanText(body.name);
+    if (!name || name.length > 120) return res.status(400).json({ error: "O nome do evento é obrigatório e deve ter até 120 caracteres." });
+    next.name = name;
+  }
+  if (body.description !== undefined) {
+    if (typeof body.description !== "string" || body.description.length > 2000) return res.status(400).json({ error: "A descrição pode ter até 2000 caracteres." });
+    next.description = cleanText(body.description);
+  }
+  if (body.location !== undefined) {
+    if (typeof body.location !== "string" || body.location.length > 160) return res.status(400).json({ error: "O local pode ter até 160 caracteres." });
+    next.location = cleanText(body.location);
+  }
+  if (body.startsAt !== undefined) {
+    const startsAt = new Date(body.startsAt);
+    if (Number.isNaN(startsAt.getTime())) return res.status(400).json({ error: "Indica uma data e hora válidas." });
+    if (startsAt <= new Date()) return res.status(400).json({ error: "O evento deve começar no futuro." });
+    next.startsAt = startsAt;
+  }
+  if (body.ticketsTotal !== undefined && current.price > 0) {
+    const total = body.ticketsTotal === null || body.ticketsTotal === "" ? null : Number(body.ticketsTotal);
+    if (total !== null && (!Number.isInteger(total) || total < 1 || total > 100000)) return res.status(400).json({ error: "Indica quantos bilhetes há (pelo menos 1)." });
+    if (total !== null && total < current.sold) return res.status(409).json({ error: `Já vendeste ${current.sold} bilhetes: a lotação não pode ser menor.` });
+    next.total = total;
+  }
+  const moved = next.startsAt.getTime() !== new Date(current.starts_at).getTime();
+  const relocated = (next.location || "") !== (current.location || "");
+  const updated = await transaction(async client => {
+    const row = (await client.query(`
+      UPDATE events SET name=$2,description=$3,location=$4,starts_at=$5,tickets_total=$6 WHERE id=$1
+      RETURNING id,name,description,location,starts_at,tickets_total`,
+    [eventId, next.name, next.description, next.location, next.startsAt.toISOString(), next.total])).rows[0];
+    // Os bilhetes passam a poder ser levantados 1 dia depois da nova data.
+    if (moved) {
+      await client.query("UPDATE event_tickets SET available_at=$2::timestamptz + INTERVAL '1 day' WHERE event_id=$1", [eventId, next.startsAt.toISOString()]);
+      await client.query("DELETE FROM event_reminders_sent WHERE event_id=$1", [eventId]);
+    }
+    if (moved || relocated) {
+      const when = next.startsAt.toLocaleString("pt-PT", { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit", timeZone: "Africa/Luanda" });
+      const change = [moved ? `nova data: ${when}` : null, relocated ? `novo local: ${next.location || "a anunciar"}` : null].filter(Boolean).join("; ");
+      await client.query(`
+        INSERT INTO notifications(user_id,actor_id,type,text,event_id)
+        SELECT DISTINCT people.user_id,$2::int,'event_update',$3::text,$1::int FROM (
+          SELECT user_id FROM event_attendees WHERE event_id=$1
+          UNION SELECT user_id FROM event_tickets WHERE event_id=$1 AND status='paid' AND refund_status IS NULL
+        ) people WHERE people.user_id<>$2::int`,
+      [eventId, req.user.id, `O evento «${next.name}» mudou (${change}). Os teus bilhetes continuam válidos.`]);
+    }
+    return row;
+  });
+  res.json({ event: updated, notified: moved || relocated });
+});
+
 app.delete("/api/events/:eventId", auth, async (req, res) => {
   const eventId = parseId(req.params.eventId);
   if (!eventId) return res.status(400).json({ error: "Evento inválido." });
@@ -3515,6 +3609,10 @@ async function startServer() {
   const renewals = () => localSubscriptions.remindRenewals().catch(error => console.error("Avisos de renovação:", error.message));
   renewals();
   setInterval(renewals, 60 * 60 * 1000).unref();
+  // Lembretes dos eventos (1 dia e 1 hora antes), de 10 em 10 minutos.
+  const reminders = () => sendEventReminders({ pool, transaction }).catch(error => console.error("Lembretes de eventos:", error.message));
+  reminders();
+  setInterval(reminders, 10 * 60 * 1000).unref();
   // Desafios do mês automáticos (CHALLENGES_AUTO=false desliga: a equipa lança à mão).
   if (process.env.CHALLENGES_AUTO !== "false") {
     const monthly = () => launchMonthlyChallenges({ pool, transaction })
@@ -3537,4 +3635,5 @@ if (require.main === module) {
   });
 }
 
-module.exports = { app, initDb, launchMonthlyChallenges: () => launchMonthlyChallenges({ pool, transaction }), payments, pool, sms, startServer };
+module.exports = { app, initDb, launchMonthlyChallenges: () => launchMonthlyChallenges({ pool, transaction }), payments, pool,
+  sendEventReminders: () => sendEventReminders({ pool, transaction }), sms, startServer };

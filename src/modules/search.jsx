@@ -1,4 +1,4 @@
-// Página de pesquisa: pessoas, publicações, hashtags, grupos e páginas.
+// Página de pesquisa: pessoas, publicações, hashtags, grupos, páginas e eventos.
 // "/search?q=texto" procura em tudo; "/search?q=%23tag" (ou um clique numa hashtag) mostra as publicações dessa hashtag.
 import { useContext, useEffect, useState } from "react";
 import { Link, Navigate, useSearchParams } from "react-router-dom";
@@ -7,7 +7,7 @@ import { PostCard } from "./feed.jsx";
 import { PeopleCard } from "./friends.jsx";
 import { OfficialPageBadge } from "./pages.jsx";
 
-const TABS = [["all", "Tudo"], ["people", "Pessoas"], ["posts", "Publicações"], ["hashtags", "Hashtags"], ["groups", "Grupos"], ["pages", "Páginas"]];
+const TABS = [["all", "Tudo"], ["people", "Pessoas"], ["posts", "Publicações"], ["hashtags", "Hashtags"], ["groups", "Grupos"], ["pages", "Páginas"], ["events", "Eventos"]];
 const HASHTAG = /^#[\p{L}\p{N}_]{1,50}$/u;
 
 export function Search() {
@@ -39,14 +39,14 @@ export function Search() {
   const go = (next, nextTab = tab) => setParams(next ? { q: next, ...(nextTab !== "all" && { tab: nextTab }) } : {});
   const counts = results && posts ? {
     people: results.users.length, posts: posts.length, hashtags: results.hashtags.length,
-    groups: results.groups.length, pages: results.pages.length
+    groups: results.groups.length, pages: results.pages.length, events: (results.events || []).length
   } : {};
   const show = id => tab === "all" || tab === id;
   const nothing = results && posts && !Object.values(counts).some(Boolean);
 
   return <div className="pages-view search-view">
     <header className="pages-head">
-      <div><h1>{isTag ? query : "Pesquisa"}</h1><p>{isTag ? "Publicações com esta hashtag." : "Pessoas, publicações, hashtags, grupos e páginas."}</p></div>
+      <div><h1>{isTag ? query : "Pesquisa"}</h1><p>{isTag ? "Publicações com esta hashtag." : "Pessoas, publicações, hashtags, grupos, páginas e eventos."}</p></div>
     </header>
     <form className="search-page-form" role="search" onSubmit={event => { event.preventDefault(); go(draft.trim()); }}>
       <label className="pages-search"><Icon name="search" size={17} />
@@ -92,6 +92,14 @@ export function Search() {
         <ul className="search-list">{results.pages.slice(0, tab === "all" ? 4 : 20).map(page => <li key={page.id}>
           <Link to={`/pages/${page.id}`}><span className="menu-icon tone-pages"><Icon name="pages" size={18} /></span>
             <span><strong>{page.name}<OfficialPageBadge show={page.is_official} tier={page.verification_tier} /></strong><small>{page.follower_count === 1 ? "1 seguidor" : `${page.follower_count} seguidores`}</small></span></Link>
+        </li>)}</ul>
+      </section>}
+      {show("events") && !!results.events?.length && <section className="search-section" aria-labelledby="search-events">
+        <h2 id="search-events">Eventos</h2>
+        <ul className="search-list">{results.events.slice(0, tab === "all" ? 4 : 20).map(event => <li key={event.id}>
+          <Link to={`/events/${event.id}`}><span className="menu-icon tone-events"><Icon name="events" size={18} /></span>
+            <span><strong>{event.name}</strong><small>{new Date(event.starts_at).toLocaleString("pt-PT", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Africa/Luanda" })}
+              {event.location ? ` · ${event.location}` : ""} · {event.ticket_price_kz > 0 ? `${Math.round(event.ticket_price_kz).toLocaleString("pt-PT")} Kz` : "Grátis"}</small></span></Link>
         </li>)}</ul>
       </section>}
     </>}

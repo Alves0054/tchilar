@@ -2074,22 +2074,68 @@ test("general limits: too many payment starts from one IP get 429", { skip }, as
   const ip = { "x-forwarded-for": "10.9.9.9" };
   const statuses = [];
   process.env.RATE_LIMIT_PAYMENTS = "30"; // o valor normal, só neste teste
-  for (let i = 0; i < 31; i += 1) statuses.push((await call("POST", "/stars/purchase", someone, { pack: "nao-existe" }, ip)).status);
+  // Maiúsculas e barra no fim chegam à mesma rota e contam no mesmo limite.
+  for (let i = 0; i < 31; i += 1) statuses.push((await call("POST", i % 2 ? "/STARS/Purchase/" : "/stars/purchase", someone, { pack: "nao-existe" }, ip)).status);
   assert.notEqual(statuses[0], 429);
   assert.equal(statuses[30], 429, "o 31.º pagamento começado em 10 minutos é recusado");
   assert.notEqual((await call("POST", "/stars/purchase", someone, { pack: "nao-existe" }, { "x-forwarded-for": "10.9.9.10" })).status, 429, "conta por IP");
   process.env.RATE_LIMIT_PAYMENTS = "100000";
 });
 
-test("login: per-account limit across IPs, and the same answer for unknown accounts", { skip }, async () => {
+test("login: per-account limits (one place and many places), the same answer for unknown accounts", { skip }, async () => {
   const target = await makeUser(`brute_${Date.now().toString(36)}`);
   const email = `${target.username}@example.com`;
-  const statuses = [];
-  for (let i = 0; i < 21; i += 1) {
-    statuses.push((await call("POST", "/auth/login", null, { email, password: `errada-${i}` }, { "x-forwarded-for": `10.77.${i}.1` })).status);
-  }
-  assert.ok(statuses.slice(0, 20).every(status => status === 401), "cada IP tenta poucas vezes");
-  assert.equal(statuses[20], 429, "a 21.ª tentativa para a mesma conta é travada, mesmo de outro IP");
+  // Do mesmo IP: a 11.ª falha para a conta é travada (mesmo escrevendo o email com maiúsculas).
+  const sameIp = [];
+  for (let i = 0; i < 11; i += 1) sameIp.push((await call("POST", "/auth/login", null, { email: i % 2 ? email.toUpperCase() : email, password: `x-${i}` }, { "x-forwarded-for": "10.70.0.1" })).status);
+  assert.equal(sameIp[10], 429);
+  // De muitos IPs: só a 61.ª falha numa hora trava a conta (um estranho não a bloqueia com poucas tentativas).
+  const manyIps = [];
+  for (let i = 0; i < 50; i += 1) manyIps.push((await call("POST", "/auth/login", null, { email, password: `y-${i}` }, { "x-forwarded-for": `10.71.${i}.1` })).status);
+  assert.ok(manyIps.every(status => status === 401));
+  assert.equal((await call("POST", "/auth/login", null, { email, password: "z" }, { "x-forwarded-for": "10.72.0.1" })).status, 429, "60 falhas numa hora travam a conta");
   const unknown = await call("POST", "/auth/login", null, { email: "ninguem-aqui@example.com", password: "qualquer coisa" }, { "x-forwarded-for": "10.78.0.1" });
   assert.deepEqual([unknown.status, unknown.body.error], [401, "Credenciais inválidas."], "conta que não existe responde igual");
+});
+
+test("events: edit (with warnings), reminders a day and an hour before, and search", { skip }, async () => {
+  const { sendEventReminders } = require("./index");
+  const stamp = Date.now().toString(36);
+  const host = await makeUser(`evhost_${stamp}`);
+  const guest = await makeUser(`evguest_${stamp}`);
+  const outsider = await makeUser(`evout_${stamp}`);
+  const startsAt = new Date(Date.now() + 20 * 3600000).toISOString();
+  const event = (await call("POST", "/events", host, { name: `Semba no largo ${stamp}`, startsAt, location: "Largo da Independência" })).body.event;
+  await call("POST", `/events/${event.id}/rsvp`, guest);
+
+  // Editar: só quem organiza; mudar a data avisa quem vai.
+  assert.equal((await call("PATCH", `/events/${event.id}`, outsider, { name: "Roubado" })).status, 404);
+  assert.equal((await call("PATCH", `/events/${event.id}`, host, { startsAt: new Date(Date.now() - 60000).toISOString() })).status, 400);
+  const later = new Date(Date.now() + 26 * 3600000).toISOString();
+  const edited = await call("PATCH", `/events/${event.id}`, host, { name: `Semba no largo ${stamp} (2.ª)`, startsAt: later });
+  assert.equal(edited.status, 200, edited.body.error);
+  assert.equal(edited.body.notified, true);
+  const changed = (await pool.query("SELECT text,event_id FROM notifications WHERE user_id=$1 AND type='event_update'", [guest.id])).rows[0];
+  assert.match(changed.text, /mudou \(nova data/);
+  assert.equal(changed.event_id, event.id);
+
+  // Lembretes: nada fora da janela; 1 dia antes e 1 hora antes, uma vez cada.
+  await sendEventReminders();
+  assert.equal((await pool.query("SELECT 1 FROM notifications WHERE user_id=$1 AND type='event_reminder'", [guest.id])).rowCount, 0, "faltam 26 h");
+  await pool.query("UPDATE events SET starts_at=NOW() + INTERVAL '20 hours' WHERE id=$1", [event.id]);
+  await sendEventReminders();
+  await sendEventReminders();
+  const dayReminders = (await pool.query("SELECT text FROM notifications WHERE user_id=$1 AND type='event_reminder'", [guest.id])).rows;
+  assert.equal(dayReminders.length, 1, "o lembrete do dia sai uma vez");
+  assert.match(dayReminders[0].text, /^Lembrete: «Semba no largo .*» é (hoje|amanhã) às/);
+  assert.equal((await pool.query("SELECT 1 FROM notifications WHERE user_id=$1 AND type='event_reminder'", [host.id])).rowCount, 0, "quem organiza não recebe");
+  await pool.query("UPDATE events SET starts_at=NOW() + INTERVAL '60 minutes' WHERE id=$1", [event.id]);
+  await sendEventReminders();
+  const hour = (await pool.query("SELECT text FROM notifications WHERE user_id=$1 AND type='event_reminder' ORDER BY id DESC LIMIT 1", [guest.id])).rows[0];
+  assert.match(hour.text, /começa daqui a (1 hora|\d+ min)/);
+
+  // Pesquisa: o evento aparece pelo nome e pelo local.
+  const byName = (await call("GET", `/search?q=${encodeURIComponent(`Semba no largo ${stamp}`)}`, outsider)).body.events;
+  assert.equal(byName[0]?.id, event.id);
+  assert.ok((await call("GET", "/search?q=Independ", outsider)).body.events.some(item => item.id === event.id));
 });

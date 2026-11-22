@@ -8,7 +8,7 @@ import { Chips } from "../../../components/ui";
 import { api } from "../../../lib/api";
 import { colors } from "../../../lib/theme";
 
-const TABS = [["all", "Tudo"], ["people", "Pessoas"], ["posts", "Publicações"], ["hashtags", "Hashtags"], ["groups", "Grupos"], ["pages", "Páginas"]];
+const TABS = [["all", "Tudo"], ["people", "Pessoas"], ["posts", "Publicações"], ["hashtags", "Hashtags"], ["groups", "Grupos"], ["pages", "Páginas"], ["events", "Eventos"]];
 const HASHTAG = /^#[\p{L}\p{N}_]{1,50}$/u;
 
 // Pesquisa: pessoas, publicações, hashtags, grupos e páginas, com a barra de pesquisa nativa
@@ -29,7 +29,7 @@ export default function Search() {
       const postsUrl = isTag ? `/posts?tag=${encodeURIComponent(query.slice(1))}` : `/posts?q=${encodeURIComponent(query)}`;
       Promise.all([api(`/search?q=${encodeURIComponent(query)}`), api(postsUrl)])
         .then(([found, postResult]) => { if (active) { setResults(found); setPosts(postResult.posts); } })
-        .catch(() => { if (active) { setResults({ users: [], groups: [], pages: [], hashtags: [] }); setPosts([]); } });
+        .catch(() => { if (active) { setResults({ users: [], groups: [], pages: [], hashtags: [], events: [] }); setPosts([]); } });
     }, 300);
     return () => { active = false; clearTimeout(timer); };
   }, [query, isTag]);
@@ -62,6 +62,12 @@ export default function Search() {
         <Text style={styles.sub}>{item.follower_count === 1 ? "1 seguidor" : `${item.follower_count} seguidores`}</Text></View>
     </Pressable>);
   }
+  if (results) section("events", "Eventos", results.events, item => <Pressable style={styles.row} onPress={() => router.push(`/event/${item.id}`)}>
+    <View style={[styles.icon, { backgroundColor: "#E306131F" }]}><Ionicons name="calendar" size={20} color="#E30613" /></View>
+    <View style={styles.flex}><Text style={styles.name}>{item.name}</Text>
+      <Text style={styles.sub}>{new Date(item.starts_at).toLocaleString("pt-PT", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Africa/Luanda" })}
+        {item.location ? ` · ${item.location}` : ""} · {item.ticket_price_kz > 0 ? `${Math.round(item.ticket_price_kz).toLocaleString("pt-PT")} Kz` : "Grátis"}</Text></View>
+  </Pressable>);
   if (posts) section("posts", "Publicações", posts, item => <PostCard post={item} />);
 
   return <>
