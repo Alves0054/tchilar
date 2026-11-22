@@ -168,7 +168,41 @@ Motivo (fica no registo):`);
 // ---------------------------------------------------------------------------------------------
 // Definições → Pagamentos e recibos
 // ---------------------------------------------------------------------------------------------
+// Dados para recibos: o que aparece em «Vendido por» quando alguém compra ao criador
+// (bilhetes, entradas em grupos, cursos e subscrições). Sem eles, aparece o nome do perfil.
+function BillingDetails() {
+  const { user, refreshUser } = useContext(UserContext);
+  const [form, setForm] = useState({ sellerName: user?.billing_name || "", sellerNif: user?.billing_nif || "", sellerAddress: user?.billing_address || "" });
+  const [state, setState] = useState({ busy: false, error: "", notice: "" });
+  const set = key => changeEvent => setForm({ ...form, [key]: key === "sellerNif" ? changeEvent.target.value.toUpperCase() : changeEvent.target.value });
+  const submit = async submitEvent => {
+    submitEvent.preventDefault();
+    setState({ busy: true, error: "", notice: "" });
+    try {
+      await api("/auth/me/billing", { method: "PATCH", body: JSON.stringify(form) });
+      await refreshUser?.();
+      setState({ busy: false, error: "", notice: form.sellerName.trim() ? "Guardado. Os próximos recibos já levam estes dados." : "Dados apagados." });
+    } catch (saveError) { setState({ busy: false, error: saveError.message, notice: "" }); }
+  };
+  return <section className="prefs-card">
+    <header className="prefs-card-head"><h3>Dados para recibos</h3>
+      <p>Aparecem em «Vendido por» nos recibos de quem te compra bilhetes, entradas em grupos, cursos ou subscrições. Sem eles, aparece o nome do teu perfil.</p></header>
+    <form className="prefs-form" onSubmit={submit}>
+      <label>Empresa (ou o teu nome)<input maxLength={160} value={form.sellerName} onChange={set("sellerName")} placeholder="Ex.: Kianda Eventos, Lda" /></label>
+      <label>NIF<input maxLength={20} value={form.sellerNif} onChange={set("sellerNif")} placeholder="5000000000" /></label>
+      <label>Morada <small>Opcional</small><input maxLength={240} value={form.sellerAddress} onChange={set("sellerAddress")} placeholder="Rua, n.º, cidade" /></label>
+      <div className="prefs-form-foot"><button className="btn" type="submit" disabled={state.busy}>{state.busy ? "A guardar..." : "Guardar"}</button></div>
+    </form>
+    {state.error && <p className="error" role="alert">{state.error}</p>}
+    {state.notice && <p className="prefs-saved" role="status"><Icon name="check" size={14} />{state.notice}</p>}
+  </section>;
+}
+
 export function SettingsPayments() {
+  return <div className="prefs-stack"><PaymentsList /><BillingDetails /></div>;
+}
+
+function PaymentsList() {
   const [payments, setPayments] = useState(null);
   const [error, setError] = useState("");
   useEffect(() => { api("/payments").then(result => setPayments(result.payments)).catch(loadError => setError(loadError.message)); }, []);

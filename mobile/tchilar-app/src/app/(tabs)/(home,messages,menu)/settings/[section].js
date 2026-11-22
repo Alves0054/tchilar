@@ -372,7 +372,39 @@ function Notifications() {
 }
 
 // ---------------------------------------------------------------------------------------------
+// Dados para recibos: aparecem em «Vendido por» quando alguém compra ao criador
+// (bilhetes, entradas em grupos, cursos, subscrições). Sem eles, aparece o nome do perfil.
+function BillingDetails() {
+  const { user, refresh } = useSession();
+  const [form, setForm] = useState({ sellerName: user?.billing_name || "", sellerNif: user?.billing_nif || "", sellerAddress: user?.billing_address || "" });
+  const [notice, run] = useNotice();
+  const [busy, setBusy] = useState(false);
+  const set = key => value => setForm(current => ({ ...current, [key]: key === "sellerNif" ? value.toUpperCase() : value }));
+  const save = async () => {
+    setBusy(true);
+    await run(async () => {
+      await api("/auth/me/billing", { method: "PATCH", body: form });
+      await refresh?.();
+    }, form.sellerName.trim() ? "Guardado. Os próximos recibos já levam estes dados." : "Dados apagados.");
+    setBusy(false);
+  };
+  return <Card title="Dados para recibos" subtitle="Aparecem em «Vendido por» nos recibos de quem te compra bilhetes, entradas em grupos, cursos ou subscrições. Sem eles, aparece o nome do teu perfil.">
+    <Field label="Empresa (ou o teu nome)" value={form.sellerName} onChangeText={set("sellerName")} maxLength={160} placeholder="Ex.: Kianda Eventos, Lda" />
+    <Field label="NIF" value={form.sellerNif} onChangeText={set("sellerNif")} maxLength={20} autoCapitalize="characters" placeholder="5000000000" />
+    <Field label="Morada (opcional)" value={form.sellerAddress} onChangeText={set("sellerAddress")} maxLength={240} />
+    <Notice {...notice} />
+    <Button label="Guardar" busy={busy} onPress={save} />
+  </Card>;
+}
+
 function Payments() {
+  return <>
+    <PaymentsList />
+    <BillingDetails />
+  </>;
+}
+
+function PaymentsList() {
   const [payments, setPayments] = useState(null);
   const [open, setOpen] = useState(null);
   useEffect(() => { api("/payments").then(result => setPayments(result.payments)).catch(() => setPayments([])); }, []);

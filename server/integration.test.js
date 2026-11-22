@@ -986,6 +986,21 @@ test("payments: each person sees their receipts and the team sees, filters and e
   assert.equal(receipt.body.payment.amount, 1500);
   assert.equal((await call("GET", `/payments/stars/${stars}/receipt`, users.dino)).status, 404, "nobody else sees the receipt");
   assert.equal((await call("GET", "/payments/bitcoin/1/receipt", users.ana)).status, 400);
+  assert.equal(receipt.body.payment.seller, null, "Estrelas são vendidas pelo próprio Tchilar");
+
+  // Subscrição: quem vende é o criador, com os dados para recibos que pôs na conta.
+  const billingCreator = await makeUser(`billing_${Date.now()}`);
+  const sub = (await pool.query(`INSERT INTO subscription_payments(subscriber_id,creator_id,amount_kz,status,paid_at)
+    VALUES($1,$2,2000,'paid',NOW()) RETURNING id`, [users.ana.id, billingCreator.id])).rows[0].id;
+  const subReceipt = async () => (await call("GET", `/payments/subscription/${sub}/receipt`, users.ana)).body.payment.seller;
+  assert.equal((await subReceipt()).name, (await pool.query("SELECT display_name FROM users WHERE id=$1", [billingCreator.id])).rows[0].display_name,
+    "sem dados para recibos aparece o nome do perfil");
+  assert.equal((await call("PATCH", "/auth/me/billing", billingCreator, { sellerName: "Carla", sellerNif: "12" })).status, 400);
+  const saved = await call("PATCH", "/auth/me/billing", billingCreator, { sellerName: "Carla Lda", sellerNif: "500 111 222 3", sellerAddress: "Luanda" });
+  assert.equal(saved.body.user.billing_nif, "5001112223");
+  assert.deepEqual(await subReceipt(), { name: "Carla Lda", nif: "5001112223", address: "Luanda" });
+  await call("PATCH", "/auth/me/billing", billingCreator, { sellerName: "", sellerNif: "", sellerAddress: "" });
+  assert.equal((await subReceipt()).nif, null, "apagar os dados tira o NIF dos recibos");
 
   // A equipa só entra com dois passos ativos.
   await pool.query("UPDATE users SET is_admin=TRUE WHERE id=$1", [users.bruno.id]);

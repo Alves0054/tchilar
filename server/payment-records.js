@@ -36,35 +36,35 @@ const PAYMENTS_SQL = `
     SELECT 'ad'::text AS kind, a.id AS ref_id, a.owner_id AS user_id, a.budget::float AS amount_kz, a.paid_at,
       'Promoção «' || a.title || '» (' || a.days || ' dias)' AS description,
       COALESCE(a.stripe_payment_intent, a.stripe_session_id) AS card_ref,
-      ${refundState("a")} AS status
+      ${refundState("a")} AS status, NULL::int AS seller_user_id
     FROM ads a WHERE a.paid_at IS NOT NULL
     UNION ALL
     SELECT 'stars', s.id, s.user_id, s.amount_kz::float, s.paid_at, s.stars || ' Estrelas Tchilar',
-      COALESCE(s.stripe_payment_intent, s.stripe_session_id), ${refundState("s")}
+      COALESCE(s.stripe_payment_intent, s.stripe_session_id), ${refundState("s")}, NULL::int
     FROM star_purchases s WHERE s.status='paid'
     UNION ALL
     SELECT 'campaign', c.id, c.brand_id, c.budget::float, c.paid_at, 'Campanha «' || c.title || '»',
-      COALESCE(c.stripe_payment_intent, c.stripe_session_id), ${refundState("c")}
+      COALESCE(c.stripe_payment_intent, c.stripe_session_id), ${refundState("c")}, NULL::int
     FROM brand_campaigns c WHERE c.paid_at IS NOT NULL
     UNION ALL
     SELECT 'group_access', g.id, g.user_id, g.amount_kz::float, g.paid_at,
       'Entrada no grupo «' || COALESCE(sg.name, 'grupo apagado') || '»',
-      COALESCE(g.stripe_payment_intent, g.stripe_session_id), ${refundState("g")}
+      COALESCE(g.stripe_payment_intent, g.stripe_session_id), ${refundState("g")}, sg.owner_id
     FROM group_access_purchases g LEFT JOIN social_groups sg ON sg.id=g.group_id WHERE g.status='paid'
     UNION ALL
     SELECT 'course', cp.id, cp.user_id, cp.amount_kz::float, cp.paid_at,
       'Curso «' || COALESCE(co.title, 'curso apagado') || '»',
-      COALESCE(cp.stripe_payment_intent, cp.stripe_session_id), ${refundState("cp")}
+      COALESCE(cp.stripe_payment_intent, cp.stripe_session_id), ${refundState("cp")}, co.owner_id
     FROM course_purchases cp LEFT JOIN courses co ON co.id=cp.course_id WHERE cp.status='paid'
     UNION ALL
     SELECT 'subscription', sp.id, sp.subscriber_id, sp.amount_kz::float, sp.paid_at,
       'Subscrição de ' || COALESCE(cu.display_name, 'conta apagada') || ' (1 mês)',
-      COALESCE(sp.stripe_payment_intent, sp.stripe_session_id), ${refundState("sp")}
+      COALESCE(sp.stripe_payment_intent, sp.stripe_session_id), ${refundState("sp")}, sp.creator_id
     FROM subscription_payments sp LEFT JOIN users cu ON cu.id=sp.creator_id WHERE sp.status='paid'
     UNION ALL
     SELECT 'event_ticket', et.id::int, et.user_id, et.amount_kz::float, et.paid_at,
       CASE WHEN et.quantity > 1 THEN et.quantity || ' bilhetes «' ELSE 'Bilhete «' END || COALESCE(et.event_name, 'evento') || '»',
-      COALESCE(et.stripe_payment_intent, et.stripe_session_id), ${refundState("et")}
+      COALESCE(et.stripe_payment_intent, et.stripe_session_id), ${refundState("et")}, NULL::int
     FROM event_tickets et WHERE et.status='paid' AND et.amount_kz > 0
   )
   SELECT i.kind, i.ref_id, i.user_id, i.amount_kz, i.paid_at, i.description, i.status, i.card_ref,
@@ -72,11 +72,15 @@ const PAYMENTS_SQL = `
     l.provider_ref, l.entity, l.phone_last3,
     u.username, u.display_name, u.email,
     -- Bilhetes: quantidade e quem vende (a empresa que organiza), para o recibo.
-    etx.quantity, etx.seller_name, etx.seller_nif, etx.seller_address
+    etx.quantity, etx.seller_name, etx.seller_nif, etx.seller_address,
+    -- Grupos, cursos e subscrições: quem vende é quem criou (com os dados para recibos, se os pôs).
+    i.seller_user_id, su.display_name AS seller_display_name, su.username AS seller_username,
+    su.billing_name AS seller_billing_name, su.billing_nif AS seller_billing_nif, su.billing_address AS seller_billing_address
   FROM items i
   LEFT JOIN local l ON l.purpose=i.kind AND l.ref_id=i.ref_id
   LEFT JOIN users u ON u.id=i.user_id
-  LEFT JOIN event_tickets etx ON i.kind='event_ticket' AND etx.id=i.ref_id`;
+  LEFT JOIN event_tickets etx ON i.kind='event_ticket' AND etx.id=i.ref_id
+  LEFT JOIN users su ON su.id=i.seller_user_id`;
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const validDate = value => typeof value === "string" && DATE.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00Z`));
@@ -122,6 +126,26 @@ function paymentWhere(filters) {
 }
 
 // O que cada pessoa vê do seu pagamento. A equipa vê também o email e as referências técnicas (Stripe).
+// Quem vende, para o recibo. null = o próprio Tchilar (Estrelas, promoções, campanhas e cursos da plataforma).
+// - Bilhetes: os dados guardados na compra (nunca aparecem como vendidos pelo Tchilar).
+// - Grupos, cursos e subscrições: quem criou, com o nome e NIF para recibos que pôs na conta.
+const CREATOR_FALLBACK = { group_access: "Dono do grupo", subscription: "Criador subscrito", course: "Autor do curso" };
+function sellerOf(row) {
+  if (row.kind === "event_ticket") {
+    return { name: row.seller_name || "Organizador do evento", nif: row.seller_nif || null, address: row.seller_address || null };
+  }
+  if (!Object.hasOwn(CREATOR_FALLBACK, row.kind)) return null;
+  if (row.seller_user_id) {
+    return {
+      name: row.seller_billing_name || row.seller_display_name || row.seller_username || CREATOR_FALLBACK[row.kind],
+      nif: row.seller_billing_nif || null,
+      address: row.seller_billing_address || null
+    };
+  }
+  // Curso sem autor é da plataforma; grupo ou subscrição sem dono (conta apagada) fica com o nome genérico.
+  return row.kind === "course" ? null : { name: CREATOR_FALLBACK[row.kind], nif: null, address: null };
+}
+
 function serializePayment(row, { admin = false } = {}) {
   const payment = {
     kind: row.kind,
@@ -148,10 +172,7 @@ function serializePayment(row, { admin = false } = {}) {
       total: row.amount_kz
     }],
     // Quem vende: nos bilhetes, a empresa que organiza o evento; no resto, o Tchilar (issuer).
-    // Um bilhete nunca aparece como vendido pelo Tchilar: sem dados guardados, fica «Organizador do evento».
-    seller: row.kind === "event_ticket"
-      ? { name: row.seller_name || "Organizador do evento", nif: row.seller_nif || null, address: row.seller_address || null }
-      : null
+    seller: sellerOf(row)
   };
   if (admin) {
     payment.customer = row.user_id ? { ...payment.customer, email: row.email } : null;

@@ -1481,6 +1481,23 @@ for (const kind of ["avatar", "cover"]) {
 }
 
 // Reposicionar a capa atual sem voltar a enviar a imagem.
+// Dados para recibos: o nome (ou empresa), NIF e morada que aparecem em «Vendido por» nos recibos
+// de quem compra ao criador (bilhetes, grupos, cursos, subscrições). Tudo vazio apaga.
+app.patch("/api/auth/me/billing", auth, async (req, res) => {
+  const body = req.body || {};
+  const empty = ["sellerName", "sellerNif", "sellerAddress"].every(key => !String(body[key] ?? "").trim());
+  let seller = { name: null, nif: null, address: null };
+  if (!empty) {
+    seller = parseSellerInput(body, cleanText);
+    if (seller.error) return res.status(400).json({ error: seller.error.replace(" que vende os bilhetes", "").replace(" de quem vende os bilhetes", "") });
+  }
+  const result = await pool.query(
+    `UPDATE users SET billing_name=$2,billing_nif=$3,billing_address=$4 WHERE id=$1 RETURNING ${OWN_ACCOUNT_FIELDS}`,
+    [req.user.id, seller.name, seller.nif, seller.address]);
+  if (!result.rowCount) return res.status(404).json({ error: "Conta não encontrada." });
+  res.json({ user: result.rows[0] });
+});
+
 app.patch("/api/auth/me/cover-position", auth, async (req, res) => {
   const position = parseCoverPosition(req.body?.position);
   if (req.body?.position === undefined || position === null) return res.status(400).json({ error: "Posição da capa inválida." });
