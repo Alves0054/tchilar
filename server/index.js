@@ -336,6 +336,28 @@ app.get("/api/payments/paypal/return", async (req, res) => {
   res.redirect(303, new URL(target.startsWith("/") && !target.startsWith("//") ? target : "/", appUrl).toString());
 });
 
+// Limites gerais por IP, além dos limites próprios do login, recuperação, SMS, pesquisa e denúncias:
+// - escritas (publicar, comentar, mensagens, criar...): RATE_LIMIT_WRITES por 5 min (300 por omissão);
+// - começar pagamentos (bilhetes, cursos, estrelas, subscrições...): RATE_LIMIT_PAYMENTS por 10 min (30 por omissão).
+// Os sinais dos diretos (heartbeat, sinais WebRTC, reações) ficam de fora: são muitos e já têm controlo próprio.
+const writeLimit = () => Math.max(1, Number(process.env.RATE_LIMIT_WRITES) || 300);
+const paymentLimit = () => Math.max(1, Number(process.env.RATE_LIMIT_PAYMENTS) || 30);
+const LIVE_SIGNAL_PATH = /^\/api\/lives\/\d+\/(heartbeat|signals|react|leave)$/;
+const PAYMENT_START_PATH = /^\/api\/(events\/\d+\/tickets|lives\/\d+\/ticket|courses\/\d+\/buy|stars\/purchase|groups\/\d+\/access|subscriptions\/\d+|creator\/verification\/checkout|pages\/\d+\/verification\/checkout|campaigns(\/\d+\/[a-z-]+)?|ads(\/\d+\/checkout)?|creator\/partner\/join)$/;
+const isWrite = req => !["GET", "HEAD", "OPTIONS"].includes(req.method) && req.path.startsWith("/api/")
+  && !req.path.startsWith("/api/webhooks/") && !req.path.startsWith("/api/media/") && !LIVE_SIGNAL_PATH.test(req.path);
+const writeRateLimit = makeRateLimit("writes", {
+  windowMs: 5 * 60 * 1000, limit: writeLimit, standardHeaders: "draft-8", legacyHeaders: false,
+  skip: req => !isWrite(req),
+  message: { error: "Estás a fazer demasiadas ações seguidas. Espera uns minutos e tenta outra vez." }
+});
+const paymentRateLimit = makeRateLimit("paymentStarts", {
+  windowMs: 10 * 60 * 1000, limit: paymentLimit, standardHeaders: "draft-8", legacyHeaders: false,
+  skip: req => req.method !== "POST" || !PAYMENT_START_PATH.test(req.path),
+  message: { error: "Demasiados pagamentos começados. Espera 10 minutos e tenta outra vez." }
+});
+app.use(writeRateLimit);
+app.use(paymentRateLimit);
 app.use(express.json({ limit: "2mb" }));
 app.use(express.urlencoded({ extended: false, limit: "2mb" }));
 app.use((req, _res, next) => requestContext.run({ ip: req.ip }, next));
@@ -964,7 +986,22 @@ app.get("/api/auth/username-available", usernameCheckRateLimit, async (req, res)
   res.json({ available: result.rowCount === 0, reason: result.rowCount ? "taken" : null });
 });
 
-app.post("/api/auth/login", authRateLimit, async (req, res) => {
+// Por conta (email ou telemóvel), além do limite por IP: no máximo 20 tentativas falhadas em 15 minutos,
+// mesmo vindas de muitos IPs diferentes. Só as falhas contam (um login certo não gasta tentativas).
+const loginAccountKey = req => {
+  const raw = isRecord(req.body) ? (typeof req.body.identifier === "string" ? req.body.identifier : req.body.email) : "";
+  return `acct:${String(raw || "").trim().toLowerCase().replace(/[\s()-]/g, "").slice(0, 120)}`;
+};
+const loginAccountRateLimit = makeRateLimit("loginAccount", {
+  windowMs: 15 * 60 * 1000, limit: 20, standardHeaders: "draft-8", legacyHeaders: false,
+  skipSuccessfulRequests: true, keyGenerator: loginAccountKey,
+  message: { error: "Demasiadas tentativas para esta conta. Espera 15 minutos ou recupera a palavra-passe." }
+});
+// Hash de uma palavra-passe que ninguém tem: quando a conta não existe, comparamos na mesma, para a resposta
+// demorar o mesmo e não revelar que contas existem.
+const DUMMY_PASSWORD_HASH = bcrypt.hashSync(crypto.randomBytes(24).toString("hex"), 12);
+
+app.post("/api/auth/login", authRateLimit, loginAccountRateLimit, async (req, res) => {
   const body = isRecord(req.body) ? req.body : {};
   // "identifier" (ou "email", nas apps antigas): o email ou o número de telemóvel da conta.
   const identifier = cleanText(typeof body.identifier === "string" ? body.identifier : body.email);
@@ -977,7 +1014,8 @@ app.post("/api/auth/login", authRateLimit, async (req, res) => {
     SELECT ${OWN_ACCOUNT_FIELDS},auth_version,password_hash,suspended_at,totp_secret,totp_enabled_at,totp_last_step
     FROM users WHERE ${byEmail ? "email=$1" : "phone=$1 AND phone_verified_at IS NOT NULL"}`, [byEmail ? identifier.toLowerCase() : phone.e164]);
   const user = result.rows[0];
-  if (!user || !(await bcrypt.compare(password, user.password_hash))) {
+  const passwordOk = await bcrypt.compare(password, user?.password_hash || DUMMY_PASSWORD_HASH);
+  if (!user || !passwordOk) {
     return res.status(401).json({ error: "Credenciais inválidas." });
   }
   delete user.password_hash;

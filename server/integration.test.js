@@ -34,6 +34,9 @@ before(async () => {
   // Para os testes de sessões poderem usar um IP próprio (X-Forwarded-For) e não dependerem de quantos
   // registos e logins os testes anteriores já gastaram do limite de 10 tentativas por IP.
   process.env.TRUST_PROXY = "1";
+  // Os testes fazem milhares de escritas do mesmo IP: o limite geral fica alto; o dos pagamentos fica no normal (30).
+  process.env.RATE_LIMIT_WRITES = "100000";
+  process.env.RATE_LIMIT_PAYMENTS = "100000";
   // SMS: chaves falsas do Twilio (os testes trocam o envio e a verificação por uma versão em memória, ver smsCodes).
   process.env.TWILIO_ACCOUNT_SID = "ACtest";
   process.env.TWILIO_AUTH_TOKEN = "test";
@@ -2064,4 +2067,29 @@ test("paid lives: entry in stars before video, chat and P2P signals", { skip }, 
   const received = (await pool.query("SELECT COALESCE(SUM(amount),0)::int AS n FROM star_ledger WHERE user_id=$1 AND live_id=$2 AND kind='gift_received'", [host.id, id])).rows[0].n;
   assert.equal(received, 50);
   await call("POST", `/lives/${id}/end`, host);
+});
+
+test("general limits: too many payment starts from one IP get 429", { skip }, async () => {
+  const someone = await makeUser(`limits_${Date.now().toString(36)}`);
+  const ip = { "x-forwarded-for": "10.9.9.9" };
+  const statuses = [];
+  process.env.RATE_LIMIT_PAYMENTS = "30"; // o valor normal, só neste teste
+  for (let i = 0; i < 31; i += 1) statuses.push((await call("POST", "/stars/purchase", someone, { pack: "nao-existe" }, ip)).status);
+  assert.notEqual(statuses[0], 429);
+  assert.equal(statuses[30], 429, "o 31.º pagamento começado em 10 minutos é recusado");
+  assert.notEqual((await call("POST", "/stars/purchase", someone, { pack: "nao-existe" }, { "x-forwarded-for": "10.9.9.10" })).status, 429, "conta por IP");
+  process.env.RATE_LIMIT_PAYMENTS = "100000";
+});
+
+test("login: per-account limit across IPs, and the same answer for unknown accounts", { skip }, async () => {
+  const target = await makeUser(`brute_${Date.now().toString(36)}`);
+  const email = `${target.username}@example.com`;
+  const statuses = [];
+  for (let i = 0; i < 21; i += 1) {
+    statuses.push((await call("POST", "/auth/login", null, { email, password: `errada-${i}` }, { "x-forwarded-for": `10.77.${i}.1` })).status);
+  }
+  assert.ok(statuses.slice(0, 20).every(status => status === 401), "cada IP tenta poucas vezes");
+  assert.equal(statuses[20], 429, "a 21.ª tentativa para a mesma conta é travada, mesmo de outro IP");
+  const unknown = await call("POST", "/auth/login", null, { email: "ninguem-aqui@example.com", password: "qualquer coisa" }, { "x-forwarded-for": "10.78.0.1" });
+  assert.deepEqual([unknown.status, unknown.body.error], [401, "Credenciais inválidas."], "conta que não existe responde igual");
 });
