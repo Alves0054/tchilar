@@ -563,3 +563,11 @@
 .evp-edit { display: grid; gap: 12px; width: min(560px, calc(100vw - 32px)); }
 .evp-edit label { display: grid; gap: 6px; font-weight: 700; font-size: 14px; }
 .evp-edit label small { font-weight: 500; color: var(--color-text-muted); }
+/* A página do evento nunca fica mais larga do que o ecrã (as colunas encolhem em vez de empurrar). */
+.evp { grid-template-columns: minmax(0, 1fr); }
+@media (max-width: 860px) { .evp-grid { grid-template-columns: minmax(0, 1fr); } }
+.evp-facts span, .evp-main, .evp-panel { min-width: 0; }
+.evp-facts strong { overflow-wrap: anywhere; }
+.evp-panel { grid-template-columns: minmax(0, 1fr); }
+.evp-panel-head, .evp-panel-head > div { min-width: 0; }
+.evp-panel-head h2, .evp-panel-head p { overflow-wrap: anywhere; }

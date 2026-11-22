@@ -2119,6 +2119,15 @@ test("events: edit (with warnings), reminders a day and an hour before, and sear
   assert.match(changed.text, /mudou \(nova data/);
   assert.equal(changed.event_id, event.id);
 
+  // Antecipar a data de um evento pago não encurta a espera do dinheiro dos bilhetes.
+  const paidEvent = (await call("POST", "/events", host, { name: `Pago ${stamp}`, startsAt: new Date(Date.now() + 10 * 86400000).toISOString(), ticketPriceKz: 500 })).body.event;
+  await call("POST", `/events/${paidEvent.id}/tickets`, guest, {});
+  const held = (await pool.query("SELECT id::int AS id,available_at FROM event_tickets WHERE event_id=$1", [paidEvent.id])).rows[0];
+  await payments.fulfill("event_ticket", held.id, {});
+  assert.equal((await call("PATCH", `/events/${paidEvent.id}`, host, { startsAt: new Date(Date.now() + 3 * 86400000).toISOString() })).status, 200);
+  const after = (await pool.query("SELECT available_at FROM event_tickets WHERE id=$1", [held.id])).rows[0].available_at;
+  assert.ok(new Date(after) >= new Date(held.available_at), "a espera nunca encurta");
+
   // Lembretes: nada fora da janela; 1 dia antes e 1 hora antes, uma vez cada.
   await sendEventReminders();
   assert.equal((await pool.query("SELECT 1 FROM notifications WHERE user_id=$1 AND type='event_reminder'", [guest.id])).rowCount, 0, "faltam 26 h");

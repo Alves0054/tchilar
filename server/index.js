@@ -3235,7 +3235,8 @@ app.patch("/api/events/:eventId", auth, async (req, res) => {
   const current = (await pool.query(`
     SELECT e.id,e.name,e.description,e.location,e.starts_at,e.tickets_total,e.ticket_price_kz::float AS price,
       COALESCE((SELECT SUM(t.quantity) FROM event_tickets t WHERE t.event_id=e.id AND t.status='paid' AND t.refund_status IS NULL), 0)::int AS sold
-    FROM events e WHERE e.id=$1 AND (e.creator_id=$2 OR EXISTS(SELECT 1 FROM pages p WHERE p.id=e.page_id AND p.owner_id=$2))`,
+    FROM events e WHERE e.id=$1 AND (e.creator_id=$2 OR EXISTS(SELECT 1 FROM pages p WHERE p.id=e.page_id AND p.owner_id=$2))
+      AND (e.group_id IS NULL OR EXISTS(SELECT 1 FROM group_members gm WHERE gm.group_id=e.group_id AND gm.user_id=$2))`,
   [eventId, req.user.id])).rows[0];
   if (!current) return res.status(404).json({ error: "Evento não encontrado." });
   if (new Date(current.starts_at).getTime() < Date.now() - 6 * 3600000) return res.status(409).json({ error: "Este evento já aconteceu: já não se edita." });
@@ -3272,9 +3273,11 @@ app.patch("/api/events/:eventId", auth, async (req, res) => {
       UPDATE events SET name=$2,description=$3,location=$4,starts_at=$5,tickets_total=$6 WHERE id=$1
       RETURNING id,name,description,location,starts_at,tickets_total`,
     [eventId, next.name, next.description, next.location, next.startsAt.toISOString(), next.total])).rows[0];
-    // Os bilhetes passam a poder ser levantados 1 dia depois da nova data.
+    // Os bilhetes passam a poder ser levantados 1 dia depois da nova data, mas nunca mais cedo do que antes
+    // (antecipar a data não pode encurtar a espera do dinheiro).
     if (moved) {
-      await client.query("UPDATE event_tickets SET available_at=$2::timestamptz + INTERVAL '1 day' WHERE event_id=$1", [eventId, next.startsAt.toISOString()]);
+      await client.query("UPDATE event_tickets SET available_at=GREATEST(available_at, $2::timestamptz + INTERVAL '1 day') WHERE event_id=$1",
+        [eventId, next.startsAt.toISOString()]);
       await client.query("DELETE FROM event_reminders_sent WHERE event_id=$1", [eventId]);
     }
     if (moved || relocated) {
