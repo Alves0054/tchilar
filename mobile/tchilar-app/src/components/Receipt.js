@@ -23,7 +23,7 @@ function linesOf(payment) {
   return payment.lines?.length ? payment.lines : [{ label: payment.description, quantity: 1, unit: payment.amount, total: payment.amount }];
 }
 
-export function receiptHtml(payment, issuer) {
+export function receiptHtml(payment, issuer, logo) {
   const seller = payment.seller || issuer || {};
   const rows = linesOf(payment).map(line => `<tr><td><small>${esc(payment.kind_label)}</small><br>${esc(line.label)}</td>
     <td class="n">${esc(line.quantity)}</td><td class="n">${esc(kz(line.unit))}</td><td class="n">${esc(kz(line.total))}</td></tr>`).join("");
@@ -36,8 +36,11 @@ export function receiptHtml(payment, issuer) {
     : `Comprovativo de pagamento emitido por ${esc(issuer?.name)}${issuer?.nif ? ` (NIF ${esc(issuer.nif)})` : ""}. Não substitui a fatura.`;
   return `<!doctype html><html lang="pt"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
-  @page { margin: 18mm 14mm; }
-  body { font-family: -apple-system, Roboto, "Segoe UI", Arial, sans-serif; color: #0B0B0C; margin: 0; font-size: 13px; }
+  @page { margin: 0; size: A4; }
+  html, body { margin: 0; }
+  /* Margens no próprio corpo: o iPhone ignora as margens de @page ao criar o PDF. */
+  body { font-family: -apple-system, Roboto, "Segoe UI", Arial, sans-serif; color: #0B0B0C; font-size: 13px; padding: 48px 44px; }
+  .logo { height: 34px; width: auto; display: block; }
   .head { display: flex; justify-content: space-between; align-items: center; padding-bottom: 14px; border-bottom: 4px solid #E30613; }
   .brand { font-size: 26px; font-weight: 900; letter-spacing: -.5px; }
   .brand span { color: #E30613; }
@@ -57,7 +60,7 @@ export function receiptHtml(payment, issuer) {
   .pay { display: flex; gap: 30px; margin-top: 18px; }
   .foot { margin-top: 26px; padding-top: 14px; border-top: 1px dashed #C7C7CC; color: #6E6E73; font-size: 11px; line-height: 1.5; }
 </style></head><body>
-  <div class="head"><div class="brand">tchilar<span>.</span></div><div class="id"><small>Recibo</small><b>${esc(payment.receipt)}</b></div></div>
+  <div class="head">${logo ? `<img class="logo" src="${logo}" alt="Tchilar">` : `<div class="brand">tchilar<span>.</span></div>`}<div class="id"><small>Recibo</small><b>${esc(payment.receipt)}</b></div></div>
   <div class="strip"><div><small>Data do pagamento</small><b>${esc(dateTime(payment.paid_at))}</b></div>
     <div><small>Pago com</small><b>${esc(payment.method_label)}</b></div><div><small>Estado</small><b>${esc(STATUS[payment.status] || payment.status_label)}</b></div></div>
   <div class="parties">
@@ -77,7 +80,16 @@ export async function saveReceiptPdf(payment, issuer) {
   const Print = await import("expo-print");
   const Sharing = await import("expo-sharing");
   const { File, Paths } = await import("expo-file-system");
-  const { uri } = await Print.printToFileAsync({ html: receiptHtml(payment, issuer) });
+  // Logótipo dentro do próprio HTML (base64), para o PDF não depender da internet.
+  let logo = null;
+  try {
+    const { Asset } = await import("expo-asset");
+    const asset = Asset.fromModule(require("../../assets/receipt-logo.png"));
+    await asset.downloadAsync();
+    logo = `data:image/png;base64,${await new File(asset.localUri || asset.uri).base64()}`;
+  } catch { logo = null; }
+  // A4 em pontos (595 × 842).
+  const { uri } = await Print.printToFileAsync({ html: receiptHtml(payment, issuer, logo), width: 595, height: 842, margins: { left: 0, right: 0, top: 0, bottom: 0 } });
   const target = new File(Paths.cache, `Recibo-${payment.receipt}.pdf`);
   if (target.exists) target.delete();
   new File(uri).move(target);

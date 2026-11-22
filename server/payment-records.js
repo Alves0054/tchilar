@@ -148,8 +148,9 @@ function serializePayment(row, { admin = false } = {}) {
       total: row.amount_kz
     }],
     // Quem vende: nos bilhetes, a empresa que organiza o evento; no resto, o Tchilar (issuer).
-    seller: row.kind === "event_ticket" && row.seller_name
-      ? { name: row.seller_name, nif: row.seller_nif || null, address: row.seller_address || null }
+    // Um bilhete nunca aparece como vendido pelo Tchilar: sem dados guardados, fica «Organizador do evento».
+    seller: row.kind === "event_ticket"
+      ? { name: row.seller_name || "Organizador do evento", nif: row.seller_nif || null, address: row.seller_address || null }
       : null
   };
   if (admin) {
