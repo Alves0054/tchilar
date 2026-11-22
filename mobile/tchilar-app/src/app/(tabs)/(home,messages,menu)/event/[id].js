@@ -4,7 +4,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { Stack, router, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Image } from "expo-image";
-import { Alert, Linking, Platform, Pressable, Share, StyleSheet, Text, TextInput, Vibration, View } from "react-native";
+import { Alert, Linking, Platform, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, Vibration, View } from "react-native";
 import { Avatar } from "../../../../components/Avatar";
 import { PaymentSheet } from "../../../../components/PaymentSheet";
 import { Button, Card, Empty, Loading, Notice, Page, count, kz } from "../../../../components/ui";
@@ -14,11 +14,14 @@ import { colors } from "../../../../lib/theme";
 const fmt = (value, options) => new Date(value).toLocaleString("pt-PT", options);
 
 // O QR do próprio bilhete (pedido com a sessão; nunca fica em cache partilhada).
-function TicketQr({ eventId }) {
+const MAX_PER_ORDER = 10;
+const ofText = of => (of ? ` · bilhete ${of.position} de ${of.quantity}` : "");
+
+function TicketQr({ eventId, code }) {
   const [headers, setHeaders] = useState(null);
   useEffect(() => { readToken().then(token => setHeaders(token ? { Authorization: `Bearer ${token}` } : {})); }, []);
   if (!headers) return <View style={styles.qr} />;
-  return <Image source={{ uri: `${API_URL}/api/events/${eventId}/tickets/mine/qr`, headers }} style={styles.qr} contentFit="contain" cachePolicy="none" />;
+  return <Image source={{ uri: `${API_URL}/api/events/${eventId}/tickets/mine/qr?code=${encodeURIComponent(code)}`, headers }} style={styles.qr} contentFit="contain" cachePolicy="none" />;
 }
 
 // Quem organiza: números dos bilhetes e validar à entrada (código do bilhete; o QR abre o site, que também valida).
@@ -33,7 +36,7 @@ function OrganizerTickets({ eventId }) {
     setBusy(true); setResult(null);
     try {
       const response = await api(`/events/${eventId}/check-in`, { method: "POST", body: { code } });
-      setResult({ ok: true, text: `Pode entrar: ${response.person.display_name} (@${response.person.username})` });
+      setResult({ ok: true, text: `Pode entrar: ${response.person.display_name} (@${response.person.username})${ofText(response.of)}` });
       setCode(""); load();
     } catch (checkError) { setResult({ ok: false, text: checkError.message }); } finally { setBusy(false); }
   };
@@ -46,8 +49,9 @@ function OrganizerTickets({ eventId }) {
     {result && <Text style={[styles.checkResult, { backgroundColor: result.ok ? "rgba(52,199,89,0.18)" : "rgba(227,6,19,0.14)" }]}>{result.text}</Text>}
     {data?.tickets.slice(0, 50).map(ticket => <View key={ticket.id} style={styles.row}>
       <Avatar user={ticket} size={28} />
-      <Text style={[styles.rowText, { flex: 1 }]} numberOfLines={1}>{ticket.display_name} · @{ticket.username}</Text>
-      <Text style={{ color: ticket.checked_in_at ? "#30B350" : colors.muted, fontWeight: "700", fontSize: 12 }}>{ticket.checked_in_at ? "Entrou" : "Por entrar"}</Text>
+      <Text style={[styles.rowText, { flex: 1 }]} numberOfLines={1}>{ticket.display_name}{ticket.quantity > 1 ? ` · ${ticket.quantity} bilhetes` : ""}</Text>
+      <Text style={{ color: ticket.checked_in === ticket.quantity ? "#30B350" : colors.muted, fontWeight: "700", fontSize: 12 }}>
+        {ticket.quantity > 1 ? `Entraram ${ticket.checked_in}/${ticket.quantity}` : ticket.checked_in ? "Entrou" : "Por entrar"}</Text>
     </View>)}
   </Card>;
 }
@@ -58,6 +62,7 @@ export default function EventScreen() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [paying, setPaying] = useState(false);
+  const [quantity, setQuantity] = useState(1);
   const load = useCallback(() => api(`/events/${id}`).then(setData).catch(loadError => setError(loadError.message)), [id]);
   useEffect(() => { load(); }, [load]);
   // Link do QR lido com a câmara normal (…/events/12?checkin=CÓDIGO): quem organiza valida logo aqui.
@@ -67,7 +72,7 @@ export default function EventScreen() {
     checked.current = checkin;
     if (!data.event.is_creator) { Alert.alert("Bilhete", "Só quem organiza o evento pode validar bilhetes."); return; }
     api(`/events/${data.event.id}/check-in`, { method: "POST", body: { code: checkin } })
-      .then(response => { Vibration.vibrate(90); Alert.alert("Pode entrar ✅", `${response.person.display_name} (@${response.person.username})`); })
+      .then(response => { Vibration.vibrate(90); Alert.alert("Pode entrar ✅", `${response.person.display_name} (@${response.person.username})${ofText(response.of)}`); })
       .catch(checkError => { Vibration.vibrate([0, 220, 120, 220]); Alert.alert("Não entra ❌", checkError.message); });
   }, [checkin, data]);
   if (!data) return error ? <Page><Notice error={error} /></Page> : <Loading />;
@@ -77,6 +82,9 @@ export default function EventScreen() {
 
   const paid = event.ticket_price_kz > 0;
   const soldOut = paid && event.tickets_total && event.tickets_sold >= event.tickets_total;
+  const left = event.tickets_total ? Math.max(0, event.tickets_total - event.tickets_sold) : Infinity;
+  const maxQuantity = Math.max(1, Math.min(MAX_PER_ORDER, left));
+  const mine = event.my_tickets || [];
   const buy = () => setPaying(true);
   const rsvp = async () => {
     setBusy(true);
@@ -124,19 +132,36 @@ export default function EventScreen() {
       {paid && <View style={styles.row}>
         <Ionicons name="ticket" size={20} color="#C58A00" />
         <Text style={styles.rowText}>Bilhete: <Text style={{ fontWeight: "800" }}>{kz(event.ticket_price_kz)}</Text>
-          {event.tickets_total ? ` · ${Math.max(0, event.tickets_total - event.tickets_sold)} por vender` : ""}</Text>
+          {event.tickets_total ? ` · ${count(left)} por vender` : ""}</Text>
       </View>}
       {!past && !event.is_creator && (paid
-        ? !event.my_ticket && <Button label={soldOut ? "Esgotado" : "Comprar bilhete"} icon="ticket" busy={busy} disabled={Boolean(soldOut)} onPress={buy} />
+        ? (soldOut ? <Button label="Esgotado" icon="ticket" disabled onPress={() => {}} /> : <>
+          <View style={styles.qtyRow}>
+            <Text style={styles.rowText}>Quantos bilhetes?</Text>
+            <View style={styles.qty}>
+              <Pressable style={styles.qtyButton} disabled={quantity <= 1} onPress={() => setQuantity(value => Math.max(1, value - 1))} accessibilityLabel="Menos um bilhete">
+                <Ionicons name="remove" size={20} color={quantity <= 1 ? colors.muted : colors.text} /></Pressable>
+              <Text style={styles.qtyValue}>{quantity}</Text>
+              <Pressable style={styles.qtyButton} disabled={quantity >= maxQuantity} onPress={() => setQuantity(value => Math.min(maxQuantity, value + 1))} accessibilityLabel="Mais um bilhete">
+                <Ionicons name="add" size={20} color={quantity >= maxQuantity ? colors.muted : colors.text} /></Pressable>
+            </View>
+          </View>
+          <Button label={`${mine.length ? "Comprar mais" : "Comprar"} ${quantity === 1 ? "bilhete" : `${quantity} bilhetes`} · ${kz(event.ticket_price_kz * quantity)}`} icon="ticket" busy={busy} onPress={buy} />
+        </>)
         : <Button label={event.is_attending ? "Vou ✓ (toca para sair)" : "Participar"} variant={event.is_attending ? "secondary" : "primary"} icon={event.is_attending ? undefined : "calendar"} busy={busy} onPress={rsvp} />)}
       <Button variant="secondary" label="Partilhar" icon="share-outline" onPress={() => Share.share({ message: `${event.name} · ${fmt(starts, { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" })}${event.location ? ` · ${event.location}` : ""}\n${WEB_URL}/events` }).catch(() => {})} />
     </Card>
 
-    {event.my_ticket && <Card title="O teu bilhete" subtitle={event.my_ticket.checked_in_at ? "Já entraste com este bilhete." : "Mostra este QR à entrada. Cada bilhete só entra uma vez."}>
-      <View style={{ alignItems: "center", gap: 8 }}>
-        <TicketQr eventId={event.id} />
-        <Text selectable style={styles.ticketCode}>{event.my_ticket.code}</Text>
-      </View>
+    {mine.length > 0 && <Card title={mine.length === 1 ? "O teu bilhete" : `Os teus ${mine.length} bilhetes`}
+      subtitle={mine.length === 1 ? "Mostra este QR à entrada. Cada bilhete só entra uma vez." : "Cada pessoa entra com o seu QR. Desliza para ver todos; também estão no teu email."}>
+      <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={mine.length > 1} contentContainerStyle={{ gap: 16 }}>
+        {mine.map((ticket, index) => <View key={ticket.code} style={styles.ticketSlide}>
+          {mine.length > 1 && <Text style={styles.ticketNumber}>Bilhete {index + 1} de {mine.length}</Text>}
+          <TicketQr eventId={event.id} code={ticket.code} />
+          <Text selectable style={styles.ticketCode}>{ticket.code}</Text>
+          <Text style={{ color: ticket.checked_in_at ? "#30B350" : colors.muted, fontWeight: "700" }}>{ticket.checked_in_at ? "Já entrou" : "Por entrar"}</Text>
+        </View>)}
+      </ScrollView>
     </Card>}
     {event.is_creator && paid && <OrganizerTickets eventId={event.id} />}
 
@@ -152,8 +177,8 @@ export default function EventScreen() {
     </Card>
 
     {event.is_creator && <Button variant="ghost" label="Apagar evento" onPress={remove} />}
-    <PaymentSheet visible={paying} title={`Bilhete «${event.name}»`} amount={event.ticket_price_kz} purpose="event_ticket"
-      start={choice => api(`/events/${event.id}/tickets`, { method: "POST", body: choice })}
+    <PaymentSheet visible={paying} title={`${quantity === 1 ? "Bilhete" : `${quantity} bilhetes`} «${event.name}»`} amount={event.ticket_price_kz * quantity} purpose="event_ticket"
+      start={choice => api(`/events/${event.id}/tickets`, { method: "POST", body: { ...choice, quantity } })}
       onClose={() => { setPaying(false); load(); }} onPaid={() => { setPaying(false); load(); }} />
   </Page>;
 }
@@ -175,6 +200,12 @@ const styles = StyleSheet.create({
   personName: { color: colors.text, fontSize: 12, textAlign: "center" },
   friend: { color: "#30B350", fontSize: 11, fontWeight: "700" },
   qr: { width: 220, height: 220, borderRadius: 12, backgroundColor: "#fff" },
+  qtyRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  qty: { flexDirection: "row", alignItems: "center", borderWidth: 1, borderColor: colors.line, borderRadius: 999 },
+  qtyButton: { width: 42, height: 40, alignItems: "center", justifyContent: "center" },
+  qtyValue: { minWidth: 28, textAlign: "center", color: colors.text, fontSize: 17, fontWeight: "800" },
+  ticketSlide: { width: 260, alignItems: "center", gap: 8 },
+  ticketNumber: { color: "#E30613", fontWeight: "800", fontSize: 12, letterSpacing: 1, textTransform: "uppercase" },
   ticketCode: { color: colors.text, fontSize: 22, fontWeight: "800", letterSpacing: 3, fontFamily: Platform.select({ ios: "Menlo", default: "monospace" }) },
   codeInput: { borderWidth: 1, borderColor: colors.line, borderRadius: 12, padding: 12, fontSize: 18, fontWeight: "800", letterSpacing: 2, color: colors.text },
   checkResult: { padding: 10, borderRadius: 12, color: colors.text, fontWeight: "700", overflow: "hidden" }

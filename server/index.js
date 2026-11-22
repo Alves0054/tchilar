@@ -2647,9 +2647,10 @@ app.get("/api/events", optionalAuth, async (req, res) => {
     SELECT e.id,e.page_id,p.name AS page_name,e.name,e.description,e.location,e.image_url,e.starts_at,e.created_at,
       u.id AS creator_id,u.username AS creator_username,u.display_name AS creator_name,
       e.ticket_price_kz::float AS ticket_price_kz,e.tickets_total,
-      (SELECT COUNT(*) FROM event_tickets t WHERE t.event_id=e.id AND t.status='paid' AND t.refund_status IS NULL)::int AS tickets_sold,
-      (SELECT json_build_object('code',t.code,'amount_kz',t.amount_kz,'checked_in_at',t.checked_in_at) FROM event_tickets t
-        WHERE t.event_id=e.id AND t.user_id=$1 AND t.status='paid' AND t.refund_status IS NULL) AS my_ticket,
+      COALESCE((SELECT SUM(t.quantity) FROM event_tickets t WHERE t.event_id=e.id AND t.status='paid' AND t.refund_status IS NULL), 0)::int AS tickets_sold,
+      (SELECT COALESCE(json_agg(json_build_object('code',c.code,'checked_in_at',c.checked_in_at) ORDER BY c.id), '[]'::json)
+        FROM event_ticket_codes c JOIN event_tickets t ON t.id=c.ticket_id
+        WHERE t.event_id=e.id AND t.user_id=$1 AND t.status='paid' AND t.refund_status IS NULL) AS my_tickets,
       (SELECT COUNT(*) FROM event_attendees a WHERE a.event_id=e.id)::int AS attendee_count,
       EXISTS(SELECT 1 FROM event_attendees a WHERE a.event_id=e.id AND a.user_id=$1) AS is_attending
     FROM events e JOIN users u ON u.id=e.creator_id LEFT JOIN pages p ON p.id=e.page_id
@@ -2696,7 +2697,7 @@ app.post("/api/events", auth, imageUpload.single("image"), optimizeUpload("event
       await client.query("INSERT INTO event_attendees(event_id,user_id) VALUES($1,$2)", [result.rows[0].id, req.user.id]);
       return result.rows[0];
     });
-    res.status(201).json({ event: { ...event, creator_id: req.user.id, attendee_count: 1, is_attending: true, tickets_sold: 0, my_ticket: null } });
+    res.status(201).json({ event: { ...event, creator_id: req.user.id, attendee_count: 1, is_attending: true, tickets_sold: 0, my_tickets: [] } });
   } catch (error) {
     if (imageUrl) await removeUpload(imageUrl);
     throw error;
@@ -3139,9 +3140,10 @@ app.get("/api/events/:eventId", optionalAuth, async (req, res) => {
     SELECT e.id,e.page_id,p.name AS page_name,e.name,e.description,e.location,e.image_url,e.starts_at,e.created_at,
       u.id AS creator_id,u.username AS creator_username,u.display_name AS creator_name,u.avatar_url AS creator_avatar,
       e.ticket_price_kz::float AS ticket_price_kz,e.tickets_total,
-      (SELECT COUNT(*) FROM event_tickets t WHERE t.event_id=e.id AND t.status='paid' AND t.refund_status IS NULL)::int AS tickets_sold,
-      (SELECT json_build_object('code',t.code,'amount_kz',t.amount_kz,'checked_in_at',t.checked_in_at) FROM event_tickets t
-        WHERE t.event_id=e.id AND t.user_id=$2 AND t.status='paid' AND t.refund_status IS NULL) AS my_ticket,
+      COALESCE((SELECT SUM(t.quantity) FROM event_tickets t WHERE t.event_id=e.id AND t.status='paid' AND t.refund_status IS NULL), 0)::int AS tickets_sold,
+      (SELECT COALESCE(json_agg(json_build_object('code',c.code,'checked_in_at',c.checked_in_at) ORDER BY c.id), '[]'::json)
+        FROM event_ticket_codes c JOIN event_tickets t ON t.id=c.ticket_id
+        WHERE t.event_id=e.id AND t.user_id=$2 AND t.status='paid' AND t.refund_status IS NULL) AS my_tickets,
       (SELECT COUNT(*) FROM event_attendees a WHERE a.event_id=e.id)::int AS attendee_count,
       EXISTS(SELECT 1 FROM event_attendees a WHERE a.event_id=e.id AND a.user_id=$2) AS is_attending,
       (e.creator_id=$2 OR EXISTS(SELECT 1 FROM pages pg WHERE pg.id=e.page_id AND pg.owner_id=$2)) AS is_creator

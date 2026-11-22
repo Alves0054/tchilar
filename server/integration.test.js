@@ -1913,22 +1913,23 @@ test("event tickets: paid with money, 85% for the organizer after the event, QR 
   await call("POST", `/events/${event.id}/tickets`, buyer, {}); // sem meios de pagamento nos testes: fica à espera
   const pending = (await pool.query("SELECT id::int AS id,status,code FROM event_tickets WHERE event_id=$1 AND user_id=$2", [event.id, buyer.id])).rows[0];
   assert.deepEqual([pending.status, pending.code], ["pending", null]);
-  assert.equal((await call("GET", `/events/${event.id}`, buyer)).body.event.my_ticket, null, "sem pagamento confirmado não há bilhete");
+  assert.deepEqual((await call("GET", `/events/${event.id}`, buyer)).body.event.my_tickets, [], "sem pagamento confirmado não há bilhete");
   await payments.fulfill("event_ticket", pending.id, {});
   await payments.fulfill("event_ticket", pending.id, {}); // confirmação repetida não muda nada
   const detail = (await call("GET", `/events/${event.id}`, buyer)).body.event;
-  const code = detail.my_ticket.code;
+  const code = detail.my_tickets[0].code;
   assert.match(code, /^[A-Z2-9]{8}$/);
   assert.equal(detail.tickets_sold, 1);
   assert.equal(detail.is_attending, true);
-  assert.equal((await call("POST", `/events/${event.id}/tickets`, buyer, {})).status, 409, "um bilhete por pessoa");
-  const qr = await fetch(`${baseUrl}/events/${event.id}/tickets/mine/qr`, { headers: { Authorization: `Bearer ${buyer.token}` } });
+  assert.equal((await call("POST", `/events/${event.id}/tickets`, buyer, { quantity: 11 })).status, 400, "no máximo 10 por compra");
+  const qr = await fetch(`${baseUrl}/events/${event.id}/tickets/mine/qr?code=${code}`, { headers: { Authorization: `Bearer ${buyer.token}` } });
   assert.equal(qr.headers.get("content-type"), "image/png");
   // QR do email: imagem sem sessão, mas só com a assinatura daquele bilhete.
-  const signature = crypto.createHmac("sha256", process.env.JWT_SECRET).update(`ticket-qr:${pending.id}`).digest("base64url").slice(0, 32);
-  assert.equal((await fetch(`${baseUrl}/tickets/${pending.id}/qr.png?s=${signature}`)).headers.get("content-type"), "image/png");
-  assert.equal((await fetch(`${baseUrl}/tickets/${pending.id}/qr.png?s=${"x".repeat(32)}`)).status, 404, "sem a assinatura certa não abre");
-  assert.equal((await fetch(`${baseUrl}/tickets/${pending.id + 1}/qr.png?s=${signature}`)).status, 404, "a assinatura é só daquele bilhete");
+  const codeId = (await pool.query("SELECT id::int AS id FROM event_ticket_codes WHERE ticket_id=$1", [pending.id])).rows[0].id;
+  const signature = crypto.createHmac("sha256", process.env.JWT_SECRET).update(`ticket-code-qr:${codeId}`).digest("base64url").slice(0, 32);
+  assert.equal((await fetch(`${baseUrl}/tickets/codes/${codeId}/qr.png?s=${signature}`)).headers.get("content-type"), "image/png");
+  assert.equal((await fetch(`${baseUrl}/tickets/codes/${codeId}/qr.png?s=${"x".repeat(32)}`)).status, 404, "sem a assinatura certa não abre");
+  assert.equal((await fetch(`${baseUrl}/tickets/codes/${codeId + 1}/qr.png?s=${signature}`)).status, 404, "a assinatura é só daquele bilhete");
 
   // Recibo e lista de pagamentos da equipa.
   const receipt = (await call("GET", "/admin/payments?kind=event_ticket", finance)).body;
@@ -1988,8 +1989,8 @@ test("event tickets: paid with money, 85% for the organizer after the event, QR 
   const slow = (await pool.query("SELECT id::int AS id FROM event_tickets WHERE event_id=$1 AND user_id=$2", [cancelled.id, late.id])).rows[0].id;
   assert.equal((await call("DELETE", `/events/${cancelled.id}`, organizer)).status, 200);
   await payments.fulfill("event_ticket", slow, {});
-  const slowRow = (await pool.query("SELECT status,refund_status,code FROM event_tickets WHERE id=$1", [slow])).rows[0];
-  assert.deepEqual([slowRow.status, slowRow.refund_status, slowRow.code], ["paid", "manual", null]);
+  const slowRow = (await pool.query("SELECT status,refund_status,(SELECT COUNT(*) FROM event_ticket_codes c WHERE c.ticket_id=t.id)::int AS codes FROM event_tickets t WHERE id=$1", [slow])).rows[0];
+  assert.deepEqual([slowRow.status, slowRow.refund_status, slowRow.codes], ["paid", "manual", 0]);
   await pool.query("UPDATE event_tickets SET available_at=NOW() - INTERVAL '1 day' WHERE id=$1", [slow]);
   assert.equal((await call("GET", "/payouts", organizer)).body.sources.ticketsKz, 850, "não conta para quem organizava");
 
@@ -2005,13 +2006,28 @@ test("event tickets: paid with money, 85% for the organizer after the event, QR 
   assert.equal((await pool.query("SELECT refund_status FROM event_tickets WHERE id=$1", [slowOne])).rows[0].refund_status, "manual");
   assert.equal((await call("GET", `/events/${small.id}`, organizer)).body.event.tickets_sold, 1, "nunca acima da lotação");
 
-  // Comprar de novo não apaga a compra à espera: se esse pagamento chegar, fica por devolver.
-  const again = (await call("POST", "/events", organizer, { name: "Outra vez", startsAt, ticketPriceKz: 400 })).body.event;
-  await call("POST", `/events/${again.id}/tickets`, late, {});
-  const first = (await pool.query("SELECT id::int AS id FROM event_tickets WHERE event_id=$1 AND user_id=$2", [again.id, late.id])).rows[0].id;
-  await call("POST", `/events/${again.id}/tickets`, late, {});
-  await payments.fulfill("event_ticket", first, {});
-  assert.equal((await pool.query("SELECT refund_status FROM event_tickets WHERE id=$1", [first])).rows[0].refund_status, "manual");
+  // Várias entradas numa compra: cada uma com o seu código; o preço multiplica; a lotação conta as entradas.
+  const group = (await call("POST", "/events", organizer, { name: "Em grupo", startsAt, ticketPriceKz: 400, ticketsTotal: 5 })).body.event;
+  assert.match((await call("POST", `/events/${group.id}/tickets`, late, { quantity: 6 })).body.error, /restam 5 bilhetes/);
+  await call("POST", `/events/${group.id}/tickets`, late, { quantity: 3 });
+  const trio = (await pool.query("SELECT id::int AS id,quantity,amount_kz::float AS amount FROM event_tickets WHERE event_id=$1 AND user_id=$2", [group.id, late.id])).rows[0];
+  assert.deepEqual([trio.quantity, trio.amount], [3, 1200]);
+  await payments.fulfill("event_ticket", trio.id, {});
+  const lateTickets = (await call("GET", `/events/${group.id}`, late)).body.event;
+  assert.equal(lateTickets.my_tickets.length, 3);
+  assert.equal(new Set(lateTickets.my_tickets.map(item => item.code)).size, 3, "um código por entrada");
+  assert.equal(lateTickets.tickets_sold, 3);
+  const second = await call("POST", `/events/${group.id}/check-in`, organizer, { code: lateTickets.my_tickets[1].code });
+  assert.deepEqual(second.body.of, { position: 2, quantity: 3 });
+  assert.equal((await call("POST", `/events/${group.id}/check-in`, organizer, { code: lateTickets.my_tickets[1].code })).status, 409);
+  const groupList = (await call("GET", `/events/${group.id}/tickets`, organizer)).body;
+  assert.deepEqual([groupList.sold, groupList.checked_in, groupList.tickets[0].quantity, groupList.tickets[0].checked_in], [3, 1, 3, 1]);
+  // A mesma pessoa pode comprar mais, até à lotação.
+  await call("POST", `/events/${group.id}/tickets`, late, { quantity: 2 });
+  const more = (await pool.query("SELECT id::int AS id FROM event_tickets WHERE event_id=$1 AND user_id=$2 AND status='pending'", [group.id, late.id])).rows[0].id;
+  await payments.fulfill("event_ticket", more, {});
+  assert.equal((await call("GET", `/events/${group.id}`, late)).body.event.my_tickets.length, 5);
+  assert.match((await call("POST", `/events/${group.id}/tickets`, buyer, {})).body.error, /esgotaram/);
 });
 
 test("paid lives: entry in stars before video, chat and P2P signals", { skip }, async () => {

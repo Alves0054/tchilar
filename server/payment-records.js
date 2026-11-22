@@ -63,7 +63,7 @@ const PAYMENTS_SQL = `
     FROM subscription_payments sp LEFT JOIN users cu ON cu.id=sp.creator_id WHERE sp.status='paid'
     UNION ALL
     SELECT 'event_ticket', et.id::int, et.user_id, et.amount_kz::float, et.paid_at,
-      'Bilhete «' || COALESCE(et.event_name, 'evento') || '»',
+      CASE WHEN et.quantity > 1 THEN et.quantity || ' bilhetes «' ELSE 'Bilhete «' END || COALESCE(et.event_name, 'evento') || '»',
       COALESCE(et.stripe_payment_intent, et.stripe_session_id), ${refundState("et")}
     FROM event_tickets et WHERE et.status='paid' AND et.amount_kz > 0
   )

@@ -370,3 +370,13 @@
 .ticket-list li span { display: grid; }
 .ticket-list small { color: var(--color-text-muted); }
 @media (max-width: 560px) { .ticket-card { grid-template-columns: 1fr; justify-items: center; text-align: center; } .event-ticket-choice, .event-ticket-fields { grid-template-columns: 1fr; } }
+
+/* Quantidade de bilhetes e vários bilhetes por compra */
+.ticket-quantity { display: inline-flex; align-items: center; border: 1px solid var(--color-line); border-radius: 999px; overflow: hidden; }
+.ticket-quantity button { width: 38px; height: 38px; border: 0; background: var(--color-surface); color: var(--color-text); font-size: 20px; font-weight: 700; cursor: pointer; }
+.ticket-quantity button:disabled { color: var(--color-text-muted); cursor: default; }
+.ticket-quantity strong { min-width: 32px; text-align: center; font-size: 16px; }
+.ticket-grid { display: grid; gap: 12px; margin-top: 12px; }
+.ticket-grid .ticket-card { padding: 14px; border: 1px solid var(--color-line); border-radius: 16px; }
+.ticket-grid .ticket-card p { margin: 0; }
+.ticket-number { font-size: 12px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--color-accent); }

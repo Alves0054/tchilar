@@ -103,9 +103,9 @@ export function CreateEventDialog({ onClose, onCreated, pageId, pageName, group 
                 <Icon name="card" size={16} /><span><b>Bilhete pago</b><small>Express, Referência, PayPay... com QR à entrada</small></span></button>
             </div>
             {ticket.paid && <div className="event-ticket-fields">
-              <label>Preço (Kz)<input type="number" min={100} max={1000000} required value={ticket.price}
+              <label>Preço (Kz)<input type="text" inputMode="numeric" pattern="[0-9]*" maxLength={7} required value={ticket.price}
                 onChange={event => setTicket({ ...ticket, price: event.target.value.replace(/\D/g, "") })} /></label>
-              <label>Bilhetes <small>vazio = sem limite</small><input type="number" min={1} max={100000} value={ticket.total}
+              <label>Bilhetes <small>{ticket.total ? `${Number(ticket.total).toLocaleString("pt-PT")} à venda` : "vazio = sem limite"}</small><input type="text" inputMode="numeric" pattern="[0-9]*" maxLength={6} value={ticket.total}
                 onChange={event => setTicket({ ...ticket, total: event.target.value.replace(/\D/g, "") })} placeholder="Sem limite" /></label>
               <small className="muted">Ficas com 85% de cada bilhete ({formatPrice(Math.round(Number(ticket.price || 0) * 0.85))} por bilhete); o Tchilar fica com 15%.
                 O dinheiro fica disponível para levantar 1 dia depois do evento. Se cancelares antes, devolvemos a quem comprou.</small>
@@ -222,8 +222,9 @@ export function Events() {
       </div>
       {user && <div className="event-card-actions">
         {item.ticket_price_kz > 0
-          ? <Link className={`btn${item.my_ticket ? " secondary" : ""}`} to={`/events/${item.id}`}><Icon name="card" size={15} />
-            {item.my_ticket ? " O meu bilhete" : String(item.creator_id) === String(user.id) ? " Bilhetes" : ` Bilhete · ${formatPrice(item.ticket_price_kz)}`}</Link>
+          ? <Link className={`btn${item.my_tickets?.length ? " secondary" : ""}`} to={`/events/${item.id}`}><Icon name="card" size={15} />
+            {item.my_tickets?.length ? (item.my_tickets.length === 1 ? " O meu bilhete" : ` Os meus ${item.my_tickets.length} bilhetes`)
+              : String(item.creator_id) === String(user.id) ? " Bilhetes" : ` Bilhete · ${formatPrice(item.ticket_price_kz)}`}</Link>
           : <button className={`btn${item.is_attending ? " secondary page-following" : ""}`} type="button" aria-pressed={item.is_attending} onClick={() => toggleRsvp(item)}>
             {item.is_attending ? <><Icon name="check" size={15} /><span className="when-idle">Vou</span><span className="when-hover">Já não vou</span></> : <><Icon name="plus" size={15} /> Vou participar</>}
           </button>}

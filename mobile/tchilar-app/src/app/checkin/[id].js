@@ -59,7 +59,7 @@ export default function CheckIn() {
   const validate = async ticketCode => {
     try {
       const response = await api(`/events/${eventId}/check-in`, { method: "POST", body: { code: ticketCode } });
-      show({ ok: true, title: "Pode entrar", detail: `${response.person.display_name} · @${response.person.username}` });
+      show({ ok: true, title: "Pode entrar", detail: `${response.person.display_name} · @${response.person.username}${response.of ? `\nBilhete ${response.of.position} de ${response.of.quantity}` : ""}` });
       loadStats();
     } catch (checkError) {
       show({ ok: false, title: /já entrou/.test(checkError.message) ? "Já entrou" : "Não entra", detail: checkError.message });
