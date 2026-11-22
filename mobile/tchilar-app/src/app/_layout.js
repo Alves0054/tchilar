@@ -44,6 +44,7 @@ export default function RootLayout() {
         <Stack.Screen name="call/[groupId]" options={{ headerShown: false, presentation: "fullScreenModal" }} />
         <Stack.Screen name="call/direct/[callId]" options={{ headerShown: false, presentation: "fullScreenModal" }} />
         <Stack.Screen name="live/new" options={{ title: "Entrar em direto", presentation: "fullScreenModal" }} />
+        <Stack.Screen name="checkin/[id]" options={{ headerShown: false, presentation: "fullScreenModal" }} />
       </Stack>
       <IncomingCall />
       <AppLock />

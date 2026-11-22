@@ -14,6 +14,7 @@ const RULES = [
   [/^\/reels$/, () => "/reels"],
   [/^\/search$/, (_match, query) => `/search${query}`],
   [/^\/notifications$/, () => "/notifications"],
+  [/^\/events\/(\d+)$/, (match, query) => `/event/${match[1]}${query}`],
   [/^\/events$/, () => "/events"],
   [/^\/friends$/, () => "/friends"],
   [/^\/estrelas$/, () => "/stars"],

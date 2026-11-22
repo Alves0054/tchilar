@@ -10,7 +10,7 @@
       "supportsTablet": true,
       "bundleIdentifier": "ao.tchilar.app",
       "infoPlist": {
-        "NSCameraUsageDescription": "O Tchilar usa a câmara para fotos, vídeos, diretos e chamadas de vídeo.",
+        "NSCameraUsageDescription": "O Tchilar usa a câmara para fotos, vídeos, diretos, chamadas de vídeo e para ler os bilhetes dos teus eventos à entrada.",
         "NSMicrophoneUsageDescription": "O Tchilar usa o microfone para vídeos, diretos e chamadas.",
         "NSPhotoLibraryUsageDescription": "O Tchilar acede às tuas fotos e vídeos para os publicares.",
         "NSPhotoLibraryAddUsageDescription": "O Tchilar guarda no telemóvel as fotos e vídeos que descarregas.",
@@ -279,7 +279,14 @@
           "faceIDPermission": "O Tchilar usa o Face ID para desbloquear a app, se ligares o bloqueio nas definições."
         }
       ],
-      "expo-asset"
+      "expo-asset",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "O Tchilar usa a câmara para diretos, fotos e para ler os bilhetes dos teus eventos à entrada.",
+          "recordAudioAndroid": false
+        }
+      ]
     ],
     "scheme": "tchilar",
     "description": "Tchilar — a rede social angolana: partilha momentos, conversa, faz chamadas, entra em diretos e encontra a tua comunidade."

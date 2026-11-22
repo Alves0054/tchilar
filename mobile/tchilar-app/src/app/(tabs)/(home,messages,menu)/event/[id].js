@@ -2,9 +2,9 @@
 // (amigos primeiro). Quem criou pode apagar; toda a gente pode partilhar.
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, router, useLocalSearchParams } from "expo-router";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Image } from "expo-image";
-import { Alert, Linking, Platform, Pressable, Share, StyleSheet, Text, TextInput, View } from "react-native";
+import { Alert, Linking, Platform, Pressable, Share, StyleSheet, Text, TextInput, Vibration, View } from "react-native";
 import { Avatar } from "../../../../components/Avatar";
 import { PaymentSheet } from "../../../../components/PaymentSheet";
 import { Button, Card, Empty, Loading, Notice, Page, count, kz } from "../../../../components/ui";
@@ -37,7 +37,8 @@ function OrganizerTickets({ eventId }) {
       setCode(""); load();
     } catch (checkError) { setResult({ ok: false, text: checkError.message }); } finally { setBusy(false); }
   };
-  return <Card title="Bilhetes à entrada" subtitle="Escreve o código do bilhete. Também podes apontar a câmara normal do telemóvel ao QR: abre o Tchilar no browser e valida.">
+  return <Card title="Bilhetes à entrada" subtitle="Abre o leitor e aponta a câmara para o QR de cada pessoa. Também podes escrever o código.">
+    <Button label="Ler bilhetes à entrada" icon="scan" onPress={() => router.push(`/checkin/${eventId}`)} />
     {data && <Text style={styles.rowText}>{data.sold}{data.total ? ` de ${data.total}` : ""} vendidos · {data.checked_in} já entraram · {kz(data.gross_kz)} em vendas · {kz(data.net_kz)} para ti (85%)</Text>}
     <TextInput value={code} onChangeText={value => setCode(value.toUpperCase())} placeholder="Código do bilhete" placeholderTextColor={colors.muted}
       autoCapitalize="characters" autoCorrect={false} maxLength={16} style={styles.codeInput} />
@@ -52,13 +53,23 @@ function OrganizerTickets({ eventId }) {
 }
 
 export default function EventScreen() {
-  const { id } = useLocalSearchParams();
+  const { id, checkin } = useLocalSearchParams();
   const [data, setData] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [paying, setPaying] = useState(false);
   const load = useCallback(() => api(`/events/${id}`).then(setData).catch(loadError => setError(loadError.message)), [id]);
   useEffect(() => { load(); }, [load]);
+  // Link do QR lido com a câmara normal (…/events/12?checkin=CÓDIGO): quem organiza valida logo aqui.
+  const checked = useRef(null);
+  useEffect(() => {
+    if (!checkin || !data?.event || checked.current === checkin) return;
+    checked.current = checkin;
+    if (!data.event.is_creator) { Alert.alert("Bilhete", "Só quem organiza o evento pode validar bilhetes."); return; }
+    api(`/events/${data.event.id}/check-in`, { method: "POST", body: { code: checkin } })
+      .then(response => { Vibration.vibrate(90); Alert.alert("Pode entrar ✅", `${response.person.display_name} (@${response.person.username})`); })
+      .catch(checkError => { Vibration.vibrate([0, 220, 120, 220]); Alert.alert("Não entra ❌", checkError.message); });
+  }, [checkin, data]);
   if (!data) return error ? <Page><Notice error={error} /></Page> : <Loading />;
   const { event, attendees } = data;
   const starts = new Date(event.starts_at);
