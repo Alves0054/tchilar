@@ -2023,6 +2023,14 @@ test("event tickets: paid with money, 85% for the organizer after the event, QR 
   const groupList = (await call("GET", `/events/${group.id}/tickets`, organizer)).body;
   assert.deepEqual([groupList.sold, groupList.checked_in, groupList.tickets[0].quantity, groupList.tickets[0].checked_in], [3, 1, 3, 1]);
   // A mesma pessoa pode comprar mais, até à lotação.
+  // Ninguém "esgota" um evento a pedir compras sem pagar: no máximo 10 lugares guardados por pessoa.
+  const hoard = (await call("POST", "/events", organizer, { name: "Sem açambarcar", startsAt, ticketPriceKz: 100, ticketsTotal: 30 })).body.event;
+  await call("POST", `/events/${hoard.id}/tickets`, buyer, { quantity: 10 });
+  assert.equal((await call("POST", `/events/${hoard.id}/tickets`, buyer, { quantity: 1 })).status, 429);
+  assert.equal((await call("GET", `/events/${hoard.id}`, buyer)).body.event.tickets_sold, 0);
+  await pool.query("UPDATE event_tickets SET created_at=NOW() - INTERVAL '31 minutes' WHERE event_id=$1", [hoard.id]);
+  assert.notEqual((await call("POST", `/events/${hoard.id}/tickets`, buyer, { quantity: 1 })).status, 429, "passados 30 min pode tentar outra vez");
+
   await call("POST", `/events/${group.id}/tickets`, late, { quantity: 2 });
   const more = (await pool.query("SELECT id::int AS id FROM event_tickets WHERE event_id=$1 AND user_id=$2 AND status='pending'", [group.id, late.id])).rows[0].id;
   await payments.fulfill("event_ticket", more, {});

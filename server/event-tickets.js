@@ -127,6 +127,15 @@ function registerEventTickets(app, deps) {
       if (!event.price) return { status: 409, error: "Este evento é grátis: carrega em «Vou»." };
       if (event.creator_id === req.user.id) return { status: 400, error: "Não precisas de bilhete para o teu próprio evento." };
       if (new Date(event.starts_at).getTime() <= Date.now()) return { status: 409, error: "Este evento já começou: já não se vendem bilhetes." };
+      // Lugares guardados por pagamentos a meio: no máximo 10 por pessoa ao mesmo tempo, para ninguém conseguir
+      // "esgotar" um evento só a pedir compras sem pagar.
+      const holding = (await client.query(`
+        SELECT COALESCE(SUM(quantity),0)::int AS n FROM event_tickets
+        WHERE event_id=$1 AND user_id=$2 AND status='pending' AND created_at > NOW() - make_interval(mins => ${PENDING_HOLD_MINUTES})`,
+      [eventId, req.user.id])).rows[0].n;
+      if (holding + quantity > MAX_PER_ORDER) {
+        return { status: 429, error: "Já tens um pagamento de bilhetes a meio para este evento. Conclui-o ou espera 30 minutos." };
+      }
       if (event.tickets_total) {
         const left = event.tickets_total - event.taken;
         if (left <= 0) return { status: 409, error: "Os bilhetes esgotaram." };
