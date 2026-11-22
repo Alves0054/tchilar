@@ -8,10 +8,11 @@ import { Alert, Linking, Platform, Pressable, ScrollView, Share, StyleSheet, Tex
 import { Avatar } from "../../../../components/Avatar";
 import { PaymentSheet } from "../../../../components/PaymentSheet";
 import { Button, Card, Empty, Loading, Notice, Page, count, kz } from "../../../../components/ui";
-import { API_URL, WEB_URL, api, readToken } from "../../../../lib/api";
+import { API_URL, WEB_URL, api, mediaUri, readToken } from "../../../../lib/api";
 import { colors } from "../../../../lib/theme";
 
-const fmt = (value, options) => new Date(value).toLocaleString("pt-PT", options);
+const fmt = (value, options) => new Date(value).toLocaleString("pt-PT", { timeZone: "Africa/Luanda", ...options });
+const COVER_TONES = [["#FDE7E8", "#B4000F"], ["#FFF1D6", "#8A5A00"], ["#E3F1FF", "#0B5CAD"], ["#E5F6EA", "#156B33"]];
 
 // O QR do próprio bilhete (pedido com a sessão; nunca fica em cache partilhada).
 const MAX_PER_ORDER = 10;
@@ -103,17 +104,26 @@ export default function EventScreen() {
 
   return <Page>
     <Stack.Screen options={{ title: "Evento" }} />
-    <View style={styles.hero}>
-      <View style={styles.date}>
-        <Text style={styles.month}>{fmt(starts, { month: "short" }).replace(".", "").toUpperCase()}</Text>
-        <Text style={styles.day}>{starts.getDate()}</Text>
-      </View>
-      <View style={{ flex: 1, gap: 4 }}>
-        <Text style={styles.title}>{event.name}</Text>
-        <Text style={styles.when}>{fmt(starts, { weekday: "long", day: "numeric", month: "long" })} · {fmt(starts, { hour: "2-digit", minute: "2-digit" })}</Text>
-        {past && <Text style={styles.past}>Já aconteceu</Text>}
-      </View>
+    {/* Capa limpa (igual ao site): a imagem do evento, ou um bloco de cor suave com a primeira letra. */}
+    {event.image_url
+      ? <Image source={{ uri: mediaUri(event.image_url) }} style={styles.cover} contentFit="cover" transition={150} />
+      : <View style={[styles.cover, styles.coverBlank, { backgroundColor: COVER_TONES[event.id % 4][0] }]}>
+        <Text style={[styles.coverLetter, { color: COVER_TONES[event.id % 4][1] }]}>{(event.name.match(/[\p{L}\p{N}]/u) || ["•"])[0].toUpperCase()}</Text></View>}
+    <View style={{ gap: 6 }}>
+      <Text style={styles.whenLine}>{fmt(starts, { weekday: "long" }).split("-")[0]} {starts.getDate()} {fmt(starts, { month: "short" }).replace(".", "")} · {fmt(starts, { hour: "2-digit", minute: "2-digit" })}</Text>
+      <Text style={styles.title}>{event.name}</Text>
+      {past && <Text style={styles.past}>Já aconteceu</Text>}
     </View>
+
+    {/* Caixa do bilhete: preço em grande, lugares e barra de vendas. */}
+    {paid && <View style={styles.box}>
+      <Text style={styles.boxLabel}>BILHETE</Text>
+      <Text style={styles.price}>{kz(event.ticket_price_kz)}</Text>
+      {event.tickets_total ? <>
+        <View style={styles.bar}><View style={[styles.barFill, { width: `${Math.max(event.tickets_sold ? 2 : 0, Math.min(100, Math.round(event.tickets_sold / event.tickets_total * 100)))}%` }]} /></View>
+        <Text style={styles.boxNote}>{soldOut ? "Esgotado" : left <= 50 ? `Últimos ${left} bilhetes` : `${count(left)} por vender`}</Text>
+      </> : <Text style={styles.boxNote}>Express, Referência, PayPay ou PayPal</Text>}
+    </View>}
 
     <Card>
       {Boolean(event.location) && <Pressable style={styles.row} onPress={openMap}>
@@ -129,11 +139,6 @@ export default function EventScreen() {
         <Ionicons name="people" size={20} color="#30B350" />
         <Text style={styles.rowText}>{count(event.attendee_count)} {event.attendee_count === 1 ? "pessoa vai" : "pessoas vão"}</Text>
       </View>
-      {paid && <View style={styles.row}>
-        <Ionicons name="ticket" size={20} color="#C58A00" />
-        <Text style={styles.rowText}>Bilhete: <Text style={{ fontWeight: "800" }}>{kz(event.ticket_price_kz)}</Text>
-          {event.tickets_total ? ` · ${count(left)} por vender` : ""}</Text>
-      </View>}
       {!past && !event.is_creator && (paid
         ? (soldOut ? <Button label="Esgotado" icon="ticket" disabled onPress={() => {}} /> : <>
           <View style={styles.qtyRow}>
@@ -184,12 +189,17 @@ export default function EventScreen() {
 }
 
 const styles = StyleSheet.create({
-  hero: { flexDirection: "row", gap: 14, alignItems: "center", padding: 16, borderRadius: 18, backgroundColor: colors.surface },
-  date: { width: 64, height: 70, borderRadius: 16, backgroundColor: "#F06A2A", alignItems: "center", justifyContent: "center" },
-  month: { color: "#fff", fontSize: 12, fontWeight: "800" },
-  day: { color: "#fff", fontSize: 28, fontWeight: "800", lineHeight: 32 },
-  title: { color: colors.text, fontSize: 21, fontWeight: "800" },
-  when: { color: colors.muted, textTransform: "capitalize" },
+  cover: { width: "100%", aspectRatio: 16 / 9, borderRadius: 18, backgroundColor: colors.line },
+  coverBlank: { alignItems: "center", justifyContent: "center" },
+  coverLetter: { fontSize: 72, fontWeight: "800" },
+  whenLine: { color: colors.accent, fontSize: 13, fontWeight: "800", letterSpacing: 1, textTransform: "uppercase" },
+  title: { color: colors.text, fontSize: 30, fontWeight: "800", letterSpacing: -0.6, lineHeight: 34 },
+  box: { gap: 8, padding: 18, borderRadius: 18, borderWidth: 1.5, borderColor: colors.text, backgroundColor: colors.surface },
+  boxLabel: { color: colors.muted, fontSize: 12, fontWeight: "800", letterSpacing: 1.2 },
+  price: { color: colors.text, fontSize: 32, fontWeight: "800", letterSpacing: -0.8 },
+  bar: { height: 6, borderRadius: 999, backgroundColor: colors.line, overflow: "hidden" },
+  barFill: { height: 6, borderRadius: 999, backgroundColor: colors.accent },
+  boxNote: { color: colors.muted, fontSize: 13 },
   past: { color: colors.danger, fontWeight: "700", fontSize: 12 },
   row: { flexDirection: "row", alignItems: "center", gap: 10 },
   rowText: { color: colors.text, fontSize: 15 },
