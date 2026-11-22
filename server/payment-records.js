@@ -168,8 +168,8 @@ function paymentsCsv(rows) {
 // Quem emite o recibo. Os dados legais vêm do ambiente, para não ficarem escritos no código.
 function issuer() {
   return {
-    name: process.env.COMPANY_NAME || "Tchilar",
-    nif: process.env.COMPANY_NIF || null,
+    name: process.env.COMPANY_NAME || "Alves Estúdio",
+    nif: process.env.COMPANY_NIF || "5001541781",
     address: process.env.COMPANY_ADDRESS || null,
     email: process.env.COMPANY_EMAIL || null
   };
@@ -239,6 +239,6 @@ function registerPaymentRoutes(app, { pool, auth, requireAdmin, parseId }) {
 }
 
 module.exports = {
-  KINDS, METHODS, STATUSES, PAYMENTS_SQL, csvCell, parsePaymentFilters, paymentWhere, paymentsCsv, receiptNumber,
+  KINDS, METHODS, STATUSES, PAYMENTS_SQL, csvCell, issuer, parsePaymentFilters, paymentWhere, paymentsCsv, receiptNumber,
   registerPaymentRoutes, serializePayment
 };

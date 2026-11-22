@@ -24,11 +24,13 @@ function createEmailQueue({ pool, transport, from, dailyLimit = readLimit(proces
   let running = false;
   let timer = null;
 
-  async function enqueue({ to, subject, text, kind = "notice", expiresAt = null, broadcastId = null }, client = pool) {
+  // kind: "account" (confirmar, recuperar), "receipt" (compras, ex.: bilhetes) e "notice" (avisos da equipa).
+  // html é opcional: o texto simples vai sempre junto, para os programas de email que não mostram HTML.
+  async function enqueue({ to, subject, text, html = null, kind = "notice", expiresAt = null, broadcastId = null }, client = pool) {
     const result = await client.query(`
-      INSERT INTO email_queue(to_email,subject,body,kind,priority,expires_at,broadcast_id)
-      VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
-    [to, subject.slice(0, 200), text, kind, kind === "account" ? 0 : 1, expiresAt, broadcastId]);
+      INSERT INTO email_queue(to_email,subject,body,html,kind,priority,expires_at,broadcast_id)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
+    [to, subject.slice(0, 200), text, html, kind, kind === "notice" ? 1 : 0, expiresAt, broadcastId]);
     return result.rows[0].id;
   }
 
@@ -67,12 +69,12 @@ function createEmailQueue({ pool, transport, from, dailyLimit = readLimit(proces
           WHERE status='pending' AND next_attempt_at <= NOW()
           ORDER BY priority, next_attempt_at, id
           LIMIT $1 FOR UPDATE SKIP LOCKED)
-        RETURNING id,to_email,subject,body,attempts,priority,kind`, [left]);
+        RETURNING id,to_email,subject,body,html,attempts,priority,kind`, [left]);
       // O RETURNING não garante ordem: os emails de conta saem primeiro dentro do lote.
       rows.sort((a, b) => a.priority - b.priority || Number(a.id) - Number(b.id));
       for (const row of rows) {
         try {
-          await transport.sendMail({ from, to: row.to_email, subject: row.subject, text: row.body });
+          await transport.sendMail({ from, to: row.to_email, subject: row.subject, text: row.body, ...(row.html ? { html: row.html } : {}) });
           await pool.query(`
             UPDATE email_queue SET status='sent', sent_at=NOW(), last_error=NULL, body=CASE WHEN kind='account' THEN $2 ELSE body END
             WHERE id=$1`, [row.id, REDACTED]);

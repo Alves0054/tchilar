@@ -7,6 +7,8 @@
 // - Os pagamentos, recibos e reembolsos seguem o mesmo caminho dos cursos (purpose "event_ticket").
 const crypto = require("crypto");
 const QRCode = require("qrcode");
+const { METHODS, issuer, receiptNumber } = require("./payment-records");
+const { buildTicketEmail } = require("./ticket-email");
 
 const EVENT_TICKET_ORGANIZER_SHARE = 0.85;
 const MIN_TICKET_KZ = 100;
@@ -50,7 +52,44 @@ async function deleteBlockedReason(client, eventId) {
 }
 
 function registerEventTickets(app, deps) {
-  const { pool, auth, parseId, isRecord, transaction, blockedBetween, appUrl, payments } = deps;
+  const { pool, auth, parseId, isRecord, transaction, blockedBetween, appUrl, payments, secret, apiUrl = appUrl, emailQueue = null } = deps;
+
+  // O QR do email é uma imagem pública (os programas de email não enviam sessão), mas só abre com uma
+  // assinatura daquele bilhete: não se consegue adivinhar o QR de outra pessoa.
+  const qrSignature = ticketId => crypto.createHmac("sha256", secret).update(`ticket-qr:${ticketId}`).digest("base64url").slice(0, 32);
+  const qrImageUrl = ticketId => `${apiUrl.replace(/\/$/, "")}/api/tickets/${ticketId}/qr.png?s=${qrSignature(ticketId)}`;
+
+  // Email do bilhete (desenho em design/emails/bilhete.html), posto na fila dentro da mesma transação.
+  async function queueTicketEmail(client, ticketId, method) {
+    if (!emailQueue) return;
+    const row = (await client.query(`
+      SELECT t.id,t.code,t.amount_kz::float AS amount_kz,t.paid_at,e.id AS event_id,e.name,e.starts_at,e.location,
+        COALESCE(p.name, o.display_name, 'Tchilar') AS organizer,b.display_name AS buyer_name,b.email
+      FROM event_tickets t JOIN events e ON e.id=t.event_id JOIN users b ON b.id=t.user_id
+      LEFT JOIN pages p ON p.id=e.page_id LEFT JOIN users o ON o.id=e.creator_id
+      WHERE t.id=$1`, [ticketId])).rows[0];
+    if (!row?.email) return;
+    const mail = buildTicketEmail({
+      eventName: row.name, startsAt: row.starts_at, location: row.location, organizer: row.organizer, buyerName: row.buyer_name,
+      code: row.code, amountKz: row.amount_kz, method: METHODS[method] || METHODS.demo, receipt: receiptNumber("event_ticket", row.id, row.paid_at),
+      ticketUrl: `${appUrl.replace(/\/$/, "")}/events/${row.event_id}`, qrUrl: qrImageUrl(row.id),
+      logoUrl: `${appUrl.replace(/\/$/, "")}/tchilar-logo-full.png`, company: issuer()
+    });
+    await emailQueue.enqueue({ to: row.email, subject: mail.subject, text: mail.text, html: mail.html, kind: "receipt" }, client);
+  }
+
+  app.get("/api/tickets/:ticketId/qr.png", async (req, res) => {
+    const ticketId = parseId(req.params.ticketId);
+    const given = String(req.query.s || "");
+    if (!ticketId || given.length !== 32 || !crypto.timingSafeEqual(Buffer.from(given), Buffer.from(qrSignature(ticketId)))) {
+      return res.status(404).end();
+    }
+    const ticket = (await pool.query(`SELECT t.event_id,t.code FROM event_tickets t WHERE t.id=$1 AND ${VALID_TICKET} AND t.event_id IS NOT NULL`, [ticketId])).rows[0];
+    if (!ticket) return res.status(404).end();
+    const png = await QRCode.toBuffer(checkInUrl(appUrl, ticket.event_id, ticket.code), { width: 480, margin: 2, errorCorrectionLevel: "M" });
+    res.set("Cache-Control", "private, max-age=86400");
+    res.type("png").send(png);
+  });
 
   // Quem organiza: quem criou o evento ou quem gere a página do evento.
   const organizerSql = "(e.creator_id=$2 OR EXISTS(SELECT 1 FROM pages pg WHERE pg.id=e.page_id AND pg.owner_id=$2))";
@@ -103,7 +142,8 @@ function registerEventTickets(app, deps) {
   // substituída por outra, ou a lotação já estiver cheia, o dinheiro fica por devolver (Administração → Pagamentos)
   // e não conta para quem organiza.
   payments.register("event_ticket", async (ticketId, details) => {
-    await transaction(async client => {
+    const method = details.method || (details.paymentIntent ? "card" : "demo");
+    const issued = await transaction(async client => {
       const ticket = (await client.query("SELECT id,event_id,user_id,owner_id,event_name FROM event_tickets WHERE id=$1 AND status='pending' FOR UPDATE",
         [ticketId])).rows[0];
       if (!ticket) return; // já confirmado (confirmação repetida) ou desconhecido
@@ -115,6 +155,7 @@ function registerEventTickets(app, deps) {
       if (!event || full) {
         await client.query("UPDATE event_tickets SET status='paid', paid_at=NOW(), stripe_payment_intent=$2, refund_status='manual' WHERE id=$1",
           [ticketId, details.paymentIntent || null]);
+        // Fica por devolver: não há bilhete, por isso não há email de bilhete.
         await client.query("INSERT INTO notifications(user_id,type,text) VALUES($1,'event_refund',$2)", [ticket.user_id, full
           ? `Os bilhetes para «${ticket.event_name}» esgotaram antes de o teu pagamento chegar. Vamos devolver-te o dinheiro.`
           : `O teu pagamento para «${ticket.event_name}» já não corresponde a um bilhete (o evento foi cancelado ou fizeste outra compra). Vamos devolver-te o dinheiro.`]);
@@ -136,7 +177,10 @@ function registerEventTickets(app, deps) {
         await client.query("INSERT INTO notifications(user_id,actor_id,type,text) VALUES($1,$2,'event_ticket',$3)",
           [ticket.owner_id, ticket.user_id, `Comprou um bilhete para «${ticket.event_name}». Os teus 85% ficam disponíveis 1 dia depois do evento.`]);
       }
+      await queueTicketEmail(client, ticketId, method);
+      return true;
     });
+    if (issued) emailQueue?.kick();
   });
 
   // O QR do próprio bilhete (PNG). Leva a ligação de validação, nunca dados pessoais.

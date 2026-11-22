@@ -2703,7 +2703,8 @@ app.post("/api/events", auth, imageUpload.single("image"), optimizeUpload("event
   }
 });
 
-registerEventTickets(app, { pool, auth, parseId, isRecord, transaction, blockedBetween, appUrl, payments });
+registerEventTickets(app, { pool, auth, parseId, isRecord, transaction, blockedBetween, appUrl, payments, secret: JWT_SECRET, apiUrl: apiPublicUrl,
+  emailQueue: mailTransport ? emailQueue : null });
 
 app.post("/api/events/:eventId/rsvp", auth, async (req, res) => {
   const eventId = parseId(req.params.eventId);

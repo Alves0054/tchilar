@@ -1924,6 +1924,11 @@ test("event tickets: paid with money, 85% for the organizer after the event, QR 
   assert.equal((await call("POST", `/events/${event.id}/tickets`, buyer, {})).status, 409, "um bilhete por pessoa");
   const qr = await fetch(`${baseUrl}/events/${event.id}/tickets/mine/qr`, { headers: { Authorization: `Bearer ${buyer.token}` } });
   assert.equal(qr.headers.get("content-type"), "image/png");
+  // QR do email: imagem sem sessão, mas só com a assinatura daquele bilhete.
+  const signature = crypto.createHmac("sha256", process.env.JWT_SECRET).update(`ticket-qr:${pending.id}`).digest("base64url").slice(0, 32);
+  assert.equal((await fetch(`${baseUrl}/tickets/${pending.id}/qr.png?s=${signature}`)).headers.get("content-type"), "image/png");
+  assert.equal((await fetch(`${baseUrl}/tickets/${pending.id}/qr.png?s=${"x".repeat(32)}`)).status, 404, "sem a assinatura certa não abre");
+  assert.equal((await fetch(`${baseUrl}/tickets/${pending.id + 1}/qr.png?s=${signature}`)).status, 404, "a assinatura é só daquele bilhete");
 
   // Recibo e lista de pagamentos da equipa.
   const receipt = (await call("GET", "/admin/payments?kind=event_ticket", finance)).body;
