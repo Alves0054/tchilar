@@ -1941,6 +1941,7 @@ test("event tickets: paid with money, 85% for the organizer after the event, QR 
   assert.equal((await call("POST", `/events/${event.id}/check-in`, organizer, { code })).status, 409);
   const list = (await call("GET", `/events/${event.id}/tickets`, organizer)).body;
   assert.deepEqual([list.sold, list.checked_in, list.gross_kz, list.net_kz], [1, 1, 2000, 1700]);
+  assert.ok(list.tickets.every(row => !("code" in row)) && !JSON.stringify(list).includes(code), "quem organiza nunca vê os códigos");
 
   // Os 85% só se podem levantar 1 dia depois do evento; até lá ficam à espera.
   let payouts = (await call("GET", "/payouts", organizer)).body;

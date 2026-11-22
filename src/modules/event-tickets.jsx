@@ -58,8 +58,8 @@ function OrganizerTickets({ event, autoCode }) {
       <Icon name={result.ok ? "check" : "close"} size={18} />
       {result.ok ? <>Pode entrar: <strong>{result.person.display_name}</strong> (@{result.person.username})</> : result.message}
     </p>}
-    {data?.tickets.length > 0 && <ul className="person-list ticket-list">{data.tickets.map(ticket => <li key={ticket.code}>
-      <Avatar user={ticket} size="small" /><span><strong>{ticket.display_name}</strong><small>@{ticket.username} · {ticket.code}</small></span>
+    {data?.tickets.length > 0 && <ul className="person-list ticket-list">{data.tickets.map(ticket => <li key={ticket.id}>
+      <Avatar user={ticket} size="small" /><span><strong>{ticket.display_name}</strong><small>@{ticket.username} · comprou a {new Date(ticket.created_at).toLocaleDateString("pt-PT", { day: "numeric", month: "short" })}</small></span>
       <span className={`status-pill ${ticket.checked_in_at ? "is-ok" : ""}`}>{ticket.checked_in_at ? "Entrou" : "Por entrar"}</span>
     </li>)}</ul>}
   </section>;

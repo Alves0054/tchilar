@@ -194,14 +194,15 @@ function registerEventTickets(app, deps) {
     res.type("png").send(png);
   });
 
-  // Lista de bilhetes vendidos (só quem organiza).
+  // Lista de bilhetes vendidos (só quem organiza). Nunca leva o código: quem vê este ecrã à porta não pode
+  // copiar um código e entrar com ele (o código só é mostrado a quem comprou, no bilhete e no email).
   app.get("/api/events/:eventId/tickets", auth, async (req, res) => {
     const eventId = parseId(req.params.eventId);
     if (!eventId) return res.status(400).json({ error: "Evento inválido." });
     const event = await pool.query(`SELECT e.id,e.tickets_total FROM events e WHERE e.id=$1 AND ${organizerSql}`, [eventId, req.user.id]);
     if (!event.rowCount) return res.status(403).json({ error: "Só quem organiza vê os bilhetes." });
     const tickets = await pool.query(`
-      SELECT t.code,t.amount_kz::float AS amount_kz,t.paid_at AS created_at,t.checked_in_at,u.username,u.display_name,u.avatar_url
+      SELECT t.id::int AS id,t.amount_kz::float AS amount_kz,t.paid_at AS created_at,t.checked_in_at,u.username,u.display_name,u.avatar_url
       FROM event_tickets t JOIN users u ON u.id=t.user_id WHERE t.event_id=$1 AND ${VALID_TICKET} ORDER BY t.paid_at DESC LIMIT 1000`, [eventId]);
     const rows = tickets.rows;
     const gross = rows.reduce((sum, row) => sum + row.amount_kz, 0);

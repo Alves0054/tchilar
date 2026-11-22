@@ -44,9 +44,9 @@ function OrganizerTickets({ eventId }) {
       autoCapitalize="characters" autoCorrect={false} maxLength={16} style={styles.codeInput} />
     <Button label={busy ? "A validar..." : "Validar bilhete"} icon="checkmark-circle" onPress={checkIn} busy={busy} disabled={code.trim().length < 6} />
     {result && <Text style={[styles.checkResult, { backgroundColor: result.ok ? "rgba(52,199,89,0.18)" : "rgba(227,6,19,0.14)" }]}>{result.text}</Text>}
-    {data?.tickets.slice(0, 50).map(ticket => <View key={ticket.code} style={styles.row}>
+    {data?.tickets.slice(0, 50).map(ticket => <View key={ticket.id} style={styles.row}>
       <Avatar user={ticket} size={28} />
-      <Text style={[styles.rowText, { flex: 1 }]} numberOfLines={1}>{ticket.display_name} · {ticket.code}</Text>
+      <Text style={[styles.rowText, { flex: 1 }]} numberOfLines={1}>{ticket.display_name} · @{ticket.username}</Text>
       <Text style={{ color: ticket.checked_in_at ? "#30B350" : colors.muted, fontWeight: "700", fontSize: 12 }}>{ticket.checked_in_at ? "Entrou" : "Por entrar"}</Text>
     </View>)}
   </Card>;
