@@ -3,11 +3,12 @@ import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
 import { Stack, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
-import { Alert, DevSettings, Linking, StyleSheet, Switch, Text, View } from "react-native";
+import { Alert, DevSettings, StyleSheet, Switch, Text, View } from "react-native";
 import { Avatar } from "../../../../components/Avatar";
+import { ReceiptModal } from "../../../../components/Receipt";
 import PhoneInput from "../../../../components/PhoneInput";
 import { Badge, Button, Card, Chips, Empty, Field, Loading, Notice, Page, Row, dateOnly, dateTime, kz } from "../../../../components/ui";
-import { WEB_URL, api, downloadAndShare, saveToken, upload } from "../../../../lib/api";
+import { api, downloadAndShare, saveToken, upload } from "../../../../lib/api";
 import { lockEnabled, lockMethod, setLockEnabled } from "../../../../lib/applock";
 import { AUTOPLAY_OPTIONS, TEXT_SIZES, autoplay, dataSaver, saveAutoplay, saveDataSaver, saveTextSize, textSize } from "../../../../lib/display";
 import { registerForPush } from "../../../../lib/push";
@@ -376,20 +377,12 @@ function Payments() {
   const [open, setOpen] = useState(null);
   useEffect(() => { api("/payments").then(result => setPayments(result.payments)).catch(() => setPayments([])); }, []);
   if (!payments) return <Loading />;
-  return <Card title="Os teus pagamentos" subtitle="Toca num pagamento para ver o recibo.">
-    {payments.length === 0 ? <Empty text="Ainda não fizeste pagamentos no Tchilar." icon="card-outline" /> : payments.map(payment => <View key={`${payment.kind}-${payment.id}`}>
-      <Row icon="receipt" title={payment.description} subtitle={`${dateTime(payment.paid_at)} · ${payment.method_label}`}
-        right={<Text style={{ fontWeight: "800", color: colors.text }}>{kz(payment.amount)}</Text>} onPress={() => setOpen(open === payment.receipt ? null : payment.receipt)} />
-      {open === payment.receipt && <View style={{ padding: 12, gap: 4, borderRadius: 12, backgroundColor: colors.background, marginVertical: 6 }}>
-        <Text style={{ fontWeight: "800", color: colors.text }}>Recibo {payment.receipt}</Text>
-        <Text style={{ color: colors.muted }}>{payment.kind_label} · {payment.status_label}</Text>
-        {payment.seller && <Text style={{ color: colors.text }}>Vendido por {payment.seller.name}{payment.seller.nif ? ` · NIF ${payment.seller.nif}` : ""}</Text>}
-        {payment.lines?.[0]?.quantity > 1 && <Text style={{ color: colors.muted }}>{payment.lines[0].quantity} × {kz(payment.lines[0].unit)}</Text>}
-        {payment.reference && <Text style={{ color: colors.muted }}>Entidade {payment.entity} · Referência {payment.reference}</Text>}
-        {payment.phone && <Text style={{ color: colors.muted }}>Telemóvel {payment.phone}</Text>}
-        <Button small variant="secondary" label="Abrir para imprimir ou PDF" onPress={() => Linking.openURL(`${WEB_URL}/recibos/${payment.kind}/${payment.id}`)} />
-      </View>}
-    </View>)}
+  return <Card title="Os teus pagamentos" subtitle="Toca num pagamento para ver o recibo e guardá-lo em PDF.">
+    {payments.length === 0 ? <Empty text="Ainda não fizeste pagamentos no Tchilar." icon="card-outline" /> : payments.map(payment =>
+      <Row key={`${payment.kind}-${payment.id}`} icon="receipt" title={payment.description}
+        subtitle={`${payment.receipt} · ${dateTime(payment.paid_at)} · ${payment.method_label}${payment.status === "paid" ? "" : ` · ${payment.status_label}`}`}
+        right={<Text style={{ fontWeight: "800", color: colors.text }}>{kz(payment.amount)}</Text>} onPress={() => setOpen(payment)} />)}
+    <ReceiptModal payment={open} onClose={() => setOpen(null)} />
   </Card>;
 }
 
