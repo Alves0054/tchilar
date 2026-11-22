@@ -21,6 +21,36 @@ function whenParts(value) {
     time: date.toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit", timeZone: LUANDA })
   };
 }
+// "Começa hoje às 18:00", "Começa amanhã às 21:00", "Faltam 5 dias", "A decorrer" (até 6 h depois do início).
+function countdown(value) {
+  const start = new Date(value).getTime();
+  const now = Date.now();
+  const time = new Date(value).toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit", timeZone: LUANDA });
+  if (now >= start) return now - start < 6 * 3600000 ? "A decorrer agora" : null;
+  const day = key => new Date(key).toLocaleDateString("en-CA", { timeZone: LUANDA });
+  if (day(start) === day(now)) return start - now < 3600000 ? `Começa daqui a ${Math.max(1, Math.round((start - now) / 60000))} min` : `Começa hoje às ${time}`;
+  if (day(start) === day(now + 86400000)) return `Começa amanhã às ${time}`;
+  const days = Math.ceil((start - now) / 86400000);
+  return days <= 30 ? `Faltam ${days} dias` : null;
+}
+// Ficheiro .ics: o evento entra no calendário do telemóvel ou do computador (2 h de duração por omissão).
+function downloadCalendar(event) {
+  const stamp = date => new Date(date).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+  const escapeIcs = text => String(text || "").replace(/\\/g, "\\\\").replace(/([,;])/g, "\\$1").replace(/\r?\n/g, "\\n");
+  const start = new Date(event.starts_at);
+  const lines = [
+    "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Tchilar//Eventos//PT", "BEGIN:VEVENT",
+    `UID:tchilar-event-${event.id}@tchilar.ao`, `DTSTAMP:${stamp(Date.now())}`,
+    `DTSTART:${stamp(start)}`, `DTEND:${stamp(start.getTime() + 2 * 3600000)}`,
+    `SUMMARY:${escapeIcs(event.name)}`, event.location ? `LOCATION:${escapeIcs(event.location)}` : null,
+    `DESCRIPTION:${escapeIcs(`${event.description || ""}\n\n${window.location.origin}/events/${event.id}`)}`,
+    `URL:${window.location.origin}/events/${event.id}`, "END:VEVENT", "END:VCALENDAR"
+  ].filter(Boolean);
+  const url = URL.createObjectURL(new Blob([lines.join("\r\n")], { type: "text/calendar;charset=utf-8" }));
+  const link = Object.assign(document.createElement("a"), { href: url, download: `${event.name.replace(/[^\p{L}\p{N}]+/gu, "-").slice(0, 60) || "evento"}.ics` });
+  document.body.appendChild(link); link.click(); link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
 const mapsUrl = place => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(place)}`;
 
 function TicketQr({ eventId, code }) {
@@ -103,13 +133,14 @@ export function EventPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { user, authReady } = useContext(UserContext);
   const [event, setEvent] = useState(null);
+  const [attendees, setAttendees] = useState([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState(searchParams.get("pagamento") === "sucesso" ? "Pagamento recebido. Os teus bilhetes aparecem aqui assim que for confirmado." : "");
   const [paying, setPaying] = useState(false);
   const [quantity, setQuantity] = useState(1);
   const checkinCode = searchParams.get("checkin");
-  const load = () => api(`/events/${eventId}`).then(result => setEvent(result.event)).catch(loadError => setError(loadError.message));
+  const load = () => api(`/events/${eventId}`).then(result => { setEvent(result.event); setAttendees(result.attendees || []); }).catch(loadError => setError(loadError.message));
   useEffect(() => { if (authReady) load(); }, [eventId, authReady, user?.id]);
 
   if (error) return <div className="page narrow"><div className="empty card">{error} <Link to="/events">Ver eventos</Link></div></div>;
@@ -121,6 +152,8 @@ export function EventPage() {
   const mine = event.my_tickets || [];
   const when = whenParts(event.starts_at);
   const past = new Date(event.starts_at).getTime() < Date.now();
+  const soon = countdown(event.starts_at);
+  const friends = attendees.filter(person => person.is_friend);
   const host = event.page_id && event.page_name ? { to: `/pages/${event.page_id}`, name: event.page_name } : { to: `/u/${event.creator_username}`, name: event.creator_name };
 
   const buy = () => { setNotice(""); setPaying(true); };
@@ -136,6 +169,7 @@ export function EventPage() {
 
   // Caixa do bilhete (ao lado no computador, por baixo do título no telemóvel).
   const ticketBox = <aside className="evp-box" aria-label={paid ? "Bilhetes" : "Participar"}>
+    {soon && <p className="evp-soon"><Icon name="clock" size={14} /> {soon}</p>}
     {paid ? <>
       <p className="evp-box-label">Bilhete</p>
       <p className="evp-price">{kzLabel(event.ticket_price_kz)}</p>
@@ -189,11 +223,27 @@ export function EventPage() {
         </ul>
         <div className="evp-box-mobile">{ticketBox}</div>
         {event.description && <section className="evp-about"><h2>Sobre o evento</h2><p>{event.description}</p></section>}
-        <button className="btn secondary evp-share" type="button" onClick={share}><Icon name="share" size={15} /> Partilhar evento</button>
+        {attendees.length > 0 && <section className="evp-going">
+          <h2>Quem vai <span>{formatCount(event.attendee_count)}</span></h2>
+          {friends.length > 0 && <p className="evp-muted">{friends.length === 1 ? `${friends[0].display_name} vai` : `${friends[0].display_name} e mais ${friends.length - 1} ${friends.length === 2 ? "amigo vão" : "amigos vão"}`}</p>}
+          <ul>{attendees.slice(0, 18).map(person => <li key={person.id}>
+            <Link to={`/u/${person.username}`} title={person.display_name}><Avatar user={person} />
+              <span>{person.display_name.split(" ")[0]}</span>{person.is_friend && <em>Amigo</em>}</Link>
+          </li>)}</ul>
+        </section>}
+        <div className="evp-tools">
+          <button className="btn secondary evp-share" type="button" onClick={share}><Icon name="share" size={15} /> Partilhar evento</button>
+          {!past && <button className="btn secondary evp-share" type="button" onClick={() => downloadCalendar(event)}><Icon name="events" size={15} /> Adicionar ao calendário</button>}
+        </div>
       </div>
       <div className="evp-side">{ticketBox}</div>
     </div>
 
+    {!past && user && !event.is_creator && <div className="evp-sticky" aria-hidden="true">
+      <span><strong>{paid ? kzLabel(event.ticket_price_kz) : "Grátis"}</strong><small>{soon || (paid ? "por bilhete" : `${formatCount(event.attendee_count)} vão`)}</small></span>
+      {paid ? <button className="btn" type="button" tabIndex={-1} disabled={Boolean(soldOut)} onClick={buy}>{soldOut ? "Esgotado" : mine.length ? "Comprar mais" : "Comprar"}</button>
+        : <button className={`btn${event.is_attending ? " secondary" : ""}`} type="button" tabIndex={-1} disabled={busy} onClick={rsvp}>{event.is_attending ? "Vou ✓" : "Vou"}</button>}
+    </div>}
     {mine.length > 0 && <section className="evp-panel">
       <div className="evp-panel-head"><div>
         <h2>{mine.length === 1 ? "O teu bilhete" : `Os teus ${mine.length} bilhetes`}</h2>

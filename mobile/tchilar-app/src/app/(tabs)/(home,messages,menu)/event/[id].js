@@ -12,6 +12,18 @@ import { API_URL, WEB_URL, api, mediaUri, readToken } from "../../../../lib/api"
 import { colors } from "../../../../lib/theme";
 
 const fmt = (value, options) => new Date(value).toLocaleString("pt-PT", { timeZone: "Africa/Luanda", ...options });
+// "Começa hoje às 18:00", "Começa amanhã às 21:00", "Faltam 5 dias", "A decorrer agora" (igual ao site).
+function countdown(value) {
+  const start = new Date(value).getTime();
+  const now = Date.now();
+  const time = fmt(value, { hour: "2-digit", minute: "2-digit" });
+  if (now >= start) return now - start < 6 * 3600000 ? "A decorrer agora" : null;
+  const day = key => new Date(key).toLocaleDateString("en-CA", { timeZone: "Africa/Luanda" });
+  if (day(start) === day(now)) return start - now < 3600000 ? `Começa daqui a ${Math.max(1, Math.round((start - now) / 60000))} min` : `Começa hoje às ${time}`;
+  if (day(start) === day(now + 86400000)) return `Começa amanhã às ${time}`;
+  const days = Math.ceil((start - now) / 86400000);
+  return days <= 30 ? `Faltam ${days} dias` : null;
+}
 const COVER_TONES = [["#FDE7E8", "#B4000F"], ["#FFF1D6", "#8A5A00"], ["#E3F1FF", "#0B5CAD"], ["#E5F6EA", "#156B33"]];
 
 // O QR do próprio bilhete (pedido com a sessão; nunca fica em cache partilhada).
@@ -112,7 +124,9 @@ export default function EventScreen() {
     <View style={{ gap: 6 }}>
       <Text style={styles.whenLine}>{fmt(starts, { weekday: "long" }).split("-")[0]} {starts.getDate()} {fmt(starts, { month: "short" }).replace(".", "")} · {fmt(starts, { hour: "2-digit", minute: "2-digit" })}</Text>
       <Text style={styles.title}>{event.name}</Text>
-      {past && <Text style={styles.past}>Já aconteceu</Text>}
+      {past ? <Text style={styles.past}>Já aconteceu</Text>
+        : countdown(event.starts_at) ? <View style={styles.soon}><Ionicons name="time-outline" size={14} color={colors.accent} />
+          <Text style={styles.soonText}>{countdown(event.starts_at)}</Text></View> : null}
     </View>
 
     {/* Caixa do bilhete: preço em grande, lugares e barra de vendas. */}
@@ -200,6 +214,8 @@ const styles = StyleSheet.create({
   bar: { height: 6, borderRadius: 999, backgroundColor: colors.line, overflow: "hidden" },
   barFill: { height: 6, borderRadius: 999, backgroundColor: colors.accent },
   boxNote: { color: colors.muted, fontSize: 13 },
+  soon: { flexDirection: "row", alignItems: "center", gap: 6, alignSelf: "flex-start", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, backgroundColor: "rgba(227,6,19,0.12)" },
+  soonText: { color: colors.accent, fontWeight: "800", fontSize: 13 },
   past: { color: colors.danger, fontWeight: "700", fontSize: 12 },
   row: { flexDirection: "row", alignItems: "center", gap: 10 },
   rowText: { color: colors.text, fontSize: 15 },

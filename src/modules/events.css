@@ -537,3 +537,25 @@
   .evp-buyers li .status-pill { grid-column: 2; justify-self: start; }
 }
 .evp-share { display: inline-flex; align-items: center; gap: 8px; }
+
+/* Página do evento: contagem, quem vai, calendário e barra fixa no telemóvel */
+.evp-soon { display: inline-flex; align-items: center; gap: 6px; justify-self: start; padding: 4px 10px; border-radius: 999px;
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent); color: var(--color-accent); font-size: 13px; font-weight: 800; }
+.evp-tools { display: flex; flex-wrap: wrap; gap: 8px; }
+.evp-going h2 { margin: 6px 0 4px; font-size: 18px; display: flex; align-items: baseline; gap: 8px; }
+.evp-going h2 span { font-size: 14px; color: var(--color-text-muted); font-weight: 700; }
+.evp-going ul { list-style: none; margin: 10px 0 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 12px 8px; }
+.evp-going a { display: grid; justify-items: center; gap: 4px; color: inherit; text-decoration: none; font-size: 12px; text-align: center; }
+.evp-going a span { max-width: 72px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.evp-going em { font-style: normal; font-size: 10px; font-weight: 800; color: #157A3B; }
+.evp-sticky { display: none; }
+@media (max-width: 860px) {
+  .evp { padding-bottom: 140px; }
+  .evp-sticky { position: fixed; left: 12px; right: 12px; bottom: calc(72px + env(safe-area-inset-bottom)); z-index: 30; display: flex; align-items: center;
+    justify-content: space-between; gap: 12px; padding: 10px 10px 10px 16px; border-radius: 18px; background: var(--color-surface);
+    border: 1.5px solid var(--color-text); box-shadow: 0 10px 30px rgba(0, 0, 0, .14); }
+  .evp-sticky span { display: grid; }
+  .evp-sticky strong { font-size: 18px; font-weight: 800; }
+  .evp-sticky small { font-size: 12px; color: var(--color-text-muted); }
+  .evp-sticky .btn { min-width: 120px; justify-content: center; }
+}
