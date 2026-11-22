@@ -24,6 +24,8 @@ export function CreateEventDialog({ onClose, onCreated, pageId, pageName, group 
   const [form, setForm] = useState({ name: "", startsAt: "", location: "", description: "" });
   // Bilhete: grátis (botão "Vou") ou pago com dinheiro, com lotação opcional. Os eventos de grupos são sempre grátis.
   const [ticket, setTicket] = useState({ paid: false, price: "2000", total: "" });
+  // Quem vende (aparece no recibo de cada bilhete). Preenchido com os dados guardados na conta.
+  const [seller, setSeller] = useState({ name: user?.billing_name || "", nif: user?.billing_nif || "", address: user?.billing_address || "" });
   const [image, setImage] = useState(null);
   const [imagePreview, setImagePreview] = useState("");
   const [busy, setBusy] = useState(false);
@@ -49,7 +51,8 @@ export function CreateEventDialog({ onClose, onCreated, pageId, pageName, group 
     try {
       const body = new FormData();
       Object.entries({ ...form, startsAt: new Date(form.startsAt).toISOString(), ...(pageId ? { pageId } : {}),
-        ...(!group && ticket.paid ? { ticketPriceKz: ticket.price, ...(ticket.total ? { ticketsTotal: ticket.total } : {}) } : {}) })
+        ...(!group && ticket.paid ? { ticketPriceKz: ticket.price, ...(ticket.total ? { ticketsTotal: ticket.total } : {}),
+          sellerName: seller.name, sellerNif: seller.nif, sellerAddress: seller.address } : {}) })
         .forEach(([key, value]) => body.append(key, value));
       if (image) body.append("image", await downscaleImage(image, 1600, 1200));
       await api(group ? `/groups/${group.id}/events` : "/events", { method: "POST", body });
@@ -109,6 +112,12 @@ export function CreateEventDialog({ onClose, onCreated, pageId, pageName, group 
                 onChange={event => setTicket({ ...ticket, total: event.target.value.replace(/\D/g, "") })} placeholder="Sem limite" /></label>
               <small className="muted">Ficas com 85% de cada bilhete ({formatPrice(Math.round(Number(ticket.price || 0) * 0.85))} por bilhete); o Tchilar fica com 15%.
                 O dinheiro fica disponível para levantar 1 dia depois do evento. Se cancelares antes, devolvemos a quem comprou.</small>
+              <fieldset className="event-seller">
+                <legend>Quem vende os bilhetes <small>aparece no recibo de cada compra</small></legend>
+                <label>Empresa (ou o teu nome)<input required maxLength={160} value={seller.name} onChange={changeEvent => setSeller({ ...seller, name: changeEvent.target.value })} placeholder="Ex.: Kianda Eventos, Lda" /></label>
+                <label>NIF<input required maxLength={20} value={seller.nif} onChange={changeEvent => setSeller({ ...seller, nif: changeEvent.target.value.toUpperCase() })} placeholder="5000000000" /></label>
+                <label className="is-wide">Morada <small>opcional</small><input maxLength={240} value={seller.address} onChange={changeEvent => setSeller({ ...seller, address: changeEvent.target.value })} placeholder="Rua, n.º, cidade" /></label>
+              </fieldset>
             </div>}
           </div>}
           <div className="event-field">

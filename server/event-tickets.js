@@ -39,6 +39,18 @@ function parseTicketInput(body) {
   return { price, total: price ? total : null };
 }
 
+// Quem vende (empresa ou pessoa que organiza): obrigatório nos eventos pagos, para aparecer no recibo.
+// NIF de Angola: 9 a 14 letras e números (empresas com 10 dígitos; pessoas com o n.º do BI).
+function parseSellerInput(body, cleanText) {
+  const name = cleanText(body.sellerName ?? body.seller_name ?? "");
+  const nif = String(body.sellerNif ?? body.seller_nif ?? "").toUpperCase().replace(/[\s.-]/g, "");
+  const address = cleanText(body.sellerAddress ?? body.seller_address ?? "");
+  if (!name || name.length > 160) return { error: "Indica o nome da empresa (ou o teu nome) que vende os bilhetes." };
+  if (!/^[0-9A-Z]{9,14}$/.test(nif)) return { error: "Indica o NIF de quem vende os bilhetes (9 a 14 letras e números)." };
+  if (address.length > 240) return { error: "A morada pode ter até 240 caracteres." };
+  return { name, nif, address: address || null };
+}
+
 const checkInUrl = (appUrl, eventId, code) => `${appUrl.replace(/\/$/, "")}/events/${eventId}?checkin=${encodeURIComponent(code)}`;
 
 // Compra válida: paga e sem reembolso. Cada compra tem "quantity" entradas, cada uma com o seu código.
@@ -118,7 +130,8 @@ function registerEventTickets(app, deps) {
     if (!quantity) return res.status(400).json({ error: `Escolhe entre 1 e ${MAX_PER_ORDER} bilhetes por compra.` });
     const prepared = await transaction(async client => {
       const event = (await client.query(`
-        SELECT e.id,e.name,e.creator_id,e.ticket_price_kz::float AS price,e.tickets_total,e.starts_at,${takenSql} AS taken
+        SELECT e.id,e.name,e.creator_id,e.ticket_price_kz::float AS price,e.tickets_total,e.starts_at,e.seller_name,e.seller_nif,e.seller_address,
+          (SELECT display_name FROM users WHERE id=e.creator_id) AS creator_name,${takenSql} AS taken
         FROM events e
         WHERE e.id=$1 AND NOT ${blockedBetween("$2", "e.creator_id")}
           AND (e.group_id IS NULL OR EXISTS(SELECT 1 FROM group_members gm WHERE gm.group_id=e.group_id AND gm.user_id=$2))
@@ -144,9 +157,10 @@ function registerEventTickets(app, deps) {
       const available = new Date(new Date(event.starts_at).getTime() + 24 * 60 * 60 * 1000);
       const amount = Math.round(event.price * quantity * 100) / 100;
       const ticket = (await client.query(`
-        INSERT INTO event_tickets(event_id,user_id,owner_id,event_name,amount_kz,quantity,status,stars,available_at)
-        VALUES($1,$2,$3,$4,$5,$6,'pending',0,$7) RETURNING id::int AS id`,
-      [eventId, req.user.id, event.creator_id, event.name, amount, quantity, available])).rows[0];
+        INSERT INTO event_tickets(event_id,user_id,owner_id,event_name,amount_kz,quantity,status,stars,available_at,seller_name,seller_nif,seller_address)
+        VALUES($1,$2,$3,$4,$5,$6,'pending',0,$7,$8,$9,$10) RETURNING id::int AS id`,
+      [eventId, req.user.id, event.creator_id, event.name, amount, quantity, available,
+        event.seller_name || event.creator_name, event.seller_nif, event.seller_address])).rows[0];
       return { ticketId: ticket.id, event, amount };
     });
     if (prepared.error) return res.status(prepared.status).json({ error: prepared.error });
@@ -267,6 +281,6 @@ function registerEventTickets(app, deps) {
 }
 
 module.exports = {
-  EVENT_TICKET_ORGANIZER_SHARE, MAX_PER_ORDER, MIN_TICKET_KZ, VALID_TICKET, checkInUrl, deleteBlockedReason, normalizeCode, parseQuantity,
+  EVENT_TICKET_ORGANIZER_SHARE, MAX_PER_ORDER, MIN_TICKET_KZ, VALID_TICKET, checkInUrl, deleteBlockedReason, normalizeCode, parseQuantity, parseSellerInput,
   parseTicketInput, registerEventTickets, ticketCode, ticketShareKz
 };

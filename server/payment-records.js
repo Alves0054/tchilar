@@ -70,10 +70,13 @@ const PAYMENTS_SQL = `
   SELECT i.kind, i.ref_id, i.user_id, i.amount_kz, i.paid_at, i.description, i.status, i.card_ref,
     COALESCE(l.method, CASE WHEN i.card_ref IS NOT NULL THEN 'card' ELSE 'demo' END) AS method,
     l.provider_ref, l.entity, l.phone_last3,
-    u.username, u.display_name, u.email
+    u.username, u.display_name, u.email,
+    -- Bilhetes: quantidade e quem vende (a empresa que organiza), para o recibo.
+    etx.quantity, etx.seller_name, etx.seller_nif, etx.seller_address
   FROM items i
   LEFT JOIN local l ON l.purpose=i.kind AND l.ref_id=i.ref_id
-  LEFT JOIN users u ON u.id=i.user_id`;
+  LEFT JOIN users u ON u.id=i.user_id
+  LEFT JOIN event_tickets etx ON i.kind='event_ticket' AND etx.id=i.ref_id`;
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const validDate = value => typeof value === "string" && DATE.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00Z`));
@@ -136,7 +139,18 @@ function serializePayment(row, { admin = false } = {}) {
     entity: row.method === "reference" ? row.entity : null,
     reference: row.method === "reference" ? row.provider_ref : null,
     phone: row.method === "express" && row.phone_last3 ? `••• ••• ${row.phone_last3}` : null,
-    customer: row.user_id ? { username: row.username, display_name: row.display_name } : null
+    customer: row.user_id ? { username: row.username, display_name: row.display_name } : null,
+    // Linhas do recibo: nos bilhetes, quantidade × preço por bilhete; nos outros, uma linha com o total.
+    lines: [{
+      label: row.description,
+      quantity: row.kind === "event_ticket" && row.quantity ? row.quantity : 1,
+      unit: row.kind === "event_ticket" && row.quantity ? Math.round((row.amount_kz / row.quantity) * 100) / 100 : row.amount_kz,
+      total: row.amount_kz
+    }],
+    // Quem vende: nos bilhetes, a empresa que organiza o evento; no resto, o Tchilar (issuer).
+    seller: row.kind === "event_ticket" && row.seller_name
+      ? { name: row.seller_name, nif: row.seller_nif || null, address: row.seller_address || null }
+      : null
   };
   if (admin) {
     payment.customer = row.user_id ? { ...payment.customer, email: row.email } : null;

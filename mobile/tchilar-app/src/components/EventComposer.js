@@ -51,6 +51,8 @@ export function EventComposer({ endpoint = "/events", pageId, pageName, groupNam
   // Entrada: grátis ("Vou") ou bilhete pago com dinheiro (quem organiza fica com 85%). Os eventos de grupos são sempre grátis.
   const [ticket, setTicket] = useState({ paid: "free", price: "2000", total: "" });
   const paid = !groupName && ticket.paid === "paid";
+  // Quem vende (aparece no recibo de cada bilhete), preenchido com os dados guardados na conta.
+  const [seller, setSeller] = useState({ name: user?.billing_name || "", nif: user?.billing_nif || "", address: user?.billing_address || "" });
   const [image, setImage] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -66,7 +68,8 @@ export function EventComposer({ endpoint = "/events", pageId, pageName, groupNam
     try {
       const fields = { name: form.name.trim(), description: form.description, location: form.location, startsAt: new Date(form.startsAt).toISOString(),
         ...(pageId ? { pageId: Number(pageId) } : {}),
-        ...(paid ? { ticketPriceKz: Number(ticket.price) || 0, ...(ticket.total ? { ticketsTotal: Number(ticket.total) } : {}) } : {}) };
+        ...(paid ? { ticketPriceKz: Number(ticket.price) || 0, ...(ticket.total ? { ticketsTotal: Number(ticket.total) } : {}),
+          sellerName: seller.name, sellerNif: seller.nif, sellerAddress: seller.address } : {}) };
       const result = image ? await upload(endpoint, fields, image, "image") : await api(endpoint, { method: "POST", body: fields });
       onCreated?.(result);
     } catch (createError) {
@@ -97,6 +100,10 @@ export function EventComposer({ endpoint = "/events", pageId, pageName, groupNam
           <View style={{ flex: 1 }}><Field label="Bilhetes (vazio = sem limite)" value={ticket.total} keyboardType="number-pad" maxLength={6}
             onChangeText={value => setTicket(current => ({ ...current, total: value.replace(/\D/g, "") }))} /></View>
         </View>
+        <Text style={styles.label}>Quem vende os bilhetes (aparece no recibo)</Text>
+        <Field label="Empresa (ou o teu nome)" value={seller.name} onChangeText={value => setSeller(current => ({ ...current, name: value }))} maxLength={160} placeholder="Ex.: Kianda Eventos, Lda" />
+        <Field label="NIF" value={seller.nif} onChangeText={value => setSeller(current => ({ ...current, nif: value.toUpperCase() }))} maxLength={20} autoCapitalize="characters" placeholder="5000000000" />
+        <Field label="Morada (opcional)" value={seller.address} onChangeText={value => setSeller(current => ({ ...current, address: value }))} maxLength={240} />
         <Text style={styles.small}>Pagam por Express, Referência, PayPay ou PayPal. Ficas com 85% ({Math.round(Number(ticket.price || 0) * 0.85).toLocaleString("pt-PT")} Kz por bilhete) e o Tchilar com 15%; o dinheiro fica disponível 1 dia depois do evento. Cada bilhete tem um QR para a entrada; se cancelares antes, devolvemos a quem comprou.</Text>
       </>}
     </View>}
@@ -117,7 +124,7 @@ export function EventComposer({ endpoint = "/events", pageId, pageName, groupNam
     <Text style={styles.label}>Assim vão ver o teu evento</Text>
     <EventPoster event={form} image={image?.uri} host={host} going />
     <Notice error={error} />
-    <Button label={busy ? "A criar..." : "Criar evento"} icon="calendar" onPress={create} busy={busy} disabled={!form.name.trim() || !form.startsAt || (paid && !(Number(ticket.price) >= 100))} />
+    <Button label={busy ? "A criar..." : "Criar evento"} icon="calendar" onPress={create} busy={busy} disabled={!form.name.trim() || !form.startsAt || (paid && (!(Number(ticket.price) >= 100) || !seller.name.trim() || seller.nif.trim().length < 9))} />
     {onCancel && <Button variant="ghost" label="Cancelar" onPress={onCancel} />}
   </View>;
 }

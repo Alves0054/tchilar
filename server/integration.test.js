@@ -1907,9 +1907,16 @@ test("event tickets: paid with money, 85% for the organizer after the event, QR 
   const late = await makeUser(`tix_late_${stamp}`);
   const finance = await makeUser(`tix_fin_${stamp}`, { role: "finance" });
   const startsAt = new Date(Date.now() + 2 * 86400000).toISOString();
-  assert.equal((await call("POST", "/events", organizer, { name: "Show", startsAt, ticketPriceKz: 50 })).status, 400, "mínimo 100 Kz");
-  const event = (await call("POST", "/events", organizer, { name: "Show de semba", startsAt, ticketPriceKz: 2000, ticketsTotal: 2 })).body.event;
+  assert.equal((await call("POST", "/events", organizer, { name: "Show", startsAt, sellerName: "Kianda Eventos", sellerNif: "5000000000", ticketPriceKz: 50 })).status, 400, "mínimo 100 Kz");
+  const event = (await call("POST", "/events", organizer, { name: "Show de semba", startsAt, sellerName: "Kianda Eventos", sellerNif: "5000000000", ticketPriceKz: 2000, ticketsTotal: 2 })).body.event;
   assert.equal(event.ticket_price_kz, 2000);
+  // Quem vende é obrigatório num evento pago (aparece no recibo) e o NIF tem de ser válido.
+  assert.equal((await call("POST", "/events", organizer, { name: "Sem vendedor", startsAt, ticketPriceKz: 1000 })).status, 400);
+  assert.equal((await call("POST", "/events", organizer, { name: "NIF mau", startsAt, sellerName: "X", sellerNif: "12", ticketPriceKz: 1000 })).status, 400);
+  const publicView = (await call("GET", `/events/${event.id}`, buyer)).body.event;
+  assert.equal(publicView.seller_name, "Kianda Eventos");
+  assert.ok(!publicView.seller_nif, "o NIF de quem vende não aparece a toda a gente");
+  assert.equal((await call("GET", `/events/${event.id}`, organizer)).body.event.seller_nif, "5000000000");
   assert.equal((await call("POST", `/events/${event.id}/rsvp`, buyer)).status, 409, "num evento pago entra-se com bilhete");
 
   // Comprar abre o pagamento; só depois de confirmado há bilhete.
@@ -1937,6 +1944,9 @@ test("event tickets: paid with money, 85% for the organizer after the event, QR 
   // Recibo e lista de pagamentos da equipa.
   const receipt = (await call("GET", "/admin/payments?kind=event_ticket", finance)).body;
   assert.ok(JSON.stringify(receipt).includes("Bilhete «Show de semba»"));
+  const myReceipt = (await call("GET", `/payments/event_ticket/${pending.id}/receipt`, buyer)).body.payment;
+  assert.deepEqual(myReceipt.seller, { name: "Kianda Eventos", nif: "5000000000", address: null }, "o recibo diz quem vende");
+  assert.deepEqual([myReceipt.lines[0].quantity, myReceipt.lines[0].unit, myReceipt.lines[0].total], [1, 2000, 2000]);
 
   // Validação à entrada: só quem organiza, cada bilhete uma vez.
   assert.equal((await call("POST", `/events/${event.id}/check-in`, buyer, { code })).status, 403);
@@ -1966,7 +1976,7 @@ test("event tickets: paid with money, 85% for the organizer after the event, QR 
   assert.ok((await pool.query("SELECT 1 FROM notifications WHERE user_id=$1 AND type='event_refund'", [buyer.id])).rowCount);
 
   // Depois do evento: o dinheiro conta e um evento com bilhetes já não se apaga.
-  const past = (await call("POST", "/events", organizer, { name: "Já foi", startsAt, ticketPriceKz: 1000 })).body.event;
+  const past = (await call("POST", "/events", organizer, { name: "Já foi", startsAt, sellerName: "Kianda Eventos", sellerNif: "5000000000", ticketPriceKz: 1000 })).body.event;
   await call("POST", `/events/${past.id}/tickets`, buyer, {});
   const ticketId = (await pool.query("SELECT id::int AS id FROM event_tickets WHERE event_id=$1 AND user_id=$2", [past.id, buyer.id])).rows[0].id;
   await payments.fulfill("event_ticket", ticketId, {});
@@ -1978,7 +1988,7 @@ test("event tickets: paid with money, 85% for the organizer after the event, QR 
 
   // Apagar a página de um evento futuro também deixa o bilhete por devolver.
   const page = (await call("POST", "/pages", organizer, { name: `Bilhetes ${stamp}`, pageType: "loja", category: "negocios" })).body.page;
-  const pageEvent = (await call("POST", "/events", organizer, { name: "Na página", startsAt, ticketPriceKz: 500, pageId: page.id })).body.event;
+  const pageEvent = (await call("POST", "/events", organizer, { name: "Na página", startsAt, sellerName: "Kianda Eventos", sellerNif: "5000000000", ticketPriceKz: 500, pageId: page.id })).body.event;
   await call("POST", `/events/${pageEvent.id}/tickets`, late, {});
   const lateTicket = (await pool.query("SELECT id::int AS id FROM event_tickets WHERE event_id=$1 AND user_id=$2", [pageEvent.id, late.id])).rows[0].id;
   await payments.fulfill("event_ticket", lateTicket, {});
@@ -1987,7 +1997,7 @@ test("event tickets: paid with money, 85% for the organizer after the event, QR 
   assert.equal((await call("GET", "/payouts", organizer)).body.sources.ticketsKz, 850, "o bilhete cancelado não conta");
 
   // Pagamento que chega depois de o evento ser cancelado (ex.: Referência paga dias depois): fica por devolver.
-  const cancelled = (await call("POST", "/events", organizer, { name: "Cancelado", startsAt, ticketPriceKz: 700 })).body.event;
+  const cancelled = (await call("POST", "/events", organizer, { name: "Cancelado", startsAt, sellerName: "Kianda Eventos", sellerNif: "5000000000", ticketPriceKz: 700 })).body.event;
   await call("POST", `/events/${cancelled.id}/tickets`, late, {});
   const slow = (await pool.query("SELECT id::int AS id FROM event_tickets WHERE event_id=$1 AND user_id=$2", [cancelled.id, late.id])).rows[0].id;
   assert.equal((await call("DELETE", `/events/${cancelled.id}`, organizer)).status, 200);
@@ -1998,7 +2008,7 @@ test("event tickets: paid with money, 85% for the organizer after the event, QR 
   assert.equal((await call("GET", "/payouts", organizer)).body.sources.ticketsKz, 850, "não conta para quem organizava");
 
   // Lotação cheia quando um pagamento atrasado chega: fica por devolver em vez de vender a mais.
-  const small = (await call("POST", "/events", organizer, { name: "Pequeno", startsAt, ticketPriceKz: 300, ticketsTotal: 1 })).body.event;
+  const small = (await call("POST", "/events", organizer, { name: "Pequeno", startsAt, sellerName: "Kianda Eventos", sellerNif: "5000000000", ticketPriceKz: 300, ticketsTotal: 1 })).body.event;
   await call("POST", `/events/${small.id}/tickets`, late, {});
   const slowOne = (await pool.query("SELECT id::int AS id FROM event_tickets WHERE event_id=$1 AND user_id=$2", [small.id, late.id])).rows[0].id;
   await pool.query("UPDATE event_tickets SET created_at=NOW() - INTERVAL '1 hour' WHERE id=$1", [slowOne]); // o lugar guardado expirou
@@ -2010,7 +2020,7 @@ test("event tickets: paid with money, 85% for the organizer after the event, QR 
   assert.equal((await call("GET", `/events/${small.id}`, organizer)).body.event.tickets_sold, 1, "nunca acima da lotação");
 
   // Várias entradas numa compra: cada uma com o seu código; o preço multiplica; a lotação conta as entradas.
-  const group = (await call("POST", "/events", organizer, { name: "Em grupo", startsAt, ticketPriceKz: 400, ticketsTotal: 5 })).body.event;
+  const group = (await call("POST", "/events", organizer, { name: "Em grupo", startsAt, sellerName: "Kianda Eventos", sellerNif: "5000000000", ticketPriceKz: 400, ticketsTotal: 5 })).body.event;
   assert.match((await call("POST", `/events/${group.id}/tickets`, late, { quantity: 6 })).body.error, /restam 5 bilhetes/);
   await call("POST", `/events/${group.id}/tickets`, late, { quantity: 3 });
   const trio = (await pool.query("SELECT id::int AS id,quantity,amount_kz::float AS amount FROM event_tickets WHERE event_id=$1 AND user_id=$2", [group.id, late.id])).rows[0];
@@ -2027,7 +2037,7 @@ test("event tickets: paid with money, 85% for the organizer after the event, QR 
   assert.deepEqual([groupList.sold, groupList.checked_in, groupList.tickets[0].quantity, groupList.tickets[0].checked_in], [3, 1, 3, 1]);
   // A mesma pessoa pode comprar mais, até à lotação.
   // Ninguém "esgota" um evento a pedir compras sem pagar: no máximo 10 lugares guardados por pessoa.
-  const hoard = (await call("POST", "/events", organizer, { name: "Sem açambarcar", startsAt, ticketPriceKz: 100, ticketsTotal: 30 })).body.event;
+  const hoard = (await call("POST", "/events", organizer, { name: "Sem açambarcar", startsAt, sellerName: "Kianda Eventos", sellerNif: "5000000000", ticketPriceKz: 100, ticketsTotal: 30 })).body.event;
   await call("POST", `/events/${hoard.id}/tickets`, buyer, { quantity: 10 });
   assert.equal((await call("POST", `/events/${hoard.id}/tickets`, buyer, { quantity: 1 })).status, 429);
   assert.equal((await call("GET", `/events/${hoard.id}`, buyer)).body.event.tickets_sold, 0);
@@ -2120,7 +2130,7 @@ test("events: edit (with warnings), reminders a day and an hour before, and sear
   assert.equal(changed.event_id, event.id);
 
   // Antecipar a data de um evento pago não encurta a espera do dinheiro dos bilhetes.
-  const paidEvent = (await call("POST", "/events", host, { name: `Pago ${stamp}`, startsAt: new Date(Date.now() + 10 * 86400000).toISOString(), ticketPriceKz: 500 })).body.event;
+  const paidEvent = (await call("POST", "/events", host, { name: `Pago ${stamp}`, startsAt: new Date(Date.now() + 10 * 86400000).toISOString(), sellerName: "Kianda Eventos", sellerNif: "5000000000", ticketPriceKz: 500 })).body.event;
   await call("POST", `/events/${paidEvent.id}/tickets`, guest, {});
   const held = (await pool.query("SELECT id::int AS id,available_at FROM event_tickets WHERE event_id=$1", [paidEvent.id])).rows[0];
   await payments.fulfill("event_ticket", held.id, {});

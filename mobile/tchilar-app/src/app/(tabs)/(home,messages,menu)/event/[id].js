@@ -38,7 +38,8 @@ const localInput = value => { const date = new Date(value); return new Date(date
 // Editar o evento (quem organiza). Mudar a data ou o local avisa quem vai e quem tem bilhete.
 function EditEvent({ event, visible, onClose, onSaved }) {
   const blank = () => ({ name: event.name, startsAt: localInput(event.starts_at), location: event.location || "", description: event.description || "",
-    ticketsTotal: event.tickets_total ? String(event.tickets_total) : "" });
+    ticketsTotal: event.tickets_total ? String(event.tickets_total) : "",
+    sellerName: event.seller_name || "", sellerNif: event.seller_nif || "", sellerAddress: event.seller_address || "" });
   const [form, setForm] = useState(blank);
   const [state, setState] = useState({ busy: false, error: "" });
   const set = key => value => setForm(current => ({ ...current, [key]: value }));
@@ -48,7 +49,8 @@ function EditEvent({ event, visible, onClose, onSaved }) {
     try {
       const result = await api(`/events/${event.id}`, { method: "PATCH", body: {
         name: form.name, location: form.location, description: form.description, startsAt: new Date(form.startsAt).toISOString(),
-        ...(paid ? { ticketsTotal: form.ticketsTotal ? Number(form.ticketsTotal) : null } : {})
+        ...(paid ? { ticketsTotal: form.ticketsTotal ? Number(form.ticketsTotal) : null,
+          sellerName: form.sellerName, sellerNif: form.sellerNif, sellerAddress: form.sellerAddress } : {})
       } });
       setState({ busy: false, error: "" });
       onSaved(result.notified);
@@ -67,7 +69,12 @@ function EditEvent({ event, visible, onClose, onSaved }) {
           <Field label="Detalhes" value={form.description} onChangeText={set("description")} multiline maxLength={2000} style={{ minHeight: 100, textAlignVertical: "top" }} />
           {paid && <Field label="Bilhetes à venda (vazio = sem limite)" value={form.ticketsTotal} keyboardType="number-pad" maxLength={6}
             onChangeText={value => set("ticketsTotal")(value.replace(/\D/g, ""))} />}
-          <Text style={{ color: colors.muted }}>Se mudares a data ou o local, avisamos quem vai e quem tem bilhete. O preço não muda depois de haver vendas.</Text>
+          {paid && <>
+            <Field label="Quem vende (empresa ou o teu nome)" value={form.sellerName} onChangeText={set("sellerName")} maxLength={160} />
+            <Field label="NIF de quem vende" value={form.sellerNif} onChangeText={value => set("sellerNif")(value.toUpperCase())} maxLength={20} autoCapitalize="characters" />
+            <Field label="Morada (opcional)" value={form.sellerAddress} onChangeText={set("sellerAddress")} maxLength={240} />
+          </>}
+          <Text style={{ color: colors.muted }}>Se mudares a data ou o local, avisamos quem vai e quem tem bilhete. O preço não muda depois de haver vendas. Os recibos já emitidos não mudam.</Text>
           <Notice error={state.error} />
           <Button label="Guardar" onPress={save} busy={state.busy} disabled={!form.name.trim() || !form.startsAt} />
         </ScrollView>

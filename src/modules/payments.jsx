@@ -211,27 +211,54 @@ export function Receipt() {
       <Link className="prefs-back" to={team ? "/admin/pagamentos" : "/settings/pagamentos"}><Icon name="previous" size={18} />{team ? "Pagamentos" : "Os teus pagamentos"}</Link>
       <button className="btn" type="button" onClick={() => window.print()}><Icon name="pages" size={16} />Imprimir ou guardar PDF</button>
     </div>
-    <article className="receipt" aria-label={`Recibo ${payment.receipt}`}>
-      <header className="receipt-head">
-        <div><strong className="receipt-brand">{issuer.name}</strong>
-          {issuer.nif && <small>NIF {issuer.nif}</small>}
-          {issuer.address && <small>{issuer.address}</small>}
-          {issuer.email && <small>{issuer.email}</small>}</div>
-        <div className="receipt-number"><span>Recibo de pagamento</span><strong>{payment.receipt}</strong><small>{dateTime(payment.paid_at)}</small></div>
+    <article className="receipt rcp" aria-label={`Recibo ${payment.receipt}`}>
+      <header className="rcp-head">
+        <img className="rcp-logo" src="/tchilar-logo-full.png" alt="Tchilar" />
+        <div className="rcp-id"><span>Recibo</span><strong>{payment.receipt}</strong></div>
       </header>
+      <div className="rcp-strip">
+        <div><span>Data do pagamento</span><strong>{dateTime(payment.paid_at)}</strong></div>
+        <div><span>Pago com</span><strong>{payment.method_label}</strong></div>
+        <div><span>Estado</span><strong className={`rcp-status is-${payment.status}`}>{payment.status === "paid" ? "Pago" : payment.status === "refunded" ? "Reembolsado" : "Por reembolsar"}</strong></div>
+      </div>
       {payment.status !== "paid" && <p className={`receipt-banner is-${payment.status}`}>{payment.status === "refunded" ? "Este pagamento foi reembolsado." : "Este pagamento vai ser reembolsado pela equipa do Tchilar."}</p>}
-      <dl className="receipt-meta">
-        <div><dt>Cliente</dt><dd>{payment.customer ? `${payment.customer.display_name} (@${payment.customer.username})` : "Conta apagada"}{payment.customer?.email && <small>{payment.customer.email}</small>}</dd></div>
-        <div><dt>Método</dt><dd>{payment.method_label}{payment.method === "reference" && payment.reference && <small>Entidade {payment.entity} · Referência {payment.reference}</small>}{payment.phone && <small>Telemóvel {payment.phone}</small>}</dd></div>
-        {team && payment.provider_ref && <div><dt>Ref. do fornecedor</dt><dd className="receipt-code">{payment.provider_ref}</dd></div>}
-      </dl>
-      <table className="receipt-lines">
-        <thead><tr><th>Descrição</th><th className="is-amount">Valor</th></tr></thead>
-        <tbody><tr><td><span className="payment-kind">{payment.kind_label}</span>{payment.description}</td><td className="is-amount">{formatPrice(payment.amount)}</td></tr></tbody>
-        <tfoot><tr><th>Total pago</th><th className="is-amount">{formatPrice(payment.amount)}</th></tr></tfoot>
+      <section className="rcp-parties">
+        <div>
+          <h3>Vendido por</h3>
+          <strong>{(payment.seller || issuer).name}</strong>
+          {(payment.seller || issuer).nif && <small>NIF {(payment.seller || issuer).nif}</small>}
+          {(payment.seller || issuer).address && <small>{(payment.seller || issuer).address}</small>}
+          {!payment.seller && issuer.email && <small>{issuer.email}</small>}
+        </div>
+        <div>
+          <h3>Cliente</h3>
+          <strong>{payment.customer ? payment.customer.display_name : "Conta apagada"}</strong>
+          {payment.customer && <small>@{payment.customer.username}</small>}
+          {payment.customer?.email && <small>{payment.customer.email}</small>}
+        </div>
+      </section>
+      <table className="rcp-lines">
+        <thead><tr><th>Descrição</th><th className="is-num">Qtd.</th><th className="is-num">Preço</th><th className="is-num">Total</th></tr></thead>
+        <tbody>{(payment.lines || [{ label: payment.description, quantity: 1, unit: payment.amount, total: payment.amount }]).map((line, index) => <tr key={index}>
+          <td><span className="payment-kind">{payment.kind_label}</span>{line.label}</td>
+          <td className="is-num">{line.quantity}</td>
+          <td className="is-num">{formatPrice(line.unit)}</td>
+          <td className="is-num">{formatPrice(line.total)}</td>
+        </tr>)}</tbody>
       </table>
-      <footer className="receipt-foot">
-        <p>Comprovativo de pagamento emitido pelo {issuer.name}. Este documento não serve de fatura.</p>
+      <div className="rcp-totals">
+        <div><span>Subtotal</span><span>{formatPrice(payment.amount)}</span></div>
+        <div className="rcp-grand"><span>Total pago</span><strong>{formatPrice(payment.amount)}</strong></div>
+      </div>
+      {(payment.method === "reference" && payment.reference) || payment.phone || (team && payment.provider_ref) ? <dl className="rcp-pay">
+        {payment.method === "reference" && payment.reference && <div><dt>Referência</dt><dd>Entidade {payment.entity} · {payment.reference}</dd></div>}
+        {payment.phone && <div><dt>Telemóvel</dt><dd>{payment.phone}</dd></div>}
+        {team && payment.provider_ref && <div><dt>Ref. do fornecedor</dt><dd className="receipt-code">{payment.provider_ref}</dd></div>}
+      </dl> : null}
+      <footer className="rcp-foot">
+        {payment.seller
+          ? <p>Recibo emitido pela plataforma Tchilar ({issuer.name}{issuer.nif ? `, NIF ${issuer.nif}` : ""}) em nome de <strong>{payment.seller.name}</strong>. Comprovativo de pagamento: não substitui a fatura, que deve ser pedida a quem vende.</p>
+          : <p>Comprovativo de pagamento emitido por {issuer.name}{issuer.nif ? ` (NIF ${issuer.nif})` : ""}. Não substitui a fatura.</p>}
         <p>Dúvidas sobre este pagamento? Indica o número <strong>{payment.receipt}</strong> quando contactares a equipa.</p>
       </footer>
     </article>

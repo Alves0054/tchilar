@@ -383,6 +383,8 @@ function Payments() {
       {open === payment.receipt && <View style={{ padding: 12, gap: 4, borderRadius: 12, backgroundColor: colors.background, marginVertical: 6 }}>
         <Text style={{ fontWeight: "800", color: colors.text }}>Recibo {payment.receipt}</Text>
         <Text style={{ color: colors.muted }}>{payment.kind_label} · {payment.status_label}</Text>
+        {payment.seller && <Text style={{ color: colors.text }}>Vendido por {payment.seller.name}{payment.seller.nif ? ` · NIF ${payment.seller.nif}` : ""}</Text>}
+        {payment.lines?.[0]?.quantity > 1 && <Text style={{ color: colors.muted }}>{payment.lines[0].quantity} × {kz(payment.lines[0].unit)}</Text>}
         {payment.reference && <Text style={{ color: colors.muted }}>Entidade {payment.entity} · Referência {payment.reference}</Text>}
         {payment.phone && <Text style={{ color: colors.muted }}>Telemóvel {payment.phone}</Text>}
         <Button small variant="secondary" label="Abrir para imprimir ou PDF" onPress={() => Linking.openURL(`${WEB_URL}/recibos/${payment.kind}/${payment.id}`)} />

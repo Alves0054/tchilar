@@ -61,7 +61,8 @@ const localInput = value => { const date = new Date(value); return new Date(date
 // Editar o evento (quem organiza). Mudar a data ou o local avisa quem vai e quem tem bilhete.
 function EditEventDialog({ event, onClose, onSaved }) {
   const [form, setForm] = useState({ name: event.name, startsAt: localInput(event.starts_at), location: event.location || "", description: event.description || "",
-    ticketsTotal: event.tickets_total ? String(event.tickets_total) : "" });
+    ticketsTotal: event.tickets_total ? String(event.tickets_total) : "",
+    sellerName: event.seller_name || "", sellerNif: event.seller_nif || "", sellerAddress: event.seller_address || "" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const set = key => changeEvent => setForm(current => ({ ...current, [key]: changeEvent.target.value }));
@@ -72,7 +73,8 @@ function EditEventDialog({ event, onClose, onSaved }) {
     try {
       const result = await api(`/events/${event.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
         name: form.name, location: form.location, description: form.description, startsAt: new Date(form.startsAt).toISOString(),
-        ...(paid ? { ticketsTotal: form.ticketsTotal ? Number(form.ticketsTotal) : null } : {})
+        ...(paid ? { ticketsTotal: form.ticketsTotal ? Number(form.ticketsTotal) : null,
+          sellerName: form.sellerName, sellerNif: form.sellerNif, sellerAddress: form.sellerAddress } : {})
       }) });
       onSaved(result.notified);
     } catch (saveError) { setError(saveError.message); setBusy(false); }
@@ -87,7 +89,13 @@ function EditEventDialog({ event, onClose, onSaved }) {
       <label>Detalhes<textarea rows={4} maxLength={2000} value={form.description} onChange={set("description")} /></label>
       {paid && <label>Bilhetes à venda <small>vazio = sem limite</small>
         <input type="text" inputMode="numeric" maxLength={6} value={form.ticketsTotal} onChange={changeEvent => setForm(current => ({ ...current, ticketsTotal: changeEvent.target.value.replace(/\D/g, "") }))} /></label>}
-      <p className="evp-muted">Se mudares a data ou o local, avisamos quem vai e quem tem bilhete. O preço não muda depois de haver vendas.</p>
+      {paid && <>
+        <label>Quem vende (empresa ou o teu nome)<input required maxLength={160} value={form.sellerName} onChange={set("sellerName")} /></label>
+        <label>NIF de quem vende<input required maxLength={20} value={form.sellerNif} onChange={changeEvent => setForm(current => ({ ...current, sellerNif: changeEvent.target.value.toUpperCase() }))} /></label>
+        <label>Morada <small>opcional</small><input maxLength={240} value={form.sellerAddress} onChange={set("sellerAddress")} /></label>
+      </>}
+      <p className="evp-muted">Se mudares a data ou o local, avisamos quem vai e quem tem bilhete. O preço não muda depois de haver vendas.
+        Os recibos já emitidos ficam com os dados de quem vendia na altura.</p>
       {error && <p className="error" role="alert">{error}</p>}
       <div className="modal-actions">
         <button className="btn secondary" type="button" disabled={busy} onClick={onClose}>Cancelar</button>

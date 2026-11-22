@@ -455,10 +455,13 @@ export function Icon({ name, size = 16 }) {
   return <LucideIcon aria-hidden="true" focusable="false" size={size} strokeWidth={1.8} />;
 }
 // Valores em kwanzas: "2 500 Kz" (sem cêntimos quando o valor é inteiro).
+// Separa sempre os milhares ("2 500"): em pt-PT o browser só separa a partir de 5 algarismos ("2500", "12 500").
+const groupThousands = text => text.replace(/^(-?\d+)/, whole => whole.replace(/\B(?=(\d{3})+(?!\d))/g, "\u00a0"));
 export const formatPrice = value => {
   const amount = Number(value) || 0;
   // O símbolo "Kz" é acrescentado à mão: alguns browsers mostrariam "AOA".
-  return `${amount.toLocaleString("pt-PT", { minimumFractionDigits: Number.isInteger(amount) ? 0 : 2, maximumFractionDigits: 2 })} Kz`;
+  const text = amount.toLocaleString("pt-PT", { minimumFractionDigits: Number.isInteger(amount) ? 0 : 2, maximumFractionDigits: 2, useGrouping: false });
+  return `${groupThousands(text)} Kz`;
 };
 export const formatDate = value => new Date(value).toLocaleDateString("pt-PT", { day: "numeric", month: "long", year: "numeric" });
-export const formatCount = value => Number(value || 0).toLocaleString("pt-PT");
+export const formatCount = value => groupThousands(Number(value || 0).toLocaleString("pt-PT", { useGrouping: false }));

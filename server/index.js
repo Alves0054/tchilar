@@ -63,7 +63,7 @@ const { SESSION_IDLE_DAYS, createSession, deviceLabel, registerSessionRoutes, to
 const { DOCUMENT_TYPES, registerGroupFeatures } = require("./group-features");
 const { parseGroupKind, parseGroupPrivacy, parsePageType, parseStoryBackground } = require("./community-types");
 const QRCode = require("qrcode");
-const { deleteBlockedReason, parseTicketInput, registerEventTickets } = require("./event-tickets");
+const { deleteBlockedReason, parseSellerInput, parseTicketInput, registerEventTickets } = require("./event-tickets");
 const { MODERATION_ACTIONS, REPORT_REASONS, blockedBetween, shouldAutoHide } = require("./moderation");
 const {
   ACTIVE_SUBSCRIPTION_SQL,
@@ -424,7 +424,7 @@ const documentUpload = multer({
 });
 
 // Campos da própria conta devolvidos ao cliente (nunca inclui password_hash nem auth_version).
-const OWN_ACCOUNT_FIELDS = "id,username,email,display_name,bio,avatar_url,cover_url,cover_position,location,website,profession,is_creator,subscription_price,email_verified,is_admin,admin_role,phone,phone_verified_at,created_at";
+const OWN_ACCOUNT_FIELDS = "id,username,email,display_name,bio,avatar_url,cover_url,cover_position,location,website,profession,is_creator,subscription_price,email_verified,is_admin,admin_role,phone,phone_verified_at,billing_name,billing_nif,billing_address,created_at";
 
 // Apaga um ficheiro de /uploads de forma segura (ignora valores vazios e ficheiros já removidos).
 async function removeUpload(mediaUrl) {
@@ -2753,11 +2753,18 @@ app.post("/api/events", auth, imageUpload.single("image"), optimizeUpload("event
     // Bilhete pago com dinheiro (0 = grátis, com o botão "Vou"). Quem organiza fica com 85%.
     const ticket = parseTicketInput(body);
     if (ticket.error) return reject(400, ticket.error);
+    // Eventos pagos: quem vende (nome/empresa, NIF e morada) aparece no recibo de cada bilhete.
+    const seller = ticket.price ? parseSellerInput(body, cleanText) : null;
+    if (seller?.error) return reject(400, seller.error);
     const event = await transaction(async client => {
       const result = await client.query(`
-        INSERT INTO events(creator_id,page_id,name,description,location,image_url,starts_at,ticket_price_kz,tickets_total)
-        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id,page_id,name,description,location,image_url,starts_at,created_at,ticket_price_kz::float AS ticket_price_kz,tickets_total`,
-      [req.user.id, pageId, name, description, location, imageUrl, startsAt.toISOString(), ticket.price, ticket.total]);
+        INSERT INTO events(creator_id,page_id,name,description,location,image_url,starts_at,ticket_price_kz,tickets_total,seller_name,seller_nif,seller_address)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id,page_id,name,description,location,image_url,starts_at,created_at,ticket_price_kz::float AS ticket_price_kz,tickets_total,
+          seller_name,seller_nif,seller_address`,
+      [req.user.id, pageId, name, description, location, imageUrl, startsAt.toISOString(), ticket.price, ticket.total,
+        seller?.name || null, seller?.nif || null, seller?.address || null]);
+      // Os dados ficam guardados na conta para preencher os próximos eventos.
+      if (seller) await client.query("UPDATE users SET billing_name=$2,billing_nif=$3,billing_address=$4 WHERE id=$1", [req.user.id, seller.name, seller.nif, seller.address]);
       await client.query("INSERT INTO event_attendees(event_id,user_id) VALUES($1,$2)", [result.rows[0].id, req.user.id]);
       return result.rows[0];
     });
@@ -3203,7 +3210,9 @@ app.get("/api/events/:eventId", optionalAuth, async (req, res) => {
   const event = await pool.query(`
     SELECT e.id,e.page_id,p.name AS page_name,e.name,e.description,e.location,e.image_url,e.starts_at,e.created_at,
       u.id AS creator_id,u.username AS creator_username,u.display_name AS creator_name,u.avatar_url AS creator_avatar,
-      e.ticket_price_kz::float AS ticket_price_kz,e.tickets_total,
+      e.ticket_price_kz::float AS ticket_price_kz,e.tickets_total,e.seller_name,
+      CASE WHEN e.creator_id=$2 OR EXISTS(SELECT 1 FROM pages pg WHERE pg.id=e.page_id AND pg.owner_id=$2) THEN e.seller_nif END AS seller_nif,
+      CASE WHEN e.creator_id=$2 OR EXISTS(SELECT 1 FROM pages pg WHERE pg.id=e.page_id AND pg.owner_id=$2) THEN e.seller_address END AS seller_address,
       COALESCE((SELECT SUM(t.quantity) FROM event_tickets t WHERE t.event_id=e.id AND t.status='paid' AND t.refund_status IS NULL), 0)::int AS tickets_sold,
       (SELECT COALESCE(json_agg(json_build_object('code',c.code,'checked_in_at',c.checked_in_at) ORDER BY c.id), '[]'::json)
         FROM event_ticket_codes c JOIN event_tickets t ON t.id=c.ticket_id
@@ -3260,6 +3269,11 @@ app.patch("/api/events/:eventId", auth, async (req, res) => {
     if (startsAt <= new Date()) return res.status(400).json({ error: "O evento deve começar no futuro." });
     next.startsAt = startsAt;
   }
+  let seller = null;
+  if (current.price > 0 && (body.sellerName !== undefined || body.sellerNif !== undefined || body.sellerAddress !== undefined)) {
+    seller = parseSellerInput(body, cleanText);
+    if (seller.error) return res.status(400).json({ error: seller.error });
+  }
   if (body.ticketsTotal !== undefined && current.price > 0) {
     const total = body.ticketsTotal === null || body.ticketsTotal === "" ? null : Number(body.ticketsTotal);
     if (total !== null && (!Number.isInteger(total) || total < 1 || total > 100000)) return res.status(400).json({ error: "Indica quantos bilhetes há (pelo menos 1)." });
@@ -3270,9 +3284,12 @@ app.patch("/api/events/:eventId", auth, async (req, res) => {
   const relocated = (next.location || "") !== (current.location || "");
   const updated = await transaction(async client => {
     const row = (await client.query(`
-      UPDATE events SET name=$2,description=$3,location=$4,starts_at=$5,tickets_total=$6 WHERE id=$1
-      RETURNING id,name,description,location,starts_at,tickets_total`,
-    [eventId, next.name, next.description, next.location, next.startsAt.toISOString(), next.total])).rows[0];
+      UPDATE events SET name=$2,description=$3,location=$4,starts_at=$5,tickets_total=$6,
+        seller_name=COALESCE($7,seller_name),seller_nif=COALESCE($8,seller_nif),seller_address=CASE WHEN $7::text IS NULL THEN seller_address ELSE $9 END
+      WHERE id=$1
+      RETURNING id,name,description,location,starts_at,tickets_total,seller_name,seller_nif,seller_address`,
+    [eventId, next.name, next.description, next.location, next.startsAt.toISOString(), next.total, seller?.name || null, seller?.nif || null, seller?.address || null])).rows[0];
+    if (seller) await client.query("UPDATE users SET billing_name=$2,billing_nif=$3,billing_address=$4 WHERE id=$1", [req.user.id, seller.name, seller.nif, seller.address]);
     // Os bilhetes passam a poder ser levantados 1 dia depois da nova data, mas nunca mais cedo do que antes
     // (antecipar a data não pode encurtar a espera do dinheiro).
     if (moved) {
