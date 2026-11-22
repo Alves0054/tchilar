@@ -1,7 +1,7 @@
 import { useContext, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
-import { Icon, UserContext, api, formatCount, formatPrice } from "./core.jsx";
+import { API_BASE, Icon, UserContext, api, formatCount, formatPrice } from "./core.jsx";
 import { downscaleImage } from "../PhotoEditors.jsx";
 import { SHORT_MONTHS } from "./shared.jsx";
 import { DatePicker } from "./date-picker.jsx";
@@ -146,11 +146,45 @@ export function CreateEventDialog({ onClose, onCreated, pageId, pageName, group 
     </form>
   </div>, document.body);
 }
+// ----- Agenda: eventos agrupados por dia (hora de Luanda), com filtros rápidos -----
+const LUANDA = "Africa/Luanda";
+const dayKey = value => new Date(value).toLocaleDateString("en-CA", { timeZone: LUANDA });
+const agendaTime = value => new Date(value).toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit", timeZone: LUANDA });
+const kzLabel = value => `${String(Math.round(Number(value))).replace(/\B(?=(\d{3})+(?!\d))/g, " ")} Kz`;
+function isWeekend(value) {
+  const weekday = new Date(value).toLocaleDateString("en-GB", { weekday: "short", timeZone: LUANDA });
+  return ["Fri", "Sat", "Sun"].includes(weekday);
+}
+const withinDays = (value, days) => new Date(value).getTime() - Date.now() < days * 86400000;
+export const AGENDA_FILTERS = [
+  ["all", "Tudo", () => true],
+  ["today", "Hoje", item => dayKey(item.starts_at) === dayKey(Date.now())],
+  ["weekend", "Fim de semana", item => isWeekend(item.starts_at) && withinDays(item.starts_at, 7)],
+  ["free", "Grátis", item => !(item.ticket_price_kz > 0)],
+  ["paid", "Com bilhete", item => item.ticket_price_kz > 0]
+];
+function groupByDay(items) {
+  const today = dayKey(Date.now());
+  const tomorrow = dayKey(Date.now() + 86400000);
+  const groups = new Map();
+  for (const item of [...items].sort((a, b) => new Date(a.starts_at) - new Date(b.starts_at))) {
+    const key = dayKey(item.starts_at);
+    if (!groups.has(key)) {
+      const date = new Date(`${key}T12:00:00`);
+      const weekday = `${date.toLocaleDateString("pt-PT", { weekday: "long" })} · ${date.toLocaleDateString("pt-PT", { month: "short" }).replace(".", "")}`;
+      groups.set(key, { key, date, weekday, title: `${weekday} ${date.getDate()}`, badge: key === today ? "Hoje" : key === tomorrow ? "Amanhã" : "", items: [] });
+    }
+    groups.get(key).items.push(item);
+  }
+  return [...groups.values()];
+}
+
 export function Events() {
   const { user } = useContext(UserContext);
   const [events, setEvents] = useState(null);
   const [error, setError] = useState("");
   const [tab, setTab] = useState("upcoming");
+  const [filter, setFilter] = useState("all");
   const [creating, setCreating] = useState(false);
 
   const load = async () => {
@@ -190,47 +224,75 @@ export function Events() {
   const going = all.filter(item => item.is_attending);
   const mine = all.filter(item => user && String(item.creator_id) === String(user.id));
   const tabs = [["upcoming", "Próximos", all.length], ...(user ? [["going", "Vou", going.length], ["mine", "Organizados por ti", mine.length]] : [])];
-  const visible = tab === "going" ? going : tab === "mine" ? mine : all;
+  const inTab = tab === "going" ? going : tab === "mine" ? mine : all;
+  const visible = inTab.filter(AGENDA_FILTERS.find(([id]) => id === filter)[2]);
+  const days = groupByDay(visible);
 
-  return <div className="pages-view">
-    <header className="pages-head">
-      <div><h1>Eventos</h1><p>Descobre o que acontece perto de ti, confirma presença ou organiza o teu.</p></div>
+  return <div className="pages-view agenda-view">
+    <header className="agenda-head">
+      <div>
+        <p className="agenda-kicker">Agenda</p>
+        <h1>Eventos</h1>
+        <p>Concertos, feiras, aulas e encontros perto de ti. Confirma que vais ou compra o bilhete.</p>
+      </div>
       {user ? <button className="btn" type="button" onClick={() => setCreating(true)}><Icon name="plus" size={16} /> Criar evento</button> : <Link className="btn" to="/login">Entrar para criar</Link>}
     </header>
-    <div className="pages-toolbar">
+    <div className="agenda-toolbar">
       <div className="pages-tabs" role="tablist" aria-label="Que eventos mostrar">
         {tabs.map(([id, label, count]) => <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => setTab(id)}>{label}<span>{count}</span></button>)}
       </div>
+      <div className="agenda-filters" role="group" aria-label="Filtrar">
+        {AGENDA_FILTERS.map(([id, label]) => <button key={id} type="button" aria-pressed={filter === id} onClick={() => setFilter(id)}>{label}</button>)}
+      </div>
     </div>
     {error && <p className="error" role="alert">{error}</p>}
-    {!events && !error && <div className="empty card">A carregar eventos...</div>}
-    {events && !visible.length && <div className="empty card pages-empty">
-      <p>{tab === "going" ? "Ainda não confirmaste presença em nenhum evento." : tab === "mine" ? "Ainda não organizaste nenhum evento." : "Não há eventos marcados para os próximos dias."}</p>
-      {user && <button className="btn" type="button" onClick={() => setCreating(true)}><Icon name="plus" size={16} /> Criar evento</button>}
+    {!events && !error && <div className="agenda-empty">A carregar a agenda...</div>}
+    {events && !visible.length && <div className="agenda-empty">
+      <Icon name="events" size={28} />
+      <p>{filter !== "all" ? "Nada com este filtro." : tab === "going" ? "Ainda não confirmaste presença em nenhum evento."
+        : tab === "mine" ? "Ainda não organizaste nenhum evento." : "Não há eventos marcados para os próximos dias."}</p>
+      {filter !== "all" ? <button className="btn secondary" type="button" onClick={() => setFilter("all")}>Ver todos</button>
+        : user && <button className="btn" type="button" onClick={() => setCreating(true)}><Icon name="plus" size={16} /> Criar evento</button>}
     </div>}
-    {visible.length > 0 && <div className="event-list">{visible.map(item => <article className="event-card card" key={item.id}>
-      {item.image_url && <img className="event-card-cover" src={item.image_url} alt={`Imagem do evento ${item.name}`} loading="lazy" />}
-      <EventDate value={item.starts_at} />
-      <div className="event-card-body">
-        <h2><Link to={`/events/${item.id}`}>{item.name}</Link></h2>
-        <small><Icon name="events" size={13} /> {eventWhen(item.starts_at)}</small>
-        {item.location && <small><Icon name="location" size={13} /> {item.location}</small>}
-        {item.description && <p>{item.description}</p>}
-        <small className="event-meta">{formatCount(item.attendee_count)} {item.attendee_count === 1 ? "pessoa vai" : "pessoas vão"} · organizado por {item.page_id && item.page_name
-          ? <Link to={`/pages/${item.page_id}`}>{item.page_name}</Link>
-          : <Link to={`/u/${item.creator_username}`}>{item.creator_name}</Link>}</small>
-      </div>
-      {user && <div className="event-card-actions">
-        {item.ticket_price_kz > 0
-          ? <Link className={`btn${item.my_tickets?.length ? " secondary" : ""}`} to={`/events/${item.id}`}><Icon name="card" size={15} />
-            {item.my_tickets?.length ? (item.my_tickets.length === 1 ? " O meu bilhete" : ` Os meus ${item.my_tickets.length} bilhetes`)
-              : String(item.creator_id) === String(user.id) ? " Bilhetes" : ` Bilhete · ${formatPrice(item.ticket_price_kz)}`}</Link>
-          : <button className={`btn${item.is_attending ? " secondary page-following" : ""}`} type="button" aria-pressed={item.is_attending} onClick={() => toggleRsvp(item)}>
-            {item.is_attending ? <><Icon name="check" size={15} /><span className="when-idle">Vou</span><span className="when-hover">Já não vou</span></> : <><Icon name="plus" size={15} /> Vou participar</>}
-          </button>}
-        {String(item.creator_id) === String(user.id) && <button className="btn secondary danger-text icon-only" type="button" aria-label={`Apagar ${item.name}`} title="Apagar" onClick={() => deleteEvent(item)}><Icon name="trash" size={16} /></button>}
-      </div>}
-    </article>)}</div>}
+    {days.map(day => <section className="agenda-day" key={day.key} aria-label={day.title}>
+      <header className="agenda-day-rail">
+        <strong>{day.date.getDate()}</strong>
+        <span>{day.weekday}</span>
+        {day.badge && <em>{day.badge}</em>}
+      </header>
+      <div className="agenda-items">{day.items.map(item => {
+        const owner = user && String(item.creator_id) === String(user.id);
+        const host = item.page_id && item.page_name ? { to: `/pages/${item.page_id}`, name: item.page_name } : { to: `/u/${item.creator_username}`, name: item.creator_name };
+        const paid = item.ticket_price_kz > 0;
+        const myTickets = item.my_tickets?.length || 0;
+        const left = paid && item.tickets_total ? Math.max(0, item.tickets_total - item.tickets_sold) : null;
+        return <article className="agenda-item" key={item.id}>
+          <Link className="agenda-poster" to={`/events/${item.id}`} tabIndex={-1} aria-hidden="true">
+            {item.image_url ? <img src={`${API_BASE}${item.image_url}`} alt="" loading="lazy" />
+              : <span className={`agenda-poster-blank tone-${item.id % 4}`}><b>{(item.name.match(/[\p{L}\p{N}]/u) || ["•"])[0].toUpperCase()}</b></span>}
+          </Link>
+          <div className="agenda-body">
+            <p className="agenda-when"><b>{agendaTime(item.starts_at)}</b>{item.location && <> · {item.location}</>}</p>
+            <h2><Link to={`/events/${item.id}`}>{item.name}</Link></h2>
+            <p className="agenda-host">por <Link to={host.to}>{host.name}</Link></p>
+            <p className="agenda-facts">
+              <span className={`agenda-price${paid ? "" : " is-free"}`}>{paid ? kzLabel(item.ticket_price_kz) : "Grátis"}</span>
+              <span>{formatCount(item.attendee_count)} {item.attendee_count === 1 ? "vai" : "vão"}</span>
+              {left !== null && left <= 50 && <span className="agenda-left">{left ? `Últimos ${left}` : "Esgotado"}</span>}
+            </p>
+          </div>
+          {user && <div className="agenda-actions">
+            {paid
+              ? <Link className={`btn${myTickets || owner ? " secondary" : ""}`} to={`/events/${item.id}`}>
+                {myTickets ? (myTickets === 1 ? "O meu bilhete" : `${myTickets} bilhetes`) : owner ? "Bilhetes" : "Comprar"}</Link>
+              : !owner && <button className={`btn${item.is_attending ? " secondary page-following" : ""}`} type="button" aria-pressed={item.is_attending} onClick={() => toggleRsvp(item)}>
+                {item.is_attending ? <><Icon name="check" size={15} /><span className="when-idle">Vou</span><span className="when-hover">Já não vou</span></> : "Vou"}
+              </button>}
+            {owner && <button className="btn secondary danger-text icon-only" type="button" aria-label={`Apagar ${item.name}`} title="Apagar" onClick={() => deleteEvent(item)}><Icon name="trash" size={16} /></button>}
+          </div>}
+        </article>;
+      })}</div>
+    </section>)}
     {creating && <CreateEventDialog onClose={() => setCreating(false)} onCreated={() => { setCreating(false); setTab("mine"); load(); }} />}
   </div>;
 }
