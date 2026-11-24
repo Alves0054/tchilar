@@ -439,6 +439,15 @@ const POST_REACTIONS = [
   { id: "angry", label: "Zangado", activeLabel: "Zangado", emoji: "😡" }
 ];
 // extraActions: ações a mais no menu "..." (ex.: a equipa de um grupo fixa ou esconde a publicação).
+// Grupos secretos: o navegador não deixa bloquear capturas de ecrã, mas aqui não se guarda a foto ou o vídeo
+// com o botão direito nem se arrasta, e uma marca de água com o @ de quem está a ver identifica qualquer cópia.
+export function ProtectedMedia({ active, viewer, children }) {
+  if (!active) return children;
+  const block = event => event.preventDefault();
+  return <div className="protected-media" onContextMenu={block} onDragStart={block}
+    data-watermark={viewer?.username ? `@${viewer.username} · Tchilar` : "Tchilar"}>{children}</div>;
+}
+
 export function PostCard({ post, onChanged, startWithComments = false, startWithImage = false, onImageViewerClose, extraActions = [], hideHeader = false, hideMedia = false, showZeroShares = false }) {
   const { user } = useContext(UserContext);
   const navigate = useNavigate();
@@ -706,13 +715,13 @@ export function PostCard({ post, onChanged, startWithComments = false, startWith
       </form>
       : body && <p className="post-body"><TextWithTags text={body} /></p>}
     {post.shared && !hideMedia && <SharedPostPreview post={post.shared} onOpenImage={target => openPostImage(target, true)} />}
-    {!hideMedia && post.media_url && (post.media_type === "video"
+    {!hideMedia && post.media_url && <ProtectedMedia active={post.group_is_secret} viewer={user}>{post.media_type === "video"
       ? <VideoPlayer className="media" src={`${API_BASE}${post.media_url}`} edit={post.video_edit} label={`Vídeo de ${authorName}`}
         onWatched={user && !ownsPost ? () => api(`/posts/${post.id}/watched`, { method: "POST" }).catch(() => {}) : undefined}
         music={post.music ? { title: post.music.title, artist: post.music.artist, src: `${API_BASE}${post.music.audio_url}` } : null} />
       : <button className="post-image-open" type="button" aria-label={`Abrir imagem publicada por ${authorName}`} onClick={() => openPostImage(post)}>
         <img className="media" src={postImageSrc(post.media_url)} alt="Publicação" loading="lazy" />
-      </button>)}
+      </button>}</ProtectedMedia>}
     <div className="post-counts">
       <span><span className="post-count-mark" aria-hidden="true"><Icon name="heart" size={11} /></span>{formatCount(likes)} {likes === 1 ? "gosto" : "gostos"}</span>
       <span className="post-counts-right">
@@ -770,7 +779,7 @@ export function PostCard({ post, onChanged, startWithComments = false, startWith
             ? <span className="muted">A carregar publicação...</span>
             : imagePost.failed
               ? <p className="post-image-viewer-error" role="alert">{imageViewerError}</p>
-              : <PostViewerImage src={`${API_BASE}${imagePost.media_url}`} alt={imagePost.body || "Imagem da publicação"} />}
+              : <ProtectedMedia active={imagePost.group_is_secret} viewer={user}><PostViewerImage src={`${API_BASE}${imagePost.media_url}`} alt={imagePost.body || "Imagem da publicação"} /></ProtectedMedia>}
         </div>
         {!imagePost.loading && !imagePost.failed && <aside className="post-image-viewer-sidebar">
           <div className="post-image-viewer-author">

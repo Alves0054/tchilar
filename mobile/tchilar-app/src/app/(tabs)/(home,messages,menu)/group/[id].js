@@ -12,6 +12,7 @@ import { Badge, Button, Card, Loading, kz } from "../../../../components/ui";
 import { api } from "../../../../lib/api";
 import { groupCategoryPath, groupPrivacy, groupType, isTeam } from "../../../../lib/groups";
 import { useKeyboardOverlap } from "../../../../lib/keyboard";
+import { useProtectScreen } from "../../../../lib/protect";
 import { useSession } from "../../../../lib/session";
 import { colors } from "../../../../lib/theme";
 
@@ -33,6 +34,8 @@ export default function Group() {
   const [options, choose] = useOptions();
   const [activeCall, setActiveCall] = useState(undefined);
   const [renewing, setRenewing] = useState(false);
+  // Grupo secreto: sem capturas nem gravações de ecrã enquanto está aberto.
+  useProtectScreen(Boolean(group?.is_secret), `group-${id}`);
 
   const load = useCallback(async () => {
     try {
@@ -96,6 +99,7 @@ export default function Group() {
       right={<Badge label={privacy?.label} tone={group.is_secret ? "warning" : "info"} />}>
       {Boolean(group.description) && <Text style={{ color: colors.text, lineHeight: 20 }}>{group.description}</Text>}
       <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>{joinArea}</View>
+      {group.is_secret && <Text style={{ color: colors.muted, fontSize: 12 }}>Grupo secreto: não é permitido fazer capturas de ecrã, gravar o ecrã nem descarregar fotos e vídeos.</Text>}
     </Card>
     {group.my_access_until && (() => {
       // Grupo mensal: até quando vai o acesso; nos últimos 7 dias pode pagar o mês seguinte.

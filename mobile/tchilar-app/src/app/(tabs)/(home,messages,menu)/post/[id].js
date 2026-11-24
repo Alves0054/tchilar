@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import { useProtectScreen } from "../../../../lib/protect";
 import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
 import { ActivityIndicator, Alert, FlatList, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
@@ -20,6 +21,8 @@ export default function PostComments() {
   const { id } = useLocalSearchParams();
   // Vinda do feed, a publicação já está em memória; vinda de uma notificação ou de um link, carrega-se pelo id.
   const [post, setPost] = useState(() => recall(`post:${id}`));
+  // Publicação de um grupo secreto: sem capturas nem gravações de ecrã.
+  useProtectScreen(Boolean(post?.group_is_secret), `post-${id}`);
   const [postError, setPostError] = useState("");
   useEffect(() => {
     api(`/posts/${id}`).then(result => setPost(result.post)).catch(loadError => { if (!recall(`post:${id}`)) setPostError(loadError.message); });

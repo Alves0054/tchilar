@@ -299,6 +299,13 @@ test("monthly secret groups: pay a month, renew in the last days, reminder and r
   const days = until => Math.round((new Date(until).getTime() - Date.now()) / 86_400_000);
   assert.equal(days(detail.my_access_until), 30);
   assert.equal(detail.access_billing, "monthly");
+  // Publicações do grupo secreto: marcadas como secretas e só dentro do grupo (nunca no feed nem no perfil).
+  const secretPost = (await call("POST", "/posts", owner, { body: "Só para o clube", groupId: id })).body.post;
+  const inGroup = (await call("GET", `/posts?groupId=${id}`, fan)).body.posts.find(post => post.id === secretPost.id);
+  assert.equal(inGroup.group_is_secret, true);
+  assert.equal((await call("GET", `/posts/${secretPost.id}`, fan)).body.post.group_is_secret, true, "aberta sozinha também vem marcada");
+  assert.ok(!(await call("GET", "/posts", fan)).body.posts.some(post => post.id === secretPost.id), "não aparece no feed");
+  assert.ok(!(await call("GET", `/posts?username=${owner.username}`, fan)).body.posts.some(post => post.id === secretPost.id), "nem no perfil de quem publicou");
   const receipt = (await call("GET", `/payments/group_access/${first}/receipt`, fan)).body.payment;
   assert.match(receipt.description, /^Mensalidade do grupo «.+» \(1 mês\)$/);
 

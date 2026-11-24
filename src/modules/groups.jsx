@@ -361,7 +361,9 @@ function GroupPage({ groupId, user, onListChanged }) {
   ] : [];
   const joinButton = <JoinGroupButton group={group} user={user} busy={busy} onJoin={() => setMembership(true)} onLeave={() => setMembership(false)} />;
 
-  return <div className="pages-view page-detail group-page">
+  // Grupo secreto: sem menu do botão direito nem arrastar (não se guardam fotos e vídeos por aí).
+  const protect = group.is_secret ? { onContextMenu: event => event.preventDefault(), onDragStart: event => event.preventDefault() } : {};
+  return <div className={`pages-view page-detail group-page${group.is_secret ? " is-protected" : ""}`} {...protect}>
     <Link className="page-back" to="/groups"><Icon name="previous" size={18} /> Todos os grupos</Link>
     <section className="page-hero card">
       <div className={`page-hero-cover tone-page-${pageTone(group.name)}`}><span className="page-hero-mark" aria-hidden="true">{pageMonogram(group.name)}</span></div>
@@ -446,6 +448,7 @@ function GroupAbout({ group, privacy, compact = false, onReport }) {
       <li><Icon name={groupType(group.group_type).icon} size={16} /><span>Grupo {groupType(group.group_type).label.toLowerCase()}</span></li>
       <li><Icon name={groupCategory(group.category).icon} size={16} /><span>{groupCategoryPath(group)}</span></li>
       <li><Icon name={privacy?.icon || "groups"} size={16} /><span>{privacy?.label}: {privacy?.help}</span></li>
+      {group.is_secret && <li><Icon name="shield" size={16} /><span>Não é permitido fazer capturas de ecrã nem descarregar fotos e vídeos.</span></li>}
       {group.is_secret && <li><Icon name="info" size={16} /><span>{group.access_billing === "monthly" ? `Mensalidade de ${accessPriceLabel(group)}` : `Entrada de ${formatPrice(group.access_price)}`}</span></li>}
       <li><Icon name="profile" size={16} /><span>Criado por <Link to={`/u/${group.owner_username}`}>{group.owner_name}</Link></span></li>
       <li><Icon name="events" size={16} /><span>Desde {new Date(group.created_at).toLocaleDateString("pt-PT", { month: "long", year: "numeric" })}</span></li>

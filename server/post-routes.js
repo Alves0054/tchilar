@@ -69,7 +69,7 @@ function registerPostRoutes(app, deps) {
         COALESCE(u.partner_since IS NOT NULL OR u.verification_expires_at > NOW(), FALSE) AS is_verified,
         CASE WHEN u.verification_expires_at > NOW() THEN u.verification_tier END AS verification_tier,
         p.star_count::int AS stars,
-        g.name AS group_name, pg.name AS page_name, pg.logo_url AS page_logo_url,
+        g.name AS group_name, COALESCE(g.is_secret, FALSE) AS group_is_secret, pg.name AS page_name, pg.logo_url AS page_logo_url,
         pg.category AS page_category, pg.is_official AS page_is_official,
         CASE WHEN pg.verification_expires_at > NOW() THEN pg.verification_tier END AS page_verification_tier,
         p.like_count AS likes,
@@ -96,6 +96,8 @@ function registerPostRoutes(app, deps) {
         AND (p.group_id IS NULL OR EXISTS(
           SELECT 1 FROM group_members gm WHERE gm.group_id=p.group_id AND gm.user_id=$1
         ))
+        -- Grupos secretos: as publicações só se veem dentro do grupo (ou abertas uma a uma), nunca no feed nem no perfil.
+        AND (g.id IS NULL OR NOT g.is_secret OR $3::int IS NOT NULL OR $10::int IS NOT NULL)
         AND (p.is_exclusive=FALSE OR p.user_id=$1 OR EXISTS(
           SELECT 1 FROM subscriptions s
           WHERE s.subscriber_id=$1 AND s.creator_id=p.user_id AND ${ACTIVE_SUBSCRIPTION_SQL}
