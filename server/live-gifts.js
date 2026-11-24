@@ -1,5 +1,5 @@
 // Presentes dos diretos: 15 presentes de 100 Kz a 25 000 Kz. Pagam-se com estrelas (1 estrela = 10 Kz),
-// como as estrelas soltas: quem transmite recebe 70% do valor no saldo (ver growth.js / finance-routes.js).
+// como as estrelas soltas: quem transmite recebe 80% do valor no saldo (ver growth.js / finance-routes.js).
 //
 // sound: 0 = sem som; 1 a 8 = som de aviso, cada um mais vistoso do que o anterior (public/sounds/gift-N.wav no
 // site e assets/sounds na app). Os presentes a partir de 2 000 Kz tocam som para toda a gente no direto.

@@ -400,7 +400,7 @@ export function AdminFinance() {
   if (!data) return <section className="creator-card"><div className="creator-loading">A calcular...</div></section>;
   const groups = [
     ["Entradas (pagas por clientes)", [["Promoções", data.income.promotions], ["Estrelas vendidas", data.income.stars], ["Campanhas pagas", data.income.campaigns], ["Entradas em grupos secretos", data.income.groups || 0]]],
-    ["Parte do Tchilar", [["Promoções", data.tchilar_share.promotions], ["Estrelas (30% + não oferecidas)", data.tchilar_share.stars], ["Comissão de campanhas (15%)", data.tchilar_share.campaigns_commission], ["Grupos secretos (30%)", data.tchilar_share.groups || 0]]],
+    ["Parte do Tchilar", [["Promoções", data.tchilar_share.promotions], ["Estrelas (20% + não oferecidas)", data.tchilar_share.stars], ["Comissão de campanhas (15%)", data.tchilar_share.campaigns_commission], ["Grupos secretos (20%)", data.tchilar_share.groups || 0]]],
     ["Criadores", [["Ganhos acumulados", data.creators.earned], [`Levantamentos por pagar (${data.creators.requested_count})`, data.creators.requested], ["Já pagos", data.creators.paid], ["Ainda em dívida", data.creators.still_owed]]]
   ];
   return <>

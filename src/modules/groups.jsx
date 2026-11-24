@@ -247,7 +247,7 @@ export function CreateGroupDialog({ viewer, onClose, onCreated }) {
             <span className="event-input-icon"><Icon name="lock" size={16} />
               <input type="number" inputMode="numeric" required min={SECRET_MIN_PRICE} max={SECRET_MAX_PRICE} step="1" value={form.accessPrice}
                 onChange={event => setForm({ ...form, accessPrice: event.target.value })} placeholder="Ex.: 2500" aria-describedby="group-price-help" /></span>
-            <small className="muted" id="group-price-help">Entre {formatPrice(SECRET_MIN_PRICE)} e {formatPrice(SECRET_MAX_PRICE)}. Recebes 70% de cada entrada nos teus ganhos.</small>
+            <small className="muted" id="group-price-help">Entre {formatPrice(SECRET_MIN_PRICE)} e {formatPrice(SECRET_MAX_PRICE)}. Recebes 80% de cada entrada nos teus ganhos.</small>
           </label>}
           <label className="event-field">
             <span className="event-field-label">Regras do grupo <small>Opcional</small></span>

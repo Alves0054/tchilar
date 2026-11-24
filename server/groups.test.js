@@ -15,9 +15,9 @@ test("secret group names match exactly, ignoring case and outer spaces", () => {
   assert.equal(sameGroupName(undefined, "Clube"), false);
 });
 
-test("entry price uses the same limits as subscriptions and the owner keeps 70%", () => {
+test("entry price uses the same limits as subscriptions and the owner keeps 80%", () => {
   assert.equal(parseAccessPrice(2500).value, 2500);
   assert.ok(parseAccessPrice(10).error);
   assert.ok(parseAccessPrice("abc").error);
-  assert.equal(groupAccessValueKz(2500), 1750);
+  assert.equal(groupAccessValueKz(2500), 2000);
 });

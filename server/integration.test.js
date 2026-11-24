@@ -254,7 +254,7 @@ test("secret groups: adults only, hidden from the list, paid entry by exact name
   assert.equal((await call("POST", `/groups/${id}/access`, users.bruno, { name: "outro nome" })).status, 404);
   assert.equal((await call("POST", `/groups/${id}/access`, users.carla, { name: body.name })).status, 404);
 
-  // Pagamento: fica pendente até ser confirmado; depois a pessoa é membro e o dono ganha 70%.
+  // Pagamento: fica pendente até ser confirmado; depois a pessoa é membro e o dono ganha 80%.
   await call("POST", `/groups/${id}/access`, users.bruno, { name: body.name });
   const purchase = (await pool.query("SELECT id,status,amount_kz::float AS amount FROM group_access_purchases WHERE group_id=$1 AND user_id=$2", [id, users.bruno.id])).rows[0];
   assert.deepEqual([purchase.status, purchase.amount], ["pending", 2500]);
@@ -266,7 +266,7 @@ test("secret groups: adults only, hidden from the list, paid entry by exact name
   assert.equal((await call("POST", `/groups/${id}/access`, users.bruno, { name: body.name })).status, 409, "já é membro");
   const earnings = await call("GET", "/payouts", users.ana);
   assert.equal(earnings.status, 200);
-  assert.equal(earnings.body.sources.groupsKz, 1750);
+  assert.equal(earnings.body.sources.groupsKz, 2000);
 });
 
 test("approval groups: the owner approves or declines who joins", { skip }, async () => {

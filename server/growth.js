@@ -12,7 +12,7 @@ const STAR_PACKS = [                            // pacotes à venda; os maiores 
   { stars: 1000, bonus: 100 }
 ];
 const GIFT_AMOUNTS = [1, 5, 10, 50, 100];      // quantidades que se podem oferecer de uma vez
-const STAR_CREATOR_SHARE = 0.7;                 // o criador recebe 70% do valor; o Tchilar fica com 30%
+const STAR_CREATOR_SHARE = 0.8;                 // o criador recebe 80% do valor; o Tchilar fica com 20%
 
 const packPrice = pack => pack.stars * STAR_PRICE_KZ;
 // Valor em Kz que o criador recebe por um número de estrelas.

@@ -55,7 +55,7 @@ export function GiftSheet({ visible, gifts, balance, onClose, onSend }) {
           </Pressable>;
         })}
       </ScrollView>
-      <Text style={styles.hint}>Cada presente paga-se com estrelas (1 estrela = 10 Kz). Quem está em direto recebe 70%.</Text>
+      <Text style={styles.hint}>Cada presente paga-se com estrelas (1 estrela = 10 Kz). Quem está em direto recebe 80%.</Text>
     </SafeAreaView>
   </Modal>;
 }

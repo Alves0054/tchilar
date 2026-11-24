@@ -3,7 +3,7 @@ const { MAX_PRICE, MIN_PRICE, parseSubscriptionPrice } = require("./subscription
 const { ageOn } = require("./growth");
 
 const ADULT_AGE = 18;
-const GROUP_ACCESS_CREATOR_SHARE = 0.7; // o dono do grupo recebe 70% de cada entrada; o Tchilar fica com 30%
+const GROUP_ACCESS_CREATOR_SHARE = 0.8; // o dono do grupo recebe 80% de cada entrada; o Tchilar fica com 20%
 
 // Condição SQL "esta pessoa tem 18 anos ou mais". Sem data de nascimento conta como menor.
 const adultSql = column => `(${column} IS NOT NULL AND ${column} <= (CURRENT_DATE - INTERVAL '${ADULT_AGE} years'))`;

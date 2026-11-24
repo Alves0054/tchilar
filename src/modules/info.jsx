@@ -93,7 +93,7 @@ export function Terms() {
       <li><strong>Campanhas com marcas:</strong> a marca paga através do Tchilar quando o criador aceita a proposta. O Tchilar fica com 15%.</li>
     </ul>
     <h2>6. Ganhos dos criadores</h2>
-    <p>Os criadores podem ganhar dinheiro com o Programa de Parceiros (a partir de 10 000 seguidores e 10 000 visualizações em 28 dias), com as estrelas recebidas (70% do valor) e com campanhas de marcas (85% do valor). Os ganhos podem ser levantados por transferência bancária a partir de 5 000 Kz. Ganhos obtidos com fraude (visualizações, seguidores ou estrelas falsas) podem ser anulados, e a conta suspensa.</p>
+    <p>Os criadores podem ganhar dinheiro com o Programa de Parceiros (a partir de 10 000 seguidores e 10 000 visualizações em 28 dias), com as estrelas recebidas (80% do valor) e com campanhas de marcas (85% do valor). Os ganhos podem ser levantados por transferência bancária a partir de 5 000 Kz. Ganhos obtidos com fraude (visualizações, seguidores ou estrelas falsas) podem ser anulados, e a conta suspensa.</p>
     <h2>7. Fim da conta</h2>
     <p>Podes apagar a conta quando quiseres, em Definições. Podemos encerrar contas que violem estes termos de forma grave ou repetida. Os registos de pagamentos e levantamentos são guardados durante o prazo exigido pela lei, mesmo depois de a conta ser apagada.</p>
     <h2>8. Alterações</h2>

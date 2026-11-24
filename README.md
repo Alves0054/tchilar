@@ -159,7 +159,7 @@ Promoções, estrelas e campanhas podem ser pagas por **Multicaixa Express**, **
 
 ## Ganhos e levantamentos dos criadores
 
-Os criadores veem em **Painel do criador → Ganhos** o que ganharam com o Programa de Parceiros (meses fechados), as estrelas recebidas (70%) e as campanhas concluídas (85%). Podem pedir levantamentos a partir de 5 000 Kz para um IBAN angolano (validado pelo módulo 97).
+Os criadores veem em **Painel do criador → Ganhos** o que ganharam com o Programa de Parceiros (meses fechados), as estrelas recebidas (80%) e as campanhas concluídas (85%). Podem pedir levantamentos a partir de 5 000 Kz para um IBAN angolano (validado pelo módulo 97).
 
 - O IBAN é guardado **cifrado (AES-256-GCM)** com a chave `PAYOUT_ENCRYPTION_KEY`. Em produção o servidor não arranca sem ela. Gera uma com:
 

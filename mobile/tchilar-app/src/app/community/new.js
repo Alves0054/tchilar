@@ -116,7 +116,7 @@ export default function NewCommunity() {
         })}</View>
         <Field label="Regras (opcional)" value={form.rules} onChangeText={set("rules")} multiline maxLength={3000} placeholder={"1. Respeito por todos.\n2. Sem spam."} />
         {form.privacy === "secret" && <Field label="Preço de entrada (Kz)" value={form.accessPrice} onChangeText={value => set("accessPrice")(value.replace(/[^\d]/g, ""))} keyboardType="number-pad"
-          hint="Só maiores de 18 anos. Pagamento único entre 500 e 500 000 Kz; recebes 70% de cada entrada." />}
+          hint="Só maiores de 18 anos. Pagamento único entre 500 e 500 000 Kz; recebes 80% de cada entrada." />}
         <Text style={styles.label}>Assim vão ver o teu grupo</Text>
         <View style={styles.preview}>
           <View style={styles.previewCover} />

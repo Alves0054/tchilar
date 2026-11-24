@@ -8,7 +8,7 @@ const { LEVELS, hasCash, parsePrizes } = require("./challenge-templates");
 const { VERIFICATION_MIN_FOLLOWERS, VERIFICATION_PLANS, verificationEligibility } = require("./verification");
 
 // Saldo de estrelas para gastar: compras, prémios e bónus menos as ofertas feitas.
-// As estrelas RECEBIDAS não entram aqui: valem dinheiro (70%) e vão para os ganhos (ver finance-routes.js).
+// As estrelas RECEBIDAS não entram aqui: valem dinheiro (80%) e vão para os ganhos (ver finance-routes.js).
 const balanceSql = "SELECT COALESCE(SUM(amount) FILTER (WHERE kind <> 'gift_received'),0)::int AS balance FROM star_ledger WHERE user_id=$1";
 
 function registerGrowthRoutes(app, deps) {

@@ -356,9 +356,9 @@ function Earnings() {
   };
   const sources = [
     ["Programa de Parceiros", data.sources.partnerKz, "sparkles-outline", data.accruing.partnerKz > 0 ? `+${kz(data.accruing.partnerKz)} a acumular este mês` : "Meses já fechados"],
-    ["Estrelas recebidas", data.sources.starsKz, "star-outline", "70% do valor das estrelas"],
+    ["Estrelas recebidas", data.sources.starsKz, "star-outline", "80% do valor das estrelas"],
     ["Campanhas com marcas", data.sources.campaignsKz, "briefcase-outline", "85% das campanhas concluídas"],
-    ["Grupos secretos", data.sources.groupsKz || 0, "lock-closed-outline", "70% das entradas pagas"],
+    ["Grupos secretos", data.sources.groupsKz || 0, "lock-closed-outline", "80% das entradas pagas"],
     ["Prémios de desafios", data.sources.prizesKz || 0, "trophy-outline", "Prémios em dinheiro dos desafios do mês"],
     ["Cursos vendidos", data.sources.coursesKz || 0, "school-outline", "85% das vendas na Academia"],
     ["Subscrições", data.sources.subscriptionsKz || 0, "sparkles-outline", "85% de cada mês pago"],

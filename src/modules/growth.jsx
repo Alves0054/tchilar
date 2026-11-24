@@ -45,7 +45,7 @@ export function StarsPage() {
       <div className="tc-head-text">
         <p className="tc-head-kicker">Estrelas</p>
         <h1>Apoia quem gostas</h1>
-        <p>Oferece estrelas nas publicações dos teus criadores favoritos. Cada estrela vale {data ? formatPrice(data.price_kz) : "10 Kz"}; o criador recebe 70% e o Tchilar fica com 30%.</p>
+        <p>Oferece estrelas nas publicações dos teus criadores favoritos. Cada estrela vale {data ? formatPrice(data.price_kz) : "10 Kz"}; o criador recebe 80% e o Tchilar fica com 20%.</p>
       </div>
       <p className="tc-head-figure"><small>O teu saldo</small><strong><Icon name="star" size={20} /> {data ? formatCount(data.balance) : "…"}</strong></p>
     </header>
@@ -67,7 +67,7 @@ export function StarsPage() {
       {data.received.stars > 0 && <section className="creator-card">
         <h2>Estrelas que recebeste</h2>
         <p className="muted">As estrelas que recebes não entram no saldo para oferecer: valem dinheiro e aparecem em <Link to="/creator/ganhos">Painel do criador → Ganhos</Link>.</p>
-        <div className="mini-stats"><div><strong>{formatCount(data.received.stars)}</strong><span>estrelas recebidas</span></div><div><strong>{formatPrice(data.received.value_kz)}</strong><span>a tua parte (70%)</span></div></div>
+        <div className="mini-stats"><div><strong>{formatCount(data.received.stars)}</strong><span>estrelas recebidas</span></div><div><strong>{formatPrice(data.received.value_kz)}</strong><span>a tua parte (80%)</span></div></div>
       </section>}
       <section className="creator-card" aria-labelledby="history-title">
         <h2 id="history-title">Movimentos</h2>

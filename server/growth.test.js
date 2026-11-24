@@ -4,10 +4,10 @@ const {
   ANGOLA_PROVINCES, STAR_PACKS, ageOn, campaignSplit, packPrice, parseBirthDate, parseTargeting, referralQualifies, starsValueKz
 } = require("./growth");
 
-test("star packs cost 10 Kz per star and creators keep 70%", () => {
+test("star packs cost 10 Kz per star and creators keep 80%", () => {
   assert.equal(packPrice(STAR_PACKS[0]), 500);
-  assert.equal(starsValueKz(100), 700);
-  assert.equal(starsValueKz(1), 7);
+  assert.equal(starsValueKz(100), 800);
+  assert.equal(starsValueKz(1), 8);
 });
 
 test("brand campaigns keep a 15% commission for Tchilar", () => {

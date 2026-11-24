@@ -1241,7 +1241,7 @@ export function LiveRoom({ liveId }) {
                 <span className="live-gift-stars"><Icon name="star" size={12} /> {formatCount(item.stars)} {item.stars === 1 ? "estrela" : "estrelas"}</span>
                 <small>= {formatCount(item.kz)} Kz</small>
               </button>)}
-              <p className="live-gift-hint">{balance !== null && <>Tens <strong>{formatCount(balance)} {balance === 1 ? "estrela" : "estrelas"}</strong>. </>}Cada presente paga-se com estrelas (1 estrela = 10 Kz); quem está em direto recebe 70%. <Link to="/estrelas">Comprar estrelas</Link></p>
+              <p className="live-gift-hint">{balance !== null && <>Tens <strong>{formatCount(balance)} {balance === 1 ? "estrela" : "estrelas"}</strong>. </>}Cada presente paga-se com estrelas (1 estrela = 10 Kz); quem está em direto recebe 80%. <Link to="/estrelas">Comprar estrelas</Link></p>
             </div>}
             {giftMessage && <p className="live-gift-message" role="status">{giftMessage}</p>}
             <form className="live-chat-form" onSubmit={sendComment}>

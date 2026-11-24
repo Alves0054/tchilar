@@ -33,7 +33,7 @@
     "items": [
       ["Grupos públicos", "Qualquer pessoa entra e vê as publicações."],
       ["Grupos privados", "O dono aprova quem entra."],
-      ["Grupos secretos", "Só para maiores de 18. Não aparecem na lista: só os encontra quem sabe o nome exato. A entrada pode ser paga e o dono recebe 70%."],
+      ["Grupos secretos", "Só para maiores de 18. Não aparecem na lista: só os encontra quem sabe o nome exato. A entrada pode ser paga e o dono recebe 80%."],
       ["Páginas", "Para negócios, artistas, projetos e marcas. As pessoas seguem a página."],
       ["Eventos", "Marca encontros, festas e aulas. Quem participa recebe a data e o local."]
     ]
@@ -51,7 +51,7 @@
     "items": [
       ["O que são", "Uma forma de apoiar quem gostas. Cada estrela custa 10 Kz e há pacotes com estrelas de bónus."],
       ["Oferecer", "Em publicações e diretos, de 1 a 100 estrelas de cada vez."],
-      ["Para o criador", "Quem recebe fica com 70% do valor das estrelas, que entra no saldo para levantar."],
+      ["Para o criador", "Quem recebe fica com 80% do valor das estrelas, que entra no saldo para levantar."],
       ["Ganhar estrelas", "Convida amigos (50 estrelas por cada pessoa que entra e publica) e participa nos desafios do mês."]
     ]
   },
