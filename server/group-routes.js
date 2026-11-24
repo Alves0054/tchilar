@@ -1,6 +1,6 @@
 // Grupos: lista, criar, entrar, pagar a entrada, pedidos, sair e apagar.
 // Separado de index.js: as rotas são as mesmas; recebem de lá o que partilham com o resto da API.
-const { adultSql } = require("./groups");
+const { adultSql, canRenewGroupAccess, parseAccessBilling } = require("./groups");
 const { blockedBetween } = require("./moderation");
 const { makeRateLimit } = require("./rate-limit");
 const { parseAccessPrice } = require("./groups");
@@ -54,7 +54,8 @@ function registerGroupRoutes(app, deps) {
     if (!viewer.adult || name.length < 3 || name.length > 100) return res.json({ groups: [], viewer });
     const result = await pool.query(`
       SELECT ${GROUP_FIELDS}, '[]'::json AS member_preview,
-        EXISTS(SELECT 1 FROM group_members m WHERE m.group_id=g.id AND m.user_id=$2) AS is_member
+        EXISTS(SELECT 1 FROM group_members m WHERE m.group_id=g.id AND m.user_id=$2) AS is_member,
+        (SELECT m.access_until FROM group_members m WHERE m.group_id=g.id AND m.user_id=$2) AS my_access_until
       FROM social_groups g JOIN users u ON u.id=g.owner_id
       WHERE g.is_secret AND g.hidden_at IS NULL AND lower(g.name)=lower($1)
       ORDER BY g.created_at DESC LIMIT 10`, [name, req.user.id]);
@@ -79,21 +80,25 @@ function registerGroupRoutes(app, deps) {
     const requiresApproval = privacy.value === "approval";
     const inviteOnly = privacy.value === "private";
     let accessPrice = null;
+    let accessBilling = "once";
     if (isSecret) {
       if (!(await viewerAge(req.user.id)).adult) {
         return res.status(403).json({ error: "Só maiores de 18 anos podem criar grupos secretos. Confirma a tua data de nascimento nas Definições." });
       }
       if (name.length < 3) return res.status(400).json({ error: "O nome de um grupo secreto deve ter pelo menos 3 caracteres." });
-      const price = parseAccessPrice(body.accessPrice);
+      const billing = parseAccessBilling(body.accessBilling);
+      if (billing.error) return res.status(400).json({ error: billing.error });
+      accessBilling = billing.value;
+      const price = parseAccessPrice(body.accessPrice, accessBilling);
       if (price.error) return res.status(400).json({ error: price.error });
       accessPrice = price.value;
     }
     const group = await transaction(async client => {
       const result = await client.query(
-        `INSERT INTO social_groups(owner_id,name,description,is_secret,access_price,requires_approval,invite_only,group_type,category,subcategory,rules)
-         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-         RETURNING id,name,description,created_at,is_secret,access_price::float AS access_price,requires_approval,invite_only,group_type,category,subcategory,rules`,
-        [req.user.id, name, description, isSecret, accessPrice, requiresApproval, inviteOnly, kind.type, kind.category, kind.subcategory, rules]);
+        `INSERT INTO social_groups(owner_id,name,description,is_secret,access_price,requires_approval,invite_only,group_type,category,subcategory,rules,access_billing)
+         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+         RETURNING id,name,description,created_at,is_secret,access_price::float AS access_price,access_billing,requires_approval,invite_only,group_type,category,subcategory,rules`,
+        [req.user.id, name, description, isSecret, accessPrice, requiresApproval, inviteOnly, kind.type, kind.category, kind.subcategory, rules, accessBilling]);
       await client.query(
         "INSERT INTO group_members(group_id,user_id,role) VALUES($1,$2,'owner')",
         [result.rows[0].id, req.user.id]);
@@ -149,21 +154,29 @@ function registerGroupRoutes(app, deps) {
     const body = isRecord(req.body) ? req.body : {};
     if (!groupId) return res.status(400).json({ error: "Grupo inválido." });
     const viewer = await viewerAge(req.user.id);
-    const group = await pool.query("SELECT id,name,owner_id,is_secret,access_price FROM social_groups WHERE id=$1 AND hidden_at IS NULL", [groupId]);
+    const group = await pool.query("SELECT id,name,owner_id,is_secret,access_price,access_billing FROM social_groups WHERE id=$1 AND hidden_at IS NULL", [groupId]);
     const found = group.rows[0];
     if (!viewer.adult || !found?.is_secret || !sameGroupName(body.name, found.name)) {
       return res.status(404).json({ error: "Grupo não encontrado." });
     }
-    const member = await pool.query("SELECT 1 FROM group_members WHERE group_id=$1 AND user_id=$2", [groupId, req.user.id]);
-    if (member.rowCount) return res.status(409).json({ error: "Já és membro deste grupo." });
+    // Grupo mensal: quem já é membro pode pagar o mês seguinte nos últimos 7 dias do acesso.
+    const monthly = found.access_billing === "monthly";
+    const member = (await pool.query("SELECT role,access_until FROM group_members WHERE group_id=$1 AND user_id=$2", [groupId, req.user.id])).rows[0];
+    const renewing = Boolean(member) && monthly && member.role === "member" && canRenewGroupAccess(member.access_until);
+    if (member && !renewing) {
+      return res.status(409).json({ error: monthly && member.role === "member" && member.access_until
+        ? "Já tens acesso. Podes renovar nos últimos 7 dias antes do fim."
+        : "Já és membro deste grupo." });
+    }
     const user = await pool.query("SELECT email FROM users WHERE id=$1", [req.user.id]);
     const purchase = await pool.query(
-      "INSERT INTO group_access_purchases(group_id,user_id,owner_id,amount_kz) VALUES($1,$2,$3,$4) RETURNING id",
-      [groupId, req.user.id, found.owner_id, found.access_price]);
+      "INSERT INTO group_access_purchases(group_id,user_id,owner_id,amount_kz,billing) VALUES($1,$2,$3,$4,$5) RETURNING id",
+      [groupId, req.user.id, found.owner_id, found.access_price, found.access_billing]);
     const id = purchase.rows[0].id;
     const result = await payments.start({
       purpose: "group_access", refId: id, amountKz: Number(found.access_price), userId: req.user.id, email: user.rows[0]?.email,
-      method: body.method, phone: body.phone, promoCode: body.promoCode, name: `Entrada no grupo ${found.name}`,
+      method: body.method, phone: body.phone, promoCode: body.promoCode,
+      name: monthly ? `Mensalidade do grupo ${found.name} (1 mês)` : `Entrada no grupo ${found.name}`,
       successPath: `/groups/${groupId}?pagamento=sucesso`, cancelPath: "/groups?pagamento=cancelado",
       onSession: sessionId => pool.query("UPDATE group_access_purchases SET stripe_session_id=$2 WHERE id=$1", [id, sessionId])
     });

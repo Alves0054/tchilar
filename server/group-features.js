@@ -61,6 +61,7 @@ function registerGroupFeatures(app, deps) {
           SELECT mu.username, mu.display_name, mu.avatar_url FROM group_members m JOIN users mu ON mu.id=m.user_id
           WHERE m.group_id=g.id ORDER BY m.joined_at LIMIT 8) x) AS member_preview,
         (SELECT m.role FROM group_members m WHERE m.group_id=g.id AND m.user_id=$2) AS my_role,
+        (SELECT m.access_until FROM group_members m WHERE m.group_id=g.id AND m.user_id=$2) AS my_access_until,
         EXISTS(SELECT 1 FROM group_join_requests r WHERE r.group_id=g.id AND r.user_id=$2) AS has_requested,
         EXISTS(SELECT 1 FROM group_invites i WHERE i.group_id=g.id AND i.user_id=$2) AS has_invite,
         (SELECT COUNT(*) FROM group_join_requests r WHERE r.group_id=g.id)::int AS request_count

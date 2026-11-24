@@ -35,9 +35,10 @@ export default function SecretGroups() {
       {Boolean(group.description) && <Text style={{ color: colors.text }}>{group.description}</Text>}
       {group.is_member
         ? <Button label="Abrir o grupo" onPress={() => router.push(`/group/${group.id}`)} />
-        : <Button label={`Pagar entrada · ${kz(group.access_price)}`} icon="lock-open" onPress={() => setPaying(group)} />}
+        : <Button label={group.access_billing === "monthly" ? `Pagar mensalidade · ${kz(group.access_price)}/mês` : `Pagar entrada · ${kz(group.access_price)}`}
+          icon="lock-open" onPress={() => setPaying(group)} />}
     </Card>)}
-    <PaymentSheet visible={Boolean(paying)} title={paying ? `Entrada em ${paying.name}` : ""} amount={paying?.access_price} purpose="group_access" onClose={() => setPaying(null)}
+    <PaymentSheet visible={Boolean(paying)} title={paying ? (paying.access_billing === "monthly" ? `Mensalidade de ${paying.name} (1 mês)` : `Entrada em ${paying.name}`) : ""} amount={paying?.access_price} purpose="group_access" onClose={() => setPaying(null)}
       start={choice => api(`/groups/${paying.id}/access`, { method: "POST", body: { name: paying.name, ...choice } })}
       onPaid={() => { const id = paying.id; setPaying(null); router.push(`/group/${id}`); }} />
   </Page>;

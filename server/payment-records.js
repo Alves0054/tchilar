@@ -48,7 +48,8 @@ const PAYMENTS_SQL = `
     FROM brand_campaigns c WHERE c.paid_at IS NOT NULL
     UNION ALL
     SELECT 'group_access', g.id, g.user_id, g.amount_kz::float, g.paid_at,
-      'Entrada no grupo «' || COALESCE(sg.name, 'grupo apagado') || '»',
+      CASE WHEN g.billing='monthly' THEN 'Mensalidade do grupo «' ELSE 'Entrada no grupo «' END || COALESCE(sg.name, 'grupo apagado') || '»'
+        || CASE WHEN g.billing='monthly' THEN ' (1 mês)' ELSE '' END,
       COALESCE(g.stripe_payment_intent, g.stripe_session_id), ${refundState("g")}, sg.owner_id
     FROM group_access_purchases g LEFT JOIN social_groups sg ON sg.id=g.group_id WHERE g.status='paid'
     UNION ALL

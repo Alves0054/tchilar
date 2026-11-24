@@ -8,6 +8,7 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { maintainGroupAccess } = require("./groups");
 
 const baseDatabaseUrl = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
 const skip = baseDatabaseUrl ? false : "sem TEST_DATABASE_URL nem DATABASE_URL";
@@ -267,6 +268,62 @@ test("secret groups: adults only, hidden from the list, paid entry by exact name
   const earnings = await call("GET", "/payouts", users.ana);
   assert.equal(earnings.status, 200);
   assert.equal(earnings.body.sources.groupsKz, 2000);
+});
+
+test("monthly secret groups: pay a month, renew in the last days, reminder and removal when it ends", { skip }, async () => {
+  const stamp = Date.now();
+  const owner = await makeUser(`gm_owner_${stamp}`);
+  const fan = await makeUser(`gm_fan_${stamp}`);
+  await setBirth(owner, yearsAgo(30));
+  await setBirth(fan, yearsAgo(25));
+  const body = { name: `Clube Mensal ${stamp}`, isSecret: true, accessBilling: "monthly", accessPrice: 25000 };
+  assert.equal((await call("POST", "/groups", owner, body)).status, 400, "mensal: no máximo 20 000 Kz");
+  assert.equal((await call("POST", "/groups", owner, { ...body, accessBilling: "anual" })).status, 400);
+  assert.equal((await call("POST", "/groups", owner, { ...body, accessBilling: "once", accessPrice: 60000 })).status, 400, "único: no máximo 50 000 Kz");
+  const created = await call("POST", "/groups", owner, { ...body, accessPrice: 3000 });
+  assert.equal(created.status, 201);
+  assert.equal(created.body.group.access_billing, "monthly");
+  const id = created.body.group.id;
+
+  // Pagar o primeiro mês: fica membro com acesso durante 30 dias.
+  const pay = async () => {
+    await call("POST", `/groups/${id}/access`, fan, { name: body.name });
+    const row = (await pool.query("SELECT id,billing FROM group_access_purchases WHERE group_id=$1 AND user_id=$2 AND status='pending' ORDER BY id DESC LIMIT 1", [id, fan.id])).rows[0];
+    assert.equal(row.billing, "monthly");
+    await payments.fulfill("group_access", row.id, {});
+    return row.id;
+  };
+  const first = await pay();
+  const detail = (await call("GET", `/groups/${id}`, fan)).body.group;
+  assert.equal(detail.is_member, true);
+  const days = until => Math.round((new Date(until).getTime() - Date.now()) / 86_400_000);
+  assert.equal(days(detail.my_access_until), 30);
+  assert.equal(detail.access_billing, "monthly");
+  const receipt = (await call("GET", `/payments/group_access/${first}/receipt`, fan)).body.payment;
+  assert.match(receipt.description, /^Mensalidade do grupo «.+» \(1 mês\)$/);
+
+  // Renovar só nos últimos 7 dias; renovar cedo soma 30 dias ao que falta.
+  assert.equal((await call("POST", `/groups/${id}/access`, fan, { name: body.name })).status, 409, "ainda faltam 30 dias");
+  await pool.query("UPDATE group_members SET access_until=NOW() + INTERVAL '5 days' WHERE group_id=$1 AND user_id=$2", [id, fan.id]);
+  await pay();
+  assert.equal(days((await call("GET", `/groups/${id}`, fan)).body.group.my_access_until), 35);
+  assert.equal((await call("GET", "/payouts", owner)).body.sources.groupsKz, 4800, "80% de dois meses de 3 000 Kz");
+
+  // 3 dias antes: aviso. Depois do fim: sai do grupo e deixa de o ver.
+  await pool.query("UPDATE group_members SET access_until=NOW() + INTERVAL '2 days', renewal_reminded_at=NULL WHERE group_id=$1 AND user_id=$2", [id, fan.id]);
+  await maintainGroupAccess({ pool });
+  await maintainGroupAccess({ pool }); // o aviso só vai uma vez
+  const reminders = await pool.query("SELECT text FROM notifications WHERE user_id=$1 AND text LIKE 'O teu acesso ao grupo%acaba%'", [fan.id]);
+  assert.equal(reminders.rowCount, 1);
+  await pool.query("UPDATE group_members SET access_until=NOW() - INTERVAL '1 minute' WHERE group_id=$1 AND user_id=$2", [id, fan.id]);
+  await maintainGroupAccess({ pool });
+  assert.equal((await call("GET", `/groups/${id}`, fan)).status, 404, "sem acesso, o grupo secreto volta a ficar escondido");
+  assert.equal((await call("GET", `/posts?groupId=${id}`, fan)).status, 403);
+  assert.ok((await pool.query("SELECT 1 FROM group_members WHERE group_id=$1 AND user_id=$2 AND role='owner'", [id, owner.id])).rowCount, "o dono nunca sai");
+
+  // Pode voltar a entrar pagando outro mês.
+  await pay();
+  assert.equal(days((await call("GET", `/groups/${id}`, fan)).body.group.my_access_until), 30);
 });
 
 test("approval groups: the owner approves or declines who joins", { skip }, async () => {

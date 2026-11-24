@@ -6,7 +6,7 @@ import { EventComposer } from "../../components/EventComposer";
 import { SelectBox, useOptions } from "../../components/OptionsSheet";
 import { PageLogo } from "../../components/PageParts";
 import { useSession } from "../../lib/session";
-import { Button, Card, Field, Notice, Page } from "../../components/ui";
+import { Button, Card, Chips, Field, Notice, Page } from "../../components/ui";
 import { api } from "../../lib/api";
 import { PAGE_CATEGORIES, PAGE_TYPES, pageCategory } from "../../lib/pages";
 import { GROUP_CATEGORIES, GROUP_PRIVACY, GROUP_TYPES, groupCategory } from "../../lib/groups";
@@ -19,7 +19,7 @@ const TITLES = { group: "Criar grupo", page: "Criar página", event: "Criar even
 export default function NewCommunity() {
   // Evento de uma página: /community/new?type=event&pageId=2&pageName=Loja (fica ligado à página).
   const { type = "group", pageId, pageName } = useLocalSearchParams();
-  const [form, setForm] = useState({ name: "", description: "", groupType: "", groupCategory: "", groupSub: "", rules: "", privacy: "public", accessPrice: "", pageType: "", category: "", subcategory: "", location: "", date: "", time: "", shopEnabled: false });
+  const [form, setForm] = useState({ name: "", description: "", groupType: "", groupCategory: "", groupSub: "", rules: "", privacy: "public", accessPrice: "", accessBilling: "once", pageType: "", category: "", subcategory: "", location: "", date: "", time: "", shopEnabled: false });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const set = key => value => setForm(current => ({ ...current, [key]: value }));
@@ -64,7 +64,7 @@ export default function NewCommunity() {
     try {
       if (type === "group") {
         const result = await api("/groups", { method: "POST", body: { name: form.name, description: form.description, groupType: form.groupType, category: form.groupCategory, subcategory: form.groupSub || undefined, rules: form.rules, privacy: form.privacy,
-          ...(form.privacy === "secret" ? { accessPrice: Number(form.accessPrice) } : {}) } });
+          ...(form.privacy === "secret" ? { accessPrice: Number(form.accessPrice), accessBilling: form.accessBilling } : {}) } });
         router.replace(`/group/${result.group.id}`);
       } else if (type === "page") {
         const result = await api("/pages", { method: "POST", body: { name: form.name, description: form.description, pageType: form.pageType, category: form.category, subcategory: form.subcategory || undefined, shopEnabled: form.shopEnabled } });
@@ -83,8 +83,11 @@ export default function NewCommunity() {
   </Page>;
 
   // Pré-visualização do grupo (igual ao site): logótipo, nome, etiquetas, quem pode entrar e o botão que as pessoas vão ver.
+  // Grupos secretos: entrada única até 50 000 Kz ou mensalidade até 20 000 Kz (os mesmos limites do servidor).
   const price = Number(form.accessPrice);
-  const previewAction = form.privacy === "secret" ? `Entrar por ${kz(price >= 500 ? price : 500)}`
+  const monthly = form.accessBilling === "monthly";
+  const maxPrice = monthly ? 20000 : 50000;
+  const previewAction = form.privacy === "secret" ? `Entrar por ${kz(price >= 500 ? Math.min(price, maxPrice) : 500)}${monthly ? "/mês" : ""}`
     : form.privacy === "approval" ? "Pedir para entrar" : form.privacy === "private" ? "Só por convite" : "Participar";
 
   return <Page>
@@ -115,8 +118,14 @@ export default function NewCommunity() {
           </Pressable>;
         })}</View>
         <Field label="Regras (opcional)" value={form.rules} onChangeText={set("rules")} multiline maxLength={3000} placeholder={"1. Respeito por todos.\n2. Sem spam."} />
-        {form.privacy === "secret" && <Field label="Preço de entrada (Kz)" value={form.accessPrice} onChangeText={value => set("accessPrice")(value.replace(/[^\d]/g, ""))} keyboardType="number-pad"
-          hint="Só maiores de 18 anos. Pagamento único entre 500 e 500 000 Kz; recebes 80% de cada entrada." />}
+        {form.privacy === "secret" && <>
+          <Text style={styles.label}>Como se paga a entrada</Text>
+          <Chips options={[["once", "Pagamento único"], ["monthly", "Mensalidade"]]} value={form.accessBilling} onChange={set("accessBilling")} />
+          <Field label={monthly ? "Mensalidade (Kz por mês)" : "Preço de entrada (Kz)"} value={form.accessPrice} onChangeText={value => set("accessPrice")(value.replace(/[^\d]/g, ""))} keyboardType="number-pad"
+            hint={monthly
+              ? "Só maiores de 18 anos. Entre 500 e 20 000 Kz por mês; recebes 80% de cada mensalidade. Quem não renovar sai do grupo quando o mês acabar."
+              : "Só maiores de 18 anos. Pagamento único entre 500 e 50 000 Kz; recebes 80% de cada entrada."} />
+        </>}
         <Text style={styles.label}>Assim vão ver o teu grupo</Text>
         <View style={styles.preview}>
           <View style={styles.previewCover} />
@@ -153,7 +162,8 @@ export default function NewCommunity() {
         {options}
       </>}
       <Notice error={error} />
-      <Button label={TITLES[type] || "Criar"} onPress={create} busy={busy} disabled={!form.name.trim() || (type === "page" && !form.pageType) || (type === "group" && !form.groupType)} />
+      <Button label={TITLES[type] || "Criar"} onPress={create} busy={busy} disabled={!form.name.trim() || (type === "page" && !form.pageType) || (type === "group" && !form.groupType)
+        || (type === "group" && form.privacy === "secret" && !(price >= 500 && price <= maxPrice))} />
     </Card>
   </Page>;
 }

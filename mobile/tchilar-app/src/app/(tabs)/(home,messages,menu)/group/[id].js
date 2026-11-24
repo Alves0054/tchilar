@@ -6,8 +6,9 @@ import { Avatar } from "../../../../components/Avatar";
 import { GroupChat, GroupEvents, GroupFiles, GroupMembers, GroupPolls, GroupSettings, GroupStats } from "../../../../components/GroupTabs";
 import { RowsSkeleton } from "../../../../components/Loaders";
 import { REPORT_REASONS, useOptions } from "../../../../components/OptionsSheet";
+import { PaymentSheet } from "../../../../components/PaymentSheet";
 import { PostCard } from "../../../../components/PostCard";
-import { Badge, Button, Card, Loading } from "../../../../components/ui";
+import { Badge, Button, Card, Loading, kz } from "../../../../components/ui";
 import { api } from "../../../../lib/api";
 import { groupCategoryPath, groupPrivacy, groupType, isTeam } from "../../../../lib/groups";
 import { useKeyboardOverlap } from "../../../../lib/keyboard";
@@ -31,6 +32,7 @@ export default function Group() {
   const [error, setError] = useState("");
   const [options, choose] = useOptions();
   const [activeCall, setActiveCall] = useState(undefined);
+  const [renewing, setRenewing] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -95,6 +97,20 @@ export default function Group() {
       {Boolean(group.description) && <Text style={{ color: colors.text, lineHeight: 20 }}>{group.description}</Text>}
       <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>{joinArea}</View>
     </Card>
+    {group.my_access_until && (() => {
+      // Grupo mensal: até quando vai o acesso; nos últimos 7 dias pode pagar o mês seguinte.
+      const daysLeft = Math.ceil((new Date(group.my_access_until).getTime() - Date.now()) / 86_400_000);
+      const canRenew = daysLeft > 0 && daysLeft <= 7;
+      const until = new Date(group.my_access_until).toLocaleDateString("pt-PT", { day: "numeric", month: "long", year: "numeric" });
+      return <View style={[styles.access, canRenew && { borderColor: colors.accent }]}>
+        <Text style={styles.accessTitle}>O teu acesso vai até {until}.</Text>
+        <Text style={styles.accessSub}>{canRenew ? `Faltam ${daysLeft} ${daysLeft === 1 ? "dia" : "dias"}. Renova para não saíres do grupo.` : "Podes renovar nos últimos 7 dias."}</Text>
+        {canRenew && <Button small label={`Renovar por ${kz(group.access_price)}/mês`} icon="refresh" onPress={() => setRenewing(true)} />}
+      </View>;
+    })()}
+    <PaymentSheet visible={renewing} title={`Mensalidade de ${group.name} (1 mês)`} amount={group.access_price} purpose="group_access" onClose={() => setRenewing(false)}
+      start={choice => api(`/groups/${group.id}/access`, { method: "POST", body: { name: group.name, ...choice } })}
+      onPaid={() => { setRenewing(false); load(); }} />
     {group.is_member && <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
       {tabs.map(([key, label, icon]) => <Pressable key={key} onPress={() => setTab(key)} style={[styles.tab, tab === key && styles.tabActive]} accessibilityRole="tab" accessibilityState={{ selected: tab === key }}>
         <Ionicons name={icon} size={16} color={tab === key ? colors.onPrimary : colors.text} />
@@ -174,6 +190,9 @@ export default function Group() {
 }
 
 const styles = StyleSheet.create({
+  access: { gap: 6, padding: 14, borderRadius: 14, borderWidth: 1.5, borderColor: colors.line, backgroundColor: colors.surface },
+  accessTitle: { color: colors.text, fontWeight: "800", fontSize: 15 },
+  accessSub: { color: colors.muted, fontSize: 13 },
   state: { padding: 32, textAlign: "center", color: colors.muted },
   tab: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, backgroundColor: colors.surface },
   tabActive: { backgroundColor: colors.primary },

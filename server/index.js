@@ -62,6 +62,7 @@ const { registerWebhookRoutes } = require("./webhook-routes");
 const { registerAccountRoutes } = require("./account-routes");
 const { registerSocialRoutes } = require("./social-routes");
 const { registerGroupRoutes } = require("./group-routes");
+const { groupDate, maintainGroupAccess, nextPeriodEnd } = require("./groups");
 const { registerPageRoutes } = require("./page-routes");
 const { registerEventRoutes } = require("./event-routes");
 const { registerMessageRoutes } = require("./message-routes");
@@ -810,7 +811,7 @@ registerSocialRoutes(app, {
 });
 
 // Campos de um grupo vistos por quem não é membro (sem a lista de membros dos grupos secretos).
-const GROUP_FIELDS = `g.id,g.name,g.description,g.created_at,g.is_secret,g.access_price::float AS access_price,
+const GROUP_FIELDS = `g.id,g.name,g.description,g.created_at,g.is_secret,g.access_price::float AS access_price,g.access_billing,
   g.group_type,g.category,g.subcategory,g.requires_approval,g.invite_only,g.rules,
   u.username AS owner_username,u.display_name AS owner_name,u.avatar_url AS owner_avatar,
   (SELECT COUNT(*) FROM group_members m WHERE m.group_id=g.id)::int AS member_count,
@@ -825,10 +826,29 @@ payments.register("group_access", async (purchaseId, details) => {
   await transaction(async client => {
     const purchase = await client.query(
       `UPDATE group_access_purchases SET status='paid', paid_at=NOW(), stripe_payment_intent=$2
-       WHERE id=$1 AND status='pending' RETURNING group_id,user_id,owner_id`,
+       WHERE id=$1 AND status='pending' RETURNING group_id,user_id,owner_id,billing`,
       [purchaseId, details.paymentIntent || null]);
     const paid = purchase.rows[0];
     if (!paid?.group_id) return;
+    if (paid.billing === "monthly") {
+      // Um mês de acesso: soma 30 dias ao que ainda falta (renovar cedo não faz perder dias).
+      const current = (await client.query("SELECT role,access_until FROM group_members WHERE group_id=$1 AND user_id=$2 FOR UPDATE",
+        [paid.group_id, paid.user_id])).rows[0];
+      if (current && current.role !== "member") return;
+      const end = nextPeriodEnd(current?.access_until || null);
+      await client.query(`INSERT INTO group_members(group_id,user_id,access_until) VALUES($1,$2,$3)
+        ON CONFLICT (group_id,user_id) DO UPDATE SET access_until=EXCLUDED.access_until, renewal_reminded_at=NULL`,
+      [paid.group_id, paid.user_id, end]);
+      await client.query("UPDATE group_access_purchases SET period_end=$2 WHERE id=$1", [purchaseId, end]);
+      const name = (await client.query("SELECT name FROM social_groups WHERE id=$1", [paid.group_id])).rows[0]?.name || "grupo";
+      await client.query("INSERT INTO notifications(user_id,actor_id,type,text) VALUES($1,$2,'group_join',$3)",
+        [paid.user_id, paid.owner_id, `O teu acesso ao grupo «${name}» está ativo até ${groupDate(end)}.`]);
+      if (paid.owner_id && paid.owner_id !== paid.user_id) {
+        await client.query("INSERT INTO notifications(user_id,actor_id,type,text) VALUES($1,$2,'group_join',$3)", [paid.owner_id, paid.user_id,
+          current ? "Renovou a mensalidade do teu grupo secreto. Os teus 80% já estão no saldo." : "Pagou a mensalidade e juntou-se ao teu grupo secreto."]);
+      }
+      return;
+    }
     await client.query("INSERT INTO group_members(group_id,user_id) VALUES($1,$2) ON CONFLICT DO NOTHING", [paid.group_id, paid.user_id]);
     if (paid.owner_id && paid.owner_id !== paid.user_id) {
       await client.query("INSERT INTO notifications(user_id,actor_id,type,text) VALUES($1,$2,'group_join','Pagou a entrada e juntou-se ao teu grupo secreto.')",
@@ -1137,6 +1157,10 @@ async function startServer() {
   const renewals = () => localSubscriptions.remindRenewals().catch(error => console.error("Avisos de renovação:", error.message));
   renewals();
   setInterval(renewals, 60 * 60 * 1000).unref();
+  // Grupos secretos mensais: aviso 3 dias antes do fim e saída de quem não renovou, de 10 em 10 minutos.
+  const groupAccess = () => maintainGroupAccess({ pool }).catch(error => console.error("Acesso aos grupos mensais:", error.message));
+  groupAccess();
+  setInterval(groupAccess, 10 * 60 * 1000).unref();
   // Lembretes dos eventos (1 dia e 1 hora antes), de 10 em 10 minutos.
   const reminders = () => sendEventReminders({ pool, transaction }).catch(error => console.error("Lembretes de eventos:", error.message));
   reminders();

@@ -12,8 +12,12 @@ import { Select } from "./select.jsx";
 import "./events.css";
 import "./groups.css";
 
-const SECRET_MIN_PRICE = 500;
-const SECRET_MAX_PRICE = 500000;
+// Grupos secretos: entrada única (até 50 000 Kz) ou mensal (até 20 000 Kz por mês). Iguais aos limites do servidor.
+const ACCESS_LIMITS = { once: { min: 500, max: 50000 }, monthly: { min: 500, max: 20000 } };
+const RENEW_WINDOW_DAYS = 7;
+// "2 500 Kz" ou "2 500 Kz/mês", conforme o grupo.
+export const accessPriceLabel = group => `${formatPrice(group.access_price)}${group.access_billing === "monthly" ? "/mês" : ""}`;
+const accessDate = value => new Date(value).toLocaleDateString("pt-PT", { day: "numeric", month: "long", year: "numeric", timeZone: "Africa/Luanda" });
 
 // Selo dos grupos secretos: só para maiores de 18, entrada paga.
 export function SecretBadge() {
@@ -92,7 +96,7 @@ export function JoinGroupButton({ group, user, busy, onJoin, onLeave, onPay }) {
   }
   if (group.is_secret && !group.is_member) {
     return <button className="btn" type="button" disabled={busy} onClick={() => onPay(group)}>
-      <Icon name="lock" size={15} /> Entrar por {formatPrice(group.access_price)}</button>;
+      <Icon name="lock" size={15} /> Entrar por {accessPriceLabel(group)}</button>;
   }
   if (group.is_member) return <button className="btn secondary page-following" type="button" disabled={busy} aria-pressed="true" onClick={() => onLeave(group)}>
     <Icon name="check" size={15} /><span className="when-idle">Membro</span><span className="when-hover">Sair do grupo</span></button>;
@@ -138,7 +142,7 @@ export function GroupCard({ group, user, busy, onJoin, onLeave, onPay }) {
 }
 export function CreateGroupDialog({ viewer, onClose, onCreated }) {
   const { user } = useContext(UserContext);
-  const [form, setForm] = useState({ name: "", description: "", groupType: "", category: "", subcategory: "", rules: "", privacy: "public", accessPrice: "" });
+  const [form, setForm] = useState({ name: "", description: "", groupType: "", category: "", subcategory: "", rules: "", privacy: "public", accessPrice: "", accessBilling: "once" });
   const kind = GROUP_TYPES.find(item => item.key === form.groupType);
   const area = form.category ? groupCategory(form.category) : null;
   // O tipo sugere a categoria (um grupo de compra e venda → Compra e venda); a pessoa pode trocar.
@@ -156,7 +160,7 @@ export function CreateGroupDialog({ viewer, onClose, onCreated }) {
     setBusy(true);
     setError("");
     try {
-      const payload = { name: form.name, description: form.description, rules: form.rules, groupType: form.groupType, category: form.category, subcategory: form.subcategory || undefined, privacy: form.privacy, ...(isSecret && { accessPrice: Number(form.accessPrice) }) };
+      const payload = { name: form.name, description: form.description, rules: form.rules, groupType: form.groupType, category: form.category, subcategory: form.subcategory || undefined, privacy: form.privacy, ...(isSecret && { accessPrice: Number(form.accessPrice), accessBilling: form.accessBilling }) };
       const result = await api("/groups", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       onCreated(result.group);
     } catch (createError) {
@@ -167,7 +171,9 @@ export function CreateGroupDialog({ viewer, onClose, onCreated }) {
   const preview = { name: form.name || "Nome do grupo", group_type: form.groupType || "comunitario", category: form.category || "comunidade", subcategory: form.subcategory, requires_approval: form.privacy === "approval", invite_only: form.privacy === "private" };
   const canSecret = Boolean(viewer?.adult);
   const price = Number(form.accessPrice);
-  const priceValid = !isSecret || (price >= SECRET_MIN_PRICE && price <= SECRET_MAX_PRICE);
+  const limits = ACCESS_LIMITS[form.accessBilling];
+  const monthly = form.accessBilling === "monthly";
+  const priceValid = !isSecret || (price >= limits.min && price <= limits.max);
   const nameValid = !isSecret || form.name.trim().length >= 3;
   const privacyNote = {
     public: "Só os membros veem e publicam no grupo. Tu ficas como dono e podes nomear administradores e moderadores.",
@@ -176,7 +182,7 @@ export function CreateGroupDialog({ viewer, onClose, onCreated }) {
     secret: "Partilha o nome exato só com quem queres convidar. Tu ficas como administrador."
   }[form.privacy];
   const privacyOption = GROUP_PRIVACY.find(option => option.key === form.privacy) || GROUP_PRIVACY[0];
-  const previewAction = isSecret ? `Entrar por ${formatPrice(price >= SECRET_MIN_PRICE ? price : SECRET_MIN_PRICE)}`
+  const previewAction = isSecret ? `Entrar por ${formatPrice(price >= limits.min ? Math.min(price, limits.max) : limits.min)}${monthly ? "/mês" : ""}`
     : form.privacy === "approval" ? "Pedir para entrar" : form.privacy === "private" ? "Só por convite" : "Participar";
   const previewIcon = isSecret ? "lock" : form.privacy === "approval" ? "shield" : form.privacy === "private" ? "shield" : "plus";
   return createPortal(<div className="modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget && !busy) onClose(); }}>
@@ -242,12 +248,23 @@ export function CreateGroupDialog({ viewer, onClose, onCreated }) {
               ? "Os grupos secretos são só para maiores de 18 anos."
               : <>Para criar um grupo secreto, indica primeiro a tua data de nascimento em <Link to="/settings/privacidade">Definições › Privacidade</Link>.</>}</p>}
           </fieldset>
+          {isSecret && <fieldset className="group-billing">
+            <legend className="event-field-label">Como se paga a entrada</legend>
+            <div className="group-billing-options">
+              {[["once", "Pagamento único", "Paga uma vez e fica no grupo. Até 50 000 Kz.", "lock"],
+                ["monthly", "Mensalidade", "Paga todos os meses para continuar. Até 20 000 Kz/mês.", "events"]].map(([key, label, help, icon]) =>
+                <button key={key} type="button" aria-pressed={form.accessBilling === key} onClick={() => setForm({ ...form, accessBilling: key })}>
+                  <Icon name={icon} size={16} /><strong>{label}</strong><small>{help}</small>
+                </button>)}
+            </div>
+          </fieldset>}
           {isSecret && <label className="event-field">
-            <span className="event-field-label">Preço de entrada <small>Pagamento único</small></span>
+            <span className="event-field-label">{monthly ? "Mensalidade" : "Preço de entrada"} <small>{monthly ? "por mês" : "Pagamento único"}</small></span>
             <span className="event-input-icon"><Icon name="lock" size={16} />
-              <input type="number" inputMode="numeric" required min={SECRET_MIN_PRICE} max={SECRET_MAX_PRICE} step="1" value={form.accessPrice}
-                onChange={event => setForm({ ...form, accessPrice: event.target.value })} placeholder="Ex.: 2500" aria-describedby="group-price-help" /></span>
-            <small className="muted" id="group-price-help">Entre {formatPrice(SECRET_MIN_PRICE)} e {formatPrice(SECRET_MAX_PRICE)}. Recebes 80% de cada entrada nos teus ganhos.</small>
+              <input type="text" inputMode="numeric" required value={form.accessPrice}
+                onChange={event => setForm({ ...form, accessPrice: event.target.value.replace(/[^\d]/g, "") })} placeholder={monthly ? "Ex.: 3000" : "Ex.: 2500"} aria-describedby="group-price-help" /></span>
+            <small className={`muted${form.accessPrice && !priceValid ? " is-error" : ""}`} id="group-price-help">Entre {formatPrice(limits.min)} e {formatPrice(limits.max)}{monthly ? " por mês" : ""}.
+              Recebes 80% de cada {monthly ? "mensalidade" : "entrada"} nos teus ganhos.{monthly ? " Quem não renovar sai do grupo quando o mês acabar." : ""}</small>
           </label>}
           <label className="event-field">
             <span className="event-field-label">Regras do grupo <small>Opcional</small></span>
@@ -302,6 +319,7 @@ function GroupPage({ groupId, user, onListChanged }) {
   const [tab, setTab] = useState("posts");
   const [reporting, setReporting] = useState(false);
   const [calling, setCalling] = useState(null); // "voice" | "video" quando estou na chamada
+  const [renewing, setRenewing] = useState(false);
   const load = () => api(`/groups/${groupId}`).then(result => { setGroup(result.group); setError(""); }).catch(loadError => { setGroup(false); setError(loadError.message); });
   const loadPosts = () => Promise.all([api(`/posts?groupId=${groupId}`), api(`/posts?groupId=${groupId}&pinned=1`)])
     .then(([all, top]) => { setPinned(top.posts); setPosts(all.posts.filter(post => !top.posts.some(item => item.id === post.id))); })
@@ -366,6 +384,10 @@ function GroupPage({ groupId, user, onListChanged }) {
       </nav>}
     </section>
     {error && <p className="error" role="alert">{error}</p>}
+    {group.my_access_until && <GroupAccessBanner group={group} onRenew={() => setRenewing(true)} />}
+    {renewing && <PaymentDialog title={`Mensalidade do grupo «${group.name}» (1 mês)`} amountKz={group.access_price} purpose="group_access"
+      onPay={choice => api(`/groups/${group.id}/access`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: group.name, ...choice }) })}
+      onDone={() => { setRenewing(false); load(); }} onClose={() => { setRenewing(false); load(); }} />}
     {group.is_member && !calling && <GroupCallBar group={group} onJoin={setCalling} />}
     {calling && <GroupCallRoom group={group} kind={calling} me={user} onClose={() => setCalling(null)} />}
 
@@ -403,6 +425,18 @@ function GroupPage({ groupId, user, onListChanged }) {
   </div>;
 }
 
+// Grupo mensal: até quando vai o acesso; nos últimos 7 dias aparece o botão para pagar o mês seguinte.
+function GroupAccessBanner({ group, onRenew }) {
+  const daysLeft = Math.ceil((new Date(group.my_access_until).getTime() - Date.now()) / 86_400_000);
+  const canRenew = daysLeft > 0 && daysLeft <= RENEW_WINDOW_DAYS;
+  return <div className={`group-access card${canRenew ? " is-due" : ""}`} role="status">
+    <Icon name="events" size={18} />
+    <p><strong>O teu acesso vai até {accessDate(group.my_access_until)}.</strong>
+      <span>{canRenew ? `Faltam ${daysLeft} ${daysLeft === 1 ? "dia" : "dias"}. Renova para não saíres do grupo.` : `Podes renovar nos últimos ${RENEW_WINDOW_DAYS} dias.`}</span></p>
+    {canRenew && <button className="btn" type="button" onClick={onRenew}>Renovar por {accessPriceLabel(group)}</button>}
+  </div>;
+}
+
 // "Sobre": descrição, regras, tipo, categoria, quem pode entrar e denunciar.
 function GroupAbout({ group, privacy, compact = false, onReport }) {
   return <aside className="page-about card">
@@ -412,7 +446,7 @@ function GroupAbout({ group, privacy, compact = false, onReport }) {
       <li><Icon name={groupType(group.group_type).icon} size={16} /><span>Grupo {groupType(group.group_type).label.toLowerCase()}</span></li>
       <li><Icon name={groupCategory(group.category).icon} size={16} /><span>{groupCategoryPath(group)}</span></li>
       <li><Icon name={privacy?.icon || "groups"} size={16} /><span>{privacy?.label}: {privacy?.help}</span></li>
-      {group.is_secret && <li><Icon name="info" size={16} /><span>Entrada de {formatPrice(group.access_price)}</span></li>}
+      {group.is_secret && <li><Icon name="info" size={16} /><span>{group.access_billing === "monthly" ? `Mensalidade de ${accessPriceLabel(group)}` : `Entrada de ${formatPrice(group.access_price)}`}</span></li>}
       <li><Icon name="profile" size={16} /><span>Criado por <Link to={`/u/${group.owner_username}`}>{group.owner_name}</Link></span></li>
       <li><Icon name="events" size={16} /><span>Desde {new Date(group.created_at).toLocaleDateString("pt-PT", { month: "long", year: "numeric" })}</span></li>
     </ul>
@@ -462,7 +496,7 @@ export function Groups() {
     group: target,
     onPay: choice => api(`/groups/${target.id}/access`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: target.name, ...choice }) })
   });
-  const paymentDialog = paying && <PaymentDialog title={`Entrar no grupo «${paying.group.name}»`} amountKz={paying.group.access_price} purpose="group_access" onPay={paying.onPay}
+  const paymentDialog = paying && <PaymentDialog title={paying.group.access_billing === "monthly" ? `Mensalidade do grupo «${paying.group.name}» (1 mês)` : `Entrar no grupo «${paying.group.name}»`} amountKz={paying.group.access_price} purpose="group_access" onPay={paying.onPay}
     onDone={() => { const id = paying.group.id; setPaying(null); setSecretFound([]); setQuery(""); loadGroups().then(() => navigate(`/groups/${id}`)); }}
     onClose={() => { setPaying(null); loadGroups(); }} />;
   // Entrar/sair muda logo no ecrã; se o servidor falhar, volta atrás. Num grupo privado
