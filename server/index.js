@@ -1486,11 +1486,9 @@ for (const kind of ["avatar", "cover"]) {
 app.patch("/api/auth/me/billing", auth, async (req, res) => {
   const body = req.body || {};
   const empty = ["sellerName", "sellerNif", "sellerAddress"].every(key => !String(body[key] ?? "").trim());
-  let seller = { name: null, nif: null, address: null };
-  if (!empty) {
-    seller = parseSellerInput(body, cleanText);
-    if (seller.error) return res.status(400).json({ error: seller.error.replace(" que vende os bilhetes", "").replace(" de quem vende os bilhetes", "") });
-  }
+  const parsed = empty ? null : parseSellerInput(body, cleanText);
+  if (parsed?.error) return res.status(400).json({ error: parsed.error.replace(" que vende os bilhetes", "").replace(" de quem vende os bilhetes", "") });
+  const seller = { name: parsed?.name ?? null, nif: parsed?.nif ?? null, address: parsed?.address ?? null };
   const result = await pool.query(
     `UPDATE users SET billing_name=$2,billing_nif=$3,billing_address=$4 WHERE id=$1 RETURNING ${OWN_ACCOUNT_FIELDS}`,
     [req.user.id, seller.name, seller.nif, seller.address]);
