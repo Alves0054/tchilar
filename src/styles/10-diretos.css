@@ -1,0 +1,537 @@
+/* ===========================================================================================
+   Diretos (lives)
+   O vermelho "ao vivo" é o coral da marca; o texto por cima dele é tinta (contraste 5,8:1).
+   =========================================================================================== */
+.live-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  color: var(--color-ink);
+  background: var(--color-accent);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.live-badge.is-small {
+  padding: 2px 8px;
+  font-size: 11px;
+}
+
+.live-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-ink);
+  animation: live-blink 1.4s ease-in-out infinite;
+}
+
+@keyframes live-blink {
+  50% { opacity: .25; }
+}
+
+.live-start-button {
+  gap: 8px;
+}
+
+.live-start-button svg,
+.live-empty-icon svg {
+  fill: currentColor;
+  fill-opacity: .25;
+}
+
+.live-empty-icon {
+  color: var(--color-ink);
+  background: var(--grad-coral);
+}
+
+/* Lista de diretos */
+.live-card {
+  display: grid;
+  overflow: hidden;
+  padding: 0;
+  border-radius: 18px;
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.live-card-cover {
+  position: relative;
+  display: grid;
+  place-items: center;
+  aspect-ratio: 16 / 10;
+  background: var(--page-grad);
+}
+
+.live-card-cover::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 50% 45%, rgba(255, 255, 255, .22) 0 22%, transparent 23%);
+}
+
+.live-card-avatar {
+  position: relative;
+  padding: 4px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  animation: live-ring 2s ease-out infinite;
+}
+
+.live-card-avatar .avatar.large {
+  width: 84px;
+  height: 84px;
+  margin: 0;
+  border: 3px solid var(--color-surface);
+}
+
+@keyframes live-ring {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-accent) 60%, transparent); }
+  100% { box-shadow: 0 0 0 16px transparent; }
+}
+
+.live-card-cover .live-badge {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+}
+
+.live-card-viewers {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  color: #FFFFFF;
+  background: color-mix(in srgb, var(--color-black) 55%, transparent);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.live-card-body {
+  display: grid;
+  gap: 2px;
+  padding: 12px 16px 16px;
+}
+
+.live-card-body strong {
+  font-family: var(--font-display);
+  font-size: 17px;
+}
+
+.live-card-body small {
+  display: inline-flex;
+  align-items: center;
+  color: var(--color-text-muted);
+}
+
+/* Stories: diretos a decorrer */
+.stories-live-cover {
+  position: absolute;
+  inset: 0;
+  background: var(--page-grad);
+}
+
+.stories-live .live-badge {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 2;
+  transform: translate(-50%, -50%);
+}
+
+.stories-ring.is-live {
+  background: var(--color-accent);
+}
+
+/* Sala do direto */
+.live-room {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px;
+  width: min(1240px, calc(100% - 32px));
+  margin: 0 auto;
+  padding: 16px 0 48px;
+}
+
+.live-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  align-items: start;
+  gap: 16px;
+}
+
+.live-stage {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+
+.live-video {
+  position: relative;
+  overflow: hidden;
+  aspect-ratio: 16 / 9;
+  border-radius: 20px;
+  background: var(--color-ink);
+}
+
+.live-video video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: var(--color-ink);
+}
+
+.live-overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 12px;
+  padding: 24px;
+  color: #FFFFFF;
+  background: color-mix(in srgb, var(--color-ink) 82%, transparent);
+  text-align: center;
+}
+
+.live-overlay strong {
+  font-family: var(--font-display);
+  font-size: 22px;
+}
+
+.live-overlay .avatar.large {
+  width: 88px;
+  height: 88px;
+  margin: 0;
+}
+
+.live-topbar {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  right: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.live-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  color: #FFFFFF;
+  background: color-mix(in srgb, var(--color-black) 55%, transparent);
+  font-size: 13px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.live-chip-stars svg {
+  color: #FFCF5A;
+}
+
+.live-sound {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border: 0;
+  border-radius: 999px;
+  color: var(--color-ink);
+  background: #FFFFFF;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.live-controls {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  display: flex;
+  gap: 10px;
+  transform: translateX(-50%);
+}
+
+.live-controls button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 48px;
+  height: 48px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 999px;
+  color: #FFFFFF;
+  background: color-mix(in srgb, var(--color-black) 55%, transparent);
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.live-controls button.is-off {
+  color: var(--color-ink);
+  background: #FFFFFF;
+}
+
+.live-controls .live-end {
+  color: var(--color-ink);
+  background: var(--color-accent);
+}
+
+.live-host {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.live-host .avatar.large {
+  width: 56px;
+  height: 56px;
+  margin: 0;
+  box-shadow: 0 0 0 3px var(--color-accent);
+}
+
+.live-host h1 {
+  margin: 0;
+  font-size: clamp(20px, 2.6vw, 26px);
+  line-height: 1.2;
+}
+
+.live-host p {
+  display: flex;
+  align-items: center;
+  margin: 2px 0 0;
+}
+
+/* Painel lateral: chat e apoiantes */
+.live-side {
+  position: sticky;
+  top: 72px;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto auto auto;
+  gap: 10px;
+  height: min(640px, calc(100vh - 100px));
+  padding: 12px;
+}
+
+.live-tabs {
+  width: 100%;
+}
+
+.live-tabs button {
+  flex: 1;
+  justify-content: center;
+}
+
+.live-chat {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+}
+
+.live-chat li {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.live-chat li .avatar.tiny {
+  width: 28px;
+  height: 28px;
+}
+
+.live-chat li.is-gift {
+  padding: 6px 8px;
+  border-radius: 10px;
+  background: var(--color-star-soft);
+}
+
+.live-gift-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--color-star);
+  font-weight: 800;
+}
+
+.live-chat .live-chat-empty {
+  display: block;
+  padding: 24px 8px;
+  color: var(--color-text-muted);
+  text-align: center;
+}
+
+.live-gifts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.live-gifts button {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid color-mix(in srgb, var(--color-star) 40%, var(--color-line));
+  border-radius: 999px;
+  color: var(--color-text);
+  background: var(--color-star-soft);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.live-gifts button svg {
+  color: var(--color-star);
+}
+
+.live-gifts button:disabled {
+  cursor: not-allowed;
+  opacity: .45;
+}
+
+.live-balance {
+  margin-left: auto;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.live-gift-message {
+  margin: 0;
+  color: var(--color-danger);
+  font-size: 13px;
+}
+
+.live-chat-form {
+  display: flex;
+  gap: 8px;
+}
+
+.live-chat-form input {
+  flex: 1;
+  min-width: 0;
+  min-height: 42px;
+  padding: 0 14px;
+  border: 1px solid var(--color-line);
+  border-radius: 999px;
+  color: var(--color-text);
+  background: var(--color-surface-muted);
+  font: inherit;
+}
+
+.live-chat-form .round-button {
+  color: #FFFFFF;
+  background: var(--grad-lagoa);
+}
+
+.live-top {
+  align-content: start;
+  overflow-y: auto;
+}
+
+/* Começar um direto */
+.start-live-dialog {
+  display: grid;
+  gap: 14px;
+  width: min(560px, 100%);
+}
+
+.start-live-preview {
+  position: relative;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  aspect-ratio: 16 / 9;
+  border-radius: 14px;
+  color: #FFFFFF;
+  background: var(--color-ink);
+}
+
+.start-live-preview video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1);
+}
+
+.start-live-preview .live-badge {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+}
+
+.start-live-title {
+  display: grid;
+  gap: 6px;
+  font-weight: 700;
+}
+
+.start-live-title input {
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--color-line);
+  border-radius: 10px;
+  color: var(--color-text);
+  background: var(--color-surface);
+  font: inherit;
+  font-weight: 400;
+}
+
+@media (max-width: 960px) {
+  .live-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .live-side {
+    position: static;
+    height: 520px;
+  }
+}
+
+@media (max-width: 560px) {
+  .live-room {
+    width: calc(100% - 16px);
+    padding-top: 10px;
+  }
+
+  .live-video {
+    aspect-ratio: 9 / 12;
+    border-radius: 16px;
+  }
+
+  .live-video video {
+    object-fit: cover;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .live-dot,
+  .live-card-avatar {
+    animation: none;
+  }
+}

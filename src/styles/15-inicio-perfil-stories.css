@@ -1,0 +1,600 @@
+/* ---------------------------------------------------------------------------------------------
+   Ecrã inicial: faixa "Agora no Tchilar", bloco "Descobrir" e estado online
+   --------------------------------------------------------------------------------------------- */
+.presence {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+}
+
+.presence-dot {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  width: 11px;
+  height: 11px;
+  border: 2px solid var(--color-surface);
+  border-radius: 50%;
+  background: var(--color-success);
+}
+
+.home-online-count {
+  color: var(--color-success);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.home-now {
+  display: grid;
+  gap: 10px;
+  padding: 14px 16px;
+}
+
+.home-now h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 15px;
+}
+
+.home-now-pulse {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--color-success);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-success) 55%, transparent);
+  animation: home-now-pulse 1.8s ease-out infinite;
+}
+
+@keyframes home-now-pulse {
+  70% { box-shadow: 0 0 0 8px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home-now-pulse { animation: none; }
+}
+
+.home-now-track {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+  margin: 0 -4px;
+  padding: 2px 4px 4px;
+}
+
+.home-now-track::-webkit-scrollbar {
+  display: none;
+}
+
+.home-now-item {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 10px;
+  max-width: 260px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-line);
+  border-radius: 14px;
+  color: var(--color-text);
+  background: var(--color-surface-muted);
+  text-decoration: none;
+  scroll-snap-align: start;
+}
+
+.home-now-item:hover,
+.home-now-item:focus-visible {
+  border-color: var(--color-primary);
+}
+
+.home-now-item strong,
+.home-now-item small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.home-now-item strong {
+  font-size: 14px;
+}
+
+.home-now-item small {
+  color: var(--color-text-muted);
+  font-size: 12.5px;
+}
+
+.home-now-item > span:last-child {
+  min-width: 0;
+}
+
+.home-now-icon,
+.home-discover-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+}
+
+.home-now-avatars {
+  display: flex;
+  flex: none;
+}
+
+.home-now-avatars .presence + .presence {
+  margin-left: -8px;
+}
+
+.home-now-avatars .avatar {
+  border: 2px solid var(--color-surface);
+}
+
+.home-discover {
+  display: grid;
+  gap: 6px;
+}
+
+.home-discover-inline {
+  display: none;
+  padding: 12px 8px;
+}
+
+@media (max-width: 1100px) {
+  .home-discover-inline {
+    display: grid;
+  }
+}
+
+.home-discover-group h3 {
+  margin: 6px 8px 4px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.home-discover-group ul {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.home-discover-inline .home-discover-group ul {
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+}
+
+.home-discover-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 10px;
+}
+
+.home-discover-item:hover {
+  background: var(--color-surface-muted);
+}
+
+.home-discover-main {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.home-discover-main .avatar {
+  width: 36px;
+  height: 36px;
+  flex: none;
+}
+
+.home-discover-main > span:last-child {
+  min-width: 0;
+}
+
+.home-discover-main strong,
+.home-discover-main small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.home-discover-main strong {
+  font-size: 14px;
+}
+
+.home-discover-main small {
+  color: var(--color-text-muted);
+  font-size: 12.5px;
+}
+
+.btn.home-discover-action {
+  flex: none;
+  min-height: 32px;
+  padding: 4px 10px;
+  font-size: 13px;
+}
+
+.home-discover-done {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  color: var(--color-success);
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+/* ---------------------------------------------------------------------------------------------
+   Perfil: números ao lado do nome, linha de detalhes, amigos, fotos e vídeos (mesmas cores)
+   --------------------------------------------------------------------------------------------- */
+.profile-avatar-wrap {
+  position: relative;
+}
+
+.profile-online-dot {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  width: 18px;
+  height: 18px;
+  border: 3px solid var(--color-surface);
+  border-radius: 50%;
+  background: var(--color-success);
+}
+
+.profile-identity-copy .handle {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+}
+
+.profile-role-chip,
+.profile-online-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  color: var(--color-primary-text);
+  background: var(--color-primary-soft);
+  font-size: 11.5px;
+  font-weight: 700;
+}
+
+.profile-online-chip {
+  color: var(--color-success);
+  background: var(--color-success-soft);
+}
+
+.profile-headline-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+  color: var(--color-text-muted);
+  font-size: 14px;
+}
+
+.profile-headline-stats a,
+.profile-headline-stats span {
+  color: inherit;
+  text-decoration: none;
+}
+
+.profile-headline-stats a:hover strong {
+  text-decoration: underline;
+}
+
+.profile-headline-stats strong {
+  color: var(--color-text);
+  font-size: 15px;
+}
+
+.profile-intro {
+  display: grid;
+  gap: 10px;
+  margin: 16px 26px 0;
+}
+
+.profile-intro-bio {
+  max-width: 68ch;
+  margin: 0;
+  color: var(--color-text);
+  font-size: 15px;
+  line-height: 1.55;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+
+.profile-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--color-text-muted);
+  font-size: 13.5px;
+}
+
+.profile-meta li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.profile-meta .profile-website {
+  overflow-wrap: anywhere;
+}
+
+.profile-tabs {
+  position: sticky;
+  top: 56px;
+  z-index: 5;
+}
+
+.profile-card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.profile-card-head h2 span {
+  margin-left: 4px;
+  color: var(--color-text-muted);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.profile-card-head a {
+  color: var(--color-secondary-text);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.profile-friends-mutual {
+  margin: 2px 0 10px;
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+.profile-friends-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.profile-friends-grid a {
+  display: grid;
+  gap: 6px;
+  color: var(--color-text);
+  font-size: 12.5px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.profile-friends-grid .avatar {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1;
+  border-radius: 12px;
+  font-size: 26px;
+}
+
+.profile-friends-grid span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.profile-complete-card .btn {
+  justify-self: start;
+  margin-top: 10px;
+}
+
+.profile-media {
+  padding: 6px;
+}
+
+.profile-media-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.profile-media-grid button {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 8px;
+  background: var(--color-surface-muted);
+  cursor: pointer;
+}
+
+.profile-media-grid img,
+.profile-media-grid video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform .2s ease;
+}
+
+.profile-media-grid button:hover img,
+.profile-media-grid button:hover video {
+  transform: scale(1.04);
+}
+
+.profile-media-grid button:focus-visible {
+  outline: 3px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.profile-media-badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  color: var(--color-white);
+  background: color-mix(in srgb, var(--color-black) 55%, transparent);
+}
+
+.profile-media-viewer {
+  position: relative;
+  width: min(640px, 100%);
+  max-height: calc(100dvh - 48px);
+  overflow-y: auto;
+}
+
+.profile-media-close {
+  position: sticky;
+  top: 8px;
+  z-index: 2;
+  float: right;
+  margin: 8px 8px -48px 0;
+}
+
+@media (max-width: 700px) {
+  .profile-intro {
+    margin: 14px 18px 0;
+  }
+
+  .profile-headline-stats {
+    gap: 4px 14px;
+    font-size: 13px;
+  }
+
+  .profile-tabs {
+    top: 0;
+    gap: 18px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .profile-tabs::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* ---------------------------------------------------------------------------------------------
+   Stories de texto: fundo escolhido (cores e temas do Tchilar)
+   --------------------------------------------------------------------------------------------- */
+.story-compose-preview {
+  display: grid;
+  place-items: center;
+  height: 260px;
+  margin-bottom: 12px;
+  overflow: hidden;
+  border-radius: 14px;
+  background-color: var(--color-ink);
+}
+
+.story-composer-modal .story-compose-preview textarea {
+  width: 86%;
+  min-height: 0;
+  height: 70%;
+  resize: none;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-white);
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 22px;
+  line-height: 1.35;
+  text-align: center;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, .45);
+}
+
+.story-composer-modal .story-compose-preview textarea::placeholder {
+  color: rgba(255, 255, 255, .8);
+}
+
+.story-composer-modal .story-compose-preview textarea:focus {
+  outline: none;
+}
+
+.story-compose-preview:focus-within {
+  outline: 3px solid color-mix(in srgb, var(--color-primary) 45%, transparent);
+  outline-offset: 2px;
+}
+
+.story-bg-picker {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.story-bg-heading {
+  margin: 4px 0 0;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.story-bg-row {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 4px 2px 6px;
+  scrollbar-width: thin;
+}
+
+.story-bg-option {
+  flex: none;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border: 2px solid var(--color-surface);
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px var(--color-line-strong);
+  cursor: pointer;
+}
+
+.story-bg-option.is-theme {
+  width: 42px;
+  height: 64px;
+  border-radius: 10px;
+}
+
+.story-bg-option[aria-pressed="true"] {
+  box-shadow: 0 0 0 3px var(--color-primary);
+}
+
+.story-bg-option:focus-visible {
+  outline: 3px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.stories-text.has-background,
+.story-viewer-body.has-background {
+  text-shadow: 0 2px 10px rgba(0, 0, 0, .55);
+}

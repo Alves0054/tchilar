@@ -1,0 +1,231 @@
+/* ===========================================================================================
+   Cabeçalho das páginas do Tchilar: sem caixa, sem fundo, sem degradê. Uma palavra a vermelho,
+   o título grande, a frase e os botões ao lado. (Grupos, Anúncios, Verificação, Academia, Desafios,
+   Estrelas, Marcas e Convidar.)
+   =========================================================================================== */
+.tc-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 14px 24px;
+  margin: 4px 0 20px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--color-line);
+}
+
+.tc-head-text {
+  display: grid;
+  gap: 6px;
+  flex: 1 1 420px;
+  min-width: 0;
+  max-width: 720px;
+}
+
+.tc-head-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  color: #E30613;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: .02em;
+}
+
+.tc-head h1,
+.tc-head h2 {
+  margin: 0;
+  color: var(--color-text);
+  font-family: var(--font-display);
+  font-size: clamp(26px, 3.4vw, 36px);
+  line-height: 1.08;
+  letter-spacing: -.025em;
+}
+
+.tc-head h2 {
+  font-size: clamp(22px, 2.6vw, 28px);
+}
+
+.tc-head-text > p:not(.tc-head-kicker) {
+  margin: 0;
+  color: var(--color-text-muted);
+  line-height: 1.5;
+}
+
+.tc-head-text > .tc-head-facts {
+  color: var(--color-text);
+  font-size: 14px;
+}
+
+.tc-head-facts b {
+  font-weight: 800;
+}
+
+.tc-head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tc-head-actions .btn {
+  gap: 7px;
+}
+
+/* Um número em destaque à direita (ex.: saldo de estrelas) */
+.tc-head-figure {
+  display: grid;
+  justify-items: end;
+  gap: 2px;
+  margin: 0;
+}
+
+.tc-head-figure small {
+  color: var(--color-text-muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.tc-head-figure strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-display);
+  font-size: 30px;
+  letter-spacing: -.02em;
+}
+
+.tc-head-figure svg {
+  color: #C58A00;
+}
+
+/* Anúncios: ponto vermelho quando há promoções no ar e a calculadora numa linha */
+.ads-live-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #E30613;
+  animation: ads-pulse 1.6s infinite;
+}
+
+.ads-calc-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  margin: -6px 0 18px;
+  color: var(--color-text-muted);
+  font-size: 14px;
+}
+
+.ads-calc-line strong {
+  color: var(--color-text);
+}
+
+.ads-calc-line input[type="range"] {
+  flex: 1 1 180px;
+  max-width: 280px;
+  accent-color: #E30613;
+}
+
+.ads-calc-line .ads-calc-reach {
+  font-family: var(--font-display);
+  font-size: 18px;
+}
+
+@media (max-width: 640px) {
+  .tc-head {
+    align-items: flex-start;
+  }
+
+  .tc-head-figure {
+    justify-items: start;
+  }
+}
+
+/* Convidar: WhatsApp e ranking do mês */
+.btn.invite-whatsapp { background: #25D366; border-color: #25D366; color: #fff; text-decoration: none; }
+.btn.invite-whatsapp:hover { background: #1EBE5A; }
+.invite-ranking-filter { display: flex; align-items: center; gap: 10px; max-width: 320px; margin: 4px 0 12px; font-weight: 700; }
+.invite-ranking-filter > div { flex: 1; }
+.invite-ranking-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.invite-ranking-list li { display: grid; grid-template-columns: 32px auto 1fr auto; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 12px; }
+.invite-ranking-list li.is-me { background: var(--color-accent-soft); }
+.invite-ranking-list a { display: grid; color: inherit; text-decoration: none; min-width: 0; }
+.invite-ranking-list a strong, .invite-ranking-list a small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.invite-ranking-list small { color: var(--color-text-muted); }
+.invite-ranking-pos { font-weight: 800; font-size: 18px; text-align: center; }
+.invite-ranking-list li:nth-child(-n+3) .invite-ranking-pos { color: var(--color-accent); }
+.invite-ranking-count { font-weight: 700; white-space: nowrap; }
+.invite-ranking-me { margin: 12px 0 0; }
+
+/* Lojas: encomendar pelo WhatsApp e selo de negócio verificado */
+.business-badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 700;
+  color: #0B7A3B; background: color-mix(in srgb, #25D366 16%, transparent); vertical-align: middle; white-space: nowrap; }
+.btn.whatsapp-order { background: #25D366; border-color: #25D366; color: #fff; }
+.btn.whatsapp-order:hover { background: #1EBE5A; }
+.business-seal { display: grid; gap: 6px; padding: 12px 14px; border: 1px solid var(--color-line); border-radius: 14px; }
+.business-seal p { margin: 0; }
+.business-seal-row { display: flex; gap: 8px; }
+.business-seal-row input { flex: 1; min-width: 0; }
+.business-seal-state { display: flex; align-items: center; gap: 6px; margin: 0; }
+.business-seal-state.is-ok { color: #0B7A3B; }
+
+/* Diretos pagos */
+.live-paywall { display: grid; gap: 10px; justify-items: start; }
+.live-paywall h1 { margin: 0; font-size: clamp(22px, 3vw, 28px); }
+.live-paywall p { margin: 0; }
+.live-paywall-badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; background: #E30613; color: #fff; font-weight: 800; font-size: 13px; }
+.live-paywall-price { display: flex; align-items: center; gap: 6px; font-size: 18px; }
+.live-paid-pill { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 800;
+  background: color-mix(in srgb, #C58A00 18%, transparent); color: var(--color-text); }
+.live-card-paid { position: absolute; left: 10px; bottom: 10px; }
+
+/* ----- Recibo (aspeto de fatura) ----- */
+.rcp { padding: 0 !important; overflow: hidden; border-top: 0 !important; }
+.rcp-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 26px 32px; border-bottom: 4px solid var(--color-accent); }
+.rcp-logo { height: 34px; width: auto; }
+:root[data-theme="dark"] .rcp-logo { content: url("/tchilar-logo-full-dark.png"); }
+.rcp-id { display: grid; text-align: right; }
+.rcp-id span { font-size: 12px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; color: var(--color-accent); }
+.rcp-id strong { font-size: 20px; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: .02em; }
+.rcp-strip { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; background: var(--color-line); border-bottom: 1px solid var(--color-line); }
+.rcp-strip > div { display: grid; gap: 4px; padding: 14px 32px; background: var(--color-surface); }
+.rcp-strip span, .rcp-parties h3, .rcp-pay dt { font-size: 11px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: var(--color-text-muted); margin: 0; }
+.rcp-strip strong { font-size: 15px; }
+.rcp-status.is-paid { color: #157A3B; }
+.rcp-status.is-refunded, .rcp-status.is-refund_due { color: var(--color-accent); }
+.rcp .receipt-banner { margin: 16px 32px 0; }
+.rcp-parties { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; padding: 24px 32px; }
+.rcp-parties > div { display: grid; gap: 3px; align-content: start; }
+.rcp-parties h3 { margin-bottom: 6px; }
+.rcp-parties strong { font-size: 17px; }
+.rcp-parties small { color: var(--color-text-muted); font-size: 13px; }
+.rcp-lines { width: calc(100% - 64px); margin: 0 32px; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.rcp-lines th { padding: 10px 0; font-size: 11px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: var(--color-text-muted); text-align: left; border-bottom: 1.5px solid var(--color-text); }
+.rcp-lines td { padding: 14px 0; border-bottom: 1px solid var(--color-line); vertical-align: top; }
+.rcp-lines td:first-child { display: grid; gap: 2px; padding-right: 12px; }
+.rcp-lines .is-num { text-align: right; white-space: nowrap; padding-left: 16px; }
+.rcp-totals { display: grid; justify-content: end; gap: 6px; padding: 16px 32px 24px; }
+.rcp-totals > div { display: flex; justify-content: space-between; gap: 48px; min-width: 260px; font-variant-numeric: tabular-nums; }
+.rcp-totals > div:first-child { color: var(--color-text-muted); }
+.rcp-grand { margin-top: 6px; padding: 12px 16px; border-radius: 12px; background: var(--color-text); color: var(--color-surface); align-items: baseline; }
+.rcp-grand strong { font-size: 22px; font-weight: 800; }
+.rcp-pay { display: flex; flex-wrap: wrap; gap: 8px 32px; margin: 0; padding: 0 32px 20px; }
+.rcp-pay dd { margin: 4px 0 0; font-weight: 700; }
+.rcp-foot { display: grid; gap: 6px; padding: 18px 32px 24px; border-top: 1px dashed var(--color-line); font-size: 13px; color: var(--color-text-muted); }
+.rcp-foot p { margin: 0; }
+@media (max-width: 600px) {
+  .rcp-head, .rcp-strip > div, .rcp-parties, .rcp-totals, .rcp-pay, .rcp-foot { padding-left: 18px; padding-right: 18px; }
+  .rcp-lines { width: calc(100% - 36px); margin: 0 18px; }
+  .rcp-strip { grid-template-columns: 1fr 1fr; }
+  .rcp-parties { grid-template-columns: 1fr; }
+  .rcp-lines th:nth-child(2), .rcp-lines td:nth-child(2), .rcp-lines th:nth-child(3), .rcp-lines td:nth-child(3) { display: none; }
+  .rcp-totals > div { min-width: 0; width: 100%; }
+  .rcp-totals { justify-content: stretch; }
+}
+@media print {
+  .rcp { box-shadow: none !important; border: 0 !important; }
+  .rcp-grand { background: #111 !important; color: #fff !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .rcp-head { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}

@@ -1,0 +1,264 @@
+/* ===========================================================================================
+   Identidade visual: tipografia e ícones vivos (as cores da marca não mudam)
+   Os degradês só misturam cores da paleta. Ícones brancos ficam sempre ≥ 3:1 sobre o fundo;
+   nos azulejos coral o ícone é tinta (o branco sobre coral não chega a 3:1).
+   =========================================================================================== */
+:root {
+  --font-display: "Bricolage Grotesque Variable", "Nunito Variable", "Segoe UI Variable", system-ui, sans-serif;
+  --font-body: "Nunito Variable", "Nunito", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+  /* Ícones de área: preto e cinzentos (parte dos 60/30). O vermelho fica para ações e notificações. */
+  --grad-lagoa: linear-gradient(145deg, #0B0B0C 15%, #2C2C2E 100%);
+  --grad-ceu: linear-gradient(145deg, #2C2C2E 0%, #0B0B0C 100%);
+  --grad-coral: linear-gradient(145deg, #48484A 0%, #6E6E73 100%);
+  --grad-tinta: linear-gradient(145deg, #0B0B0C 0%, #3A3A3C 100%);
+  --tile-radius: 32%;
+  --tile-lift: inset 0 1px 0 rgba(255, 255, 255, .32), 0 6px 14px -8px color-mix(in srgb, var(--color-primary) 70%, transparent);
+}
+
+body {
+  font-family: var(--font-body);
+}
+
+/* Títulos, nomes e números com a fonte de personalidade */
+h1,
+h2,
+h3,
+.post-author,
+.home-heading,
+.creator-nav h1,
+.metric-tile-value strong,
+.stat-box strong,
+.mini-stats strong,
+.growth-balance strong,
+.payment-amount strong,
+.earnings-total strong,
+.star-pack strong,
+.ad-metrics dd {
+  font-family: var(--font-display);
+  letter-spacing: -.01em;
+}
+
+h1 {
+  font-weight: 750;
+}
+
+h2,
+h3 {
+  font-weight: 700;
+}
+
+.post-author {
+  font-weight: 700;
+}
+
+/* Etiquetas por cima dos títulos: frase normal, sem caixa alta espaçada */
+.feed-section-kicker,
+.profile-kicker,
+.settings-section-kicker {
+  color: var(--color-primary-text);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+:root[data-theme="dark"] .feed-section-kicker,
+:root[data-theme="dark"] .profile-kicker,
+:root[data-theme="dark"] .settings-section-kicker {
+  color: var(--color-secondary);
+}
+
+/* ---------------------------------------------------------------------------------------------
+   Azulejos de ícones: o elemento memorável da identidade
+   --------------------------------------------------------------------------------------------- */
+.home-link-icon,
+.menu-icon,
+.creator-nav-icon,
+.growth-hero-icon,
+.settings-option-icon,
+.share-target-icon,
+.ad-kind-icon,
+.composer-icon.tone-video,
+.composer-icon.tone-image {
+  border-radius: var(--tile-radius);
+  color: #FFFFFF;
+  background: var(--grad-lagoa);
+  box-shadow: var(--tile-lift);
+}
+
+.home-link-icon svg,
+.menu-icon svg,
+.creator-nav-icon svg,
+.growth-hero-icon svg,
+.settings-option-icon svg,
+.share-target-icon svg,
+.ad-kind-icon svg,
+.composer-icon.tone-video svg,
+.composer-icon.tone-image svg {
+  fill: currentColor;
+  fill-opacity: .24;
+  stroke-width: 2.1;
+}
+
+/* Famílias de cor por tipo de área (mesma especificidade, por isso estas regras ficam no fim). */
+.tone-home,
+.tone-friends,
+.tone-groups,
+.tone-stats,
+.tone-profile,
+.tone-brand,
+.tone-academy,
+.tone-bolt,
+.tone-image {
+  color: #FFFFFF;
+  background: var(--grad-lagoa);
+}
+
+.tone-messages,
+.tone-reels,
+.tone-notifications,
+.tone-video {
+  color: #FFFFFF;
+  background: var(--grad-ceu);
+}
+
+.tone-pages,
+.tone-events,
+.tone-help,
+.tone-star,
+.tone-trophy,
+.tone-gift,
+.tone-ad {
+  color: #FFFFFF;
+  background: var(--grad-coral);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .25), 0 6px 14px -8px rgba(0, 0, 0, .45);
+}
+
+.tone-settings,
+.tone-shield,
+.tone-neutral,
+.tone-logout,
+.tone-chevronDown,
+.tone-previous {
+  color: #FFFFFF;
+  background: var(--grad-tinta);
+}
+
+:root[data-theme="dark"] .tone-settings,
+:root[data-theme="dark"] .tone-shield,
+:root[data-theme="dark"] .tone-neutral,
+:root[data-theme="dark"] .tone-chevronDown,
+:root[data-theme="dark"] .tone-previous {
+  background: linear-gradient(145deg, color-mix(in srgb, var(--color-ink) 40%, #3A5163), var(--color-primary));
+}
+
+/* Ícones de atalhos de grupos/páginas: inicial em azulejo, mesma família */
+.home-shortcut {
+  border-radius: var(--tile-radius);
+  box-shadow: var(--tile-lift);
+}
+
+.home-shortcut img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  object-fit: cover;
+}
+
+/* Botões de vídeo/fotografia no compositor: azulejos mais pequenos */
+.composer-icon.tone-video,
+.composer-icon.tone-image {
+  width: 38px;
+  height: 38px;
+  background: var(--grad-ceu) !important;
+}
+
+.composer-icon.tone-image {
+  background: var(--grad-lagoa) !important;
+}
+
+.composer-icon.tone-video:hover,
+.composer-icon.tone-image:hover {
+  filter: brightness(1.08);
+}
+
+/* ---------------------------------------------------------------------------------------------
+   Navegação de topo: o separador ativo enche-se (duotone) e ganha a barra em degradê
+   --------------------------------------------------------------------------------------------- */
+.topbar-nav a.active svg {
+  fill: currentColor;
+  fill-opacity: .22;
+  stroke-width: 2.2;
+}
+
+.topbar-nav a.active::after {
+  background: var(--grad-lagoa);
+}
+
+.topbar-nav a:not(.active):hover svg {
+  color: var(--color-primary-text);
+}
+
+:root[data-theme="dark"] .topbar-nav a.active {
+  color: var(--color-secondary);
+}
+
+/* Navegação inferior no telemóvel: o mesmo realce */
+.app-community .topbar-nav a.active svg {
+  fill: currentColor;
+  fill-opacity: .22;
+}
+
+/* ---------------------------------------------------------------------------------------------
+   Ações das publicações: cada uma com a sua cor ao passar o rato; o gosto ativo enche-se
+   --------------------------------------------------------------------------------------------- */
+.post-actions button > span svg,
+.star-gift > button svg {
+  transition: color .15s ease;
+}
+
+.post-actions button:hover > span:first-child,
+.post-actions button:focus-visible > span:first-child {
+  color: var(--color-primary-text);
+}
+
+.post-actions button.active .post-like-icon svg {
+  fill: currentColor;
+  fill-opacity: .28;
+  stroke-width: 2.2;
+}
+
+.star-gift > button:hover .post-star-icon svg {
+  fill: currentColor;
+  fill-opacity: .3;
+}
+
+.post-count-mark {
+  background: var(--grad-coral);
+}
+
+/* Selo verificado com o mesmo enchimento duotone */
+.verified-badge svg {
+  fill: currentColor;
+  fill-opacity: .2;
+  stroke-width: 2.2;
+}
+
+/* Ícones de detalhe do perfil: azulejos suaves (informação, não navegação) */
+.rail-icon {
+  border-radius: var(--tile-radius);
+  color: var(--color-primary-text);
+  background: var(--color-primary-soft);
+}
+
+.rail-icon svg {
+  fill: currentColor;
+  fill-opacity: .14;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .post-actions button > span svg,
+  .star-gift > button svg {
+    transition: none;
+  }
+}
