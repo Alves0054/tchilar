@@ -291,11 +291,28 @@ function registerCreatorRoutes(app, deps) {
   // ---------------------------------------------------------------------------------------------
   const AD_FIELDS = `a.id,a.post_id,a.title,a.body,a.link_url,a.image_url,a.budget::float AS budget,a.spent::float AS spent,
     a.status,a.days,a.starts_at,a.ends_at,a.paid_at,a.created_at,a.target_provinces,a.target_min_age,a.target_max_age,
-    a.review_note,a.refund_status`;
+    a.review_note,a.refund_status,a.target_reach,a.delivered,a.undelivered_kz::float AS undelivered_kz`;
+
+  // Se a promoção não chegar a todas as pessoas no prazo, continua no ar até mais 14 dias.
+  const DELIVERY_GRACE_DAYS = 14;
 
   // Fecha promoções ativas que terminaram o prazo ou gastaram o orçamento.
-  const endFinishedAds = () => pool.query(
-    "UPDATE ads SET status='ended' WHERE status IN ('active','paused') AND (ends_at < NOW() OR spent >= budget)");
+  // Termina quando chegou a todas as pessoas, ou 14 dias depois do prazo; nesse caso guarda o valor não usado e avisa.
+  const endFinishedAds = async () => {
+    const ended = await pool.query(`
+      UPDATE ads SET status='ended',
+        undelivered_kz = CASE WHEN delivered < target_reach THEN GREATEST(0, budget - spent) END
+      WHERE status IN ('active','paused')
+        AND (delivered >= target_reach OR spent >= budget OR ends_at + make_interval(days => $1) < NOW())
+      RETURNING id, owner_id, title, delivered, target_reach, undelivered_kz::float AS undelivered_kz`, [DELIVERY_GRACE_DAYS]);
+    for (const ad of ended.rows) {
+      const text = ad.undelivered_kz > 0
+        ? `A tua promoção «${ad.title}» chegou a ${ad.delivered.toLocaleString("pt-PT")} de ${ad.target_reach.toLocaleString("pt-PT")} pessoas. `
+          + `Os ${ad.undelivered_kz.toLocaleString("pt-PT")} Kz que não foram usados vão ser devolvidos.`
+        : `A tua promoção «${ad.title}» chegou às ${ad.target_reach.toLocaleString("pt-PT")} pessoas que escolheste.`;
+      await pool.query("INSERT INTO notifications(user_id,type,text) VALUES($1,'ad',$2)", [ad.owner_id, text]);
+    }
+  };
 
   // Abre o pagamento (Stripe, ou demonstração sem Stripe em desenvolvimento). Ver payments.js.
   const startAdPayment = (ad, ownerEmail, choice = {}) => payments.start({
@@ -358,10 +375,12 @@ function registerCreatorRoutes(app, deps) {
     const { title, body, linkUrl, budget, days } = parsed.ad;
     const { provinces, minAge, maxAge } = audience.targeting;
     const result = await pool.query(`
-      INSERT INTO ads(owner_id,post_id,title,body,link_url,image_url,budget,days,status,ends_at,target_provinces,target_min_age,target_max_age)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8,'pending_payment',NOW() + ($8::int * INTERVAL '1 day'),$9,$10,$11)
-      RETURNING id,owner_id,post_id,title,budget,days`,
-    [req.user.id, postId, title, body, linkUrl, imageUrl, budget, days, provinces, minAge, maxAge]);
+      INSERT INTO ads(owner_id,post_id,title,body,link_url,image_url,budget,days,status,ends_at,target_provinces,target_min_age,target_max_age,target_reach)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,'pending_payment',NOW() + ($8::int * INTERVAL '1 day'),$9,$10,$11,$12)
+      RETURNING id,owner_id,post_id,title,budget,days,target_reach`,
+    [req.user.id, postId, title, body, linkUrl, imageUrl, budget, days, provinces, minAge, maxAge,
+      // Pessoas a alcançar = orçamento ÷ custo por pessoa (cada pessoa conta uma vez).
+      Math.max(1, Math.floor(budget / costFor({ target_provinces: provinces, target_min_age: minAge, target_max_age: maxAge })))]);
     const payment = await startAdPayment(result.rows[0], owner.email, { method: input.method, phone: input.phone });
     if (payment.error) return res.status(503).json({ id: result.rows[0].id, error: payment.error });
     res.status(201).json({ id: result.rows[0].id, ...payment });
@@ -426,16 +445,21 @@ function registerCreatorRoutes(app, deps) {
   });
 
   // Condição SQL partilhada: promoção paga, ativa, dentro do prazo e com orçamento.
-  const SERVABLE_AD_SQL = "a.status='active' AND a.paid_at IS NOT NULL AND NOW() BETWEEN a.starts_at AND a.ends_at AND a.spent < a.budget";
+  const SERVABLE_AD_SQL = `a.status='active' AND a.paid_at IS NOT NULL AND NOW() >= a.starts_at
+    AND NOW() <= a.ends_at + make_interval(days => ${DELIVERY_GRACE_DAYS}) AND a.delivered < a.target_reach AND a.spent < a.budget`;
+  // Só para quem ainda não a viu: assim cada lugar vai para uma pessoa nova e a promoção chega a quem foi pago.
+  const NOT_SEEN_SQL = "NOT EXISTS(SELECT 1 FROM ad_events seen WHERE seen.ad_id=a.id AND seen.user_id=$1 AND seen.kind='impression')";
+  // Prazo para espalhar o que falta: o fim escolhido ou, se já passou, o fim da prorrogação.
+  const PACE_END_SQL = `CASE WHEN NOW() > a.ends_at THEN a.ends_at + make_interval(days => ${DELIVERY_GRACE_DAYS}) ELSE a.ends_at END`;
 
   // Espaço "Patrocinado" da coluna direita: anúncios sem publicação associada.
   app.get("/api/ads/serve", optionalAuth, async (req, res) => {
     await endFinishedAds();
     const viewer = req.user?.id || 0;
     const result = await pool.query(`
-      SELECT a.id,a.title,a.body,a.link_url,a.image_url,a.budget,a.spent,a.ends_at,u.display_name AS advertiser
+      SELECT a.id,a.title,a.body,a.link_url,a.image_url,a.target_reach AS budget,a.delivered AS spent,${PACE_END_SQL} AS ends_at,u.display_name AS advertiser
       FROM ads a JOIN users u ON u.id=a.owner_id LEFT JOIN users viewer ON viewer.id=$1
-      WHERE ${SERVABLE_AD_SQL} AND a.post_id IS NULL AND ${AUDIENCE_SQL} AND NOT ${blockedBetween("$1", "a.owner_id")}
+      WHERE ${SERVABLE_AD_SQL} AND a.post_id IS NULL AND ${AUDIENCE_SQL} AND ${NOT_SEEN_SQL} AND NOT ${blockedBetween("$1", "a.owner_id")}
       LIMIT 200`, [viewer]);
     const [ad] = pickPromotions(result.rows, 1);
     if (!ad) return res.json({ ad: null });
@@ -451,10 +475,10 @@ function registerCreatorRoutes(app, deps) {
     const placement = ["feed", "reels", "stories"].includes(req.query.placement) ? req.query.placement : "feed";
     const mediaFilter = placement === "reels" ? "AND p.media_type='video'" : placement === "stories" ? "AND p.media_url <> ''" : "";
     const candidates = await pool.query(`
-      SELECT a.id,a.post_id,a.budget,a.spent,a.ends_at
+      SELECT a.id,a.post_id,a.target_reach AS budget,a.delivered AS spent,${PACE_END_SQL} AS ends_at
       FROM ads a JOIN posts p ON p.id=a.post_id LEFT JOIN users viewer ON viewer.id=$1
       WHERE ${SERVABLE_AD_SQL} AND a.owner_id <> $1 AND p.hidden_at IS NULL AND NOT p.is_exclusive AND p.group_id IS NULL
-        ${mediaFilter} AND ${AUDIENCE_SQL} AND NOT ${blockedBetween("$1", "a.owner_id")}
+        ${mediaFilter} AND ${AUDIENCE_SQL} AND ${NOT_SEEN_SQL} AND NOT ${blockedBetween("$1", "a.owner_id")}
       LIMIT 200`, [viewer]);
     const picked = pickPromotions(candidates.rows, placement === "stories" ? 1 : 2);
     if (!picked.length) return res.json({ posts: [] });
@@ -475,20 +499,21 @@ function registerCreatorRoutes(app, deps) {
     });
   });
 
-  // A impressão só é contada (e cobrada) quando a promoção aparece mesmo no ecrã,
-  // no máximo uma vez por pessoa e por dia. Quem anuncia não paga as próprias visualizações.
+  // A impressão só é contada quando a promoção aparece mesmo no ecrã. Cada pessoa conta (e paga) uma só vez
+  // por promoção, esteja no feed, nos Reels ou nos Stories. Quem anuncia não paga as próprias visualizações.
   app.post("/api/ads/:id/impression", auth, async (req, res) => {
     const id = parseId(req.params.id);
     if (!id) return res.status(400).json({ error: "Anúncio inválido." });
     const charged = await transaction(async client => {
       const ad = await client.query(`SELECT a.owner_id,a.target_provinces,a.target_min_age,a.target_max_age FROM ads a WHERE a.id=$1 AND ${SERVABLE_AD_SQL} FOR UPDATE`, [id]);
       if (!ad.rowCount || ad.rows[0].owner_id === req.user.id) return false;
-      const counted = await client.query(
-        "INSERT INTO ad_events(ad_id,user_id,kind) VALUES($1,$2,'impression') ON CONFLICT DO NOTHING", [id, req.user.id]);
-      if (!counted.rowCount) return false;
+      const seenBefore = await client.query("SELECT 1 FROM ad_events WHERE ad_id=$1 AND user_id=$2 AND kind='impression' LIMIT 1", [id, req.user.id]);
+      // Guarda a visualização do dia (para os resultados por dia), mas só uma pessoa nova conta e paga.
+      await client.query("INSERT INTO ad_events(ad_id,user_id,kind) VALUES($1,$2,'impression') ON CONFLICT DO NOTHING", [id, req.user.id]);
+      if (seenBefore.rowCount) return false;
       await client.query(`
-        UPDATE ads SET spent = LEAST(budget, spent + $2),
-          status = CASE WHEN spent + $2 >= budget THEN 'ended' ELSE status END
+        UPDATE ads SET delivered = delivered + 1, spent = LEAST(budget, spent + $2),
+          status = CASE WHEN delivered + 1 >= target_reach THEN 'ended' ELSE status END
         WHERE id=$1`, [id, costFor(ad.rows[0])]);
       return true;
     });

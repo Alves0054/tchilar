@@ -222,8 +222,8 @@ export function AdsStudio({ boostPost, clearBoost }) {
       <View style={styles.kickerRow}>{liveCount > 0 && <LiveDot />}
         <Text style={styles.kicker}>{liveCount ? `${liveCount} ${liveCount === 1 ? "promoção no ar" : "promoções no ar"}` : "Anúncios"}</Text></View>
       <Text style={styles.headTitle}>Leva o teu trabalho a quem ainda não te conhece</Text>
-      <Text style={styles.headText}>Pagas uma vez, em kwanzas, e o Tchilar mostra a tua publicação a pessoas novas no feed, nos Stories e nos Reels.</Text>
-      <Text style={styles.calcLine}>Com <Text style={styles.calcStrong}>{kz(calc)}</Text> chegas a cerca de <Text style={styles.calcReach}>{count(Math.floor(calc / cost))}</Text> pessoas novas</Text>
+      <Text style={styles.headText}>Pagas uma vez, em kwanzas, e o Tchilar mostra a tua publicação no feed, nos Stories e nos Reels até chegar ao número de pessoas que pagaste. Cada pessoa conta uma só vez.</Text>
+      <Text style={styles.calcLine}>Com <Text style={styles.calcStrong}>{kz(calc)}</Text> chegas a <Text style={styles.calcReach}>{count(Math.floor(calc / cost))}</Text> pessoas diferentes</Text>
       <StableSlider minimumValue={1000} maximumValue={100000} step={1000} value={calc} onValueChange={setCalc}
         minimumTrackTintColor={RED} maximumTrackTintColor={colors.line} thumbTintColor={RED} accessibilityLabel="Orçamento" />
       {!form && <Button label={`Impulsionar com ${kz(calc)}`} icon="flash" onPress={() => openForm({ budget: String(calc) })} />}
@@ -359,7 +359,8 @@ export function AdsStudio({ boostPost, clearBoost }) {
       </ScrollView>
       {visible.map(ad => {
         const [label, tone] = STATUS[ad.status] || STATUS.ended;
-        const ratio = ad.budget ? (ad.spent / ad.budget) * 100 : 0;
+        // Progresso em pessoas: quantas já viram de quantas foram pagas.
+        const ratio = ad.target_reach ? Math.min(100, (ad.delivered / ad.target_reach) * 100) : ad.budget ? (ad.spent / ad.budget) * 100 : 0;
         const image = ad.post_id ? (ad.post_media_type === "image" ? ad.post_media_url : null) : ad.image_url;
         const daysLeft = Math.max(0, Math.ceil((new Date(ad.ends_at) - Date.now()) / 86400000));
         const when = ad.status === "pending_payment" ? `${dayLabel(ad.days)} depois do pagamento`
@@ -384,11 +385,12 @@ export function AdsStudio({ boostPost, clearBoost }) {
           <View style={styles.metrics}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
               <Ring ratio={ratio} color={tone} />
-              <Text style={styles.small}>{kz(ad.spent)}{"\n"}de {kz(ad.budget)}</Text>
+              <Text style={styles.small}>{count(ad.delivered ?? ad.reach ?? 0)} de {count(ad.target_reach || 0)}{"\n"}pessoas</Text>
             </View>
             {[["Pessoas", count(ad.reach ?? ad.impressions)], ["Cliques", count(ad.clicks)], ["Taxa", percentOf(ad.clicks, ad.impressions)]].map(([name, value]) =>
               <View key={name} style={{ alignItems: "flex-end" }}><Text style={styles.metricLabel}>{name}</Text><Text style={styles.metricValue}>{value}</Text></View>)}
           </View>
+          {ad.undelivered_kz > 0 ? <Text style={styles.muted}>Chegou a {count(ad.delivered)} de {count(ad.target_reach)} pessoas: os {kz(ad.undelivered_kz)} não usados vão ser devolvidos.</Text> : null}
           {ad.status === "rejected" && ad.review_note ? <Text style={{ color: colors.danger, fontSize: 13 }}>Motivo: {ad.review_note}{ad.refund_status === "refunded" ? " · valor devolvido" : ""}</Text> : null}
           <View style={styles.actions}>
             {ad.status === "pending_payment" && <Button small label={`Pagar ${kz(ad.budget)}`} onPress={() => setPaying({ title: `Pagar «${ad.title}»`, amount: ad.budget, start: choice => api(`/ads/${ad.id}/checkout`, { method: "POST", body: choice }) })} />}

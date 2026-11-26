@@ -1028,6 +1028,46 @@ test("live gifts: 15 gifts from 100 Kz to 25 000 Kz, paid in stars, louder sound
   await call("POST", `/lives/${live}/end`, host);
 });
 
+test("promotions reach the number of people paid for: each person counts once, in any placement", { skip }, async () => {
+  const stamp = Date.now();
+  const owner = await makeUser(`adr_owner_${stamp}`);
+  const viewers = [];
+  for (let i = 0; i < 3; i += 1) viewers.push(await makeUser(`adr_view${i}_${stamp}`));
+  const post = (await call("POST", "/posts", owner, { body: `Promoção ${stamp}` })).body.post;
+  // 1 Kz a 0,50 Kz por pessoa: 2 pessoas.
+  const ad = (await pool.query(`INSERT INTO ads(owner_id,post_id,title,budget,days,status,starts_at,ends_at,paid_at)
+    VALUES($1,$2,'Alcance',1,1,'active',NOW(),NOW() + INTERVAL '1 day',NOW()) RETURNING id,target_reach`, [owner.id, post.id])).rows[0];
+  assert.equal(ad.target_reach, 2, "orçamento ÷ custo por pessoa");
+  const served = async (viewer, placement = "feed") =>
+    (await call("GET", `/ads/feed?placement=${placement}`, viewer)).body.posts.some(item => item.sponsored?.ad_id === ad.id);
+  const seen = async viewer => (await call("POST", `/ads/${ad.id}/impression`, viewer, {})).body.counted;
+
+  assert.equal(await served(viewers[0]), true);
+  assert.equal(await seen(viewers[0]), true);
+  assert.equal(await seen(viewers[0]), false, "a mesma pessoa não conta duas vezes");
+  await pool.query("UPDATE ad_events SET day=CURRENT_DATE - 1 WHERE ad_id=$1 AND user_id=$2", [ad.id, viewers[0].id]);
+  assert.equal(await seen(viewers[0]), false, "nem noutro dia");
+  assert.equal(await served(viewers[0]), false, "quem já viu deixa o lugar para outra pessoa");
+  assert.equal(await served(viewers[1]), true);
+  assert.equal(await seen(viewers[1]), true);
+  const done = (await pool.query("SELECT status,delivered,spent::float AS spent FROM ads WHERE id=$1", [ad.id])).rows[0];
+  assert.deepEqual([done.status, done.delivered, done.spent], ["ended", 2, 1], "chegou às 2 pessoas e acabou");
+  assert.equal(await served(viewers[2]), false);
+  const mine = (await call("GET", "/ads/mine", owner)).body.ads.find(item => item.id === ad.id);
+  assert.deepEqual([mine.target_reach, mine.delivered], [2, 2]);
+
+  // Prazo passou sem chegar a todos: continua no ar até 14 dias; depois acaba e guarda o valor não usado.
+  const late = (await pool.query(`INSERT INTO ads(owner_id,post_id,title,budget,days,status,starts_at,ends_at,paid_at)
+    VALUES($1,$2,'Atrasada',2,1,'active',NOW() - INTERVAL '5 days',NOW() - INTERVAL '2 days',NOW()) RETURNING id`, [owner.id, post.id])).rows[0].id;
+  assert.ok((await call("GET", "/ads/feed", viewers[2])).body.posts.some(item => item.sponsored?.ad_id === late), "ainda está no ar");
+  await call("POST", `/ads/${late}/impression`, viewers[2], {});
+  await pool.query("UPDATE ads SET ends_at=NOW() - INTERVAL '15 days' WHERE id=$1", [late]);
+  await call("GET", "/ads/mine", owner);
+  const ended = (await pool.query("SELECT status,delivered,undelivered_kz::float AS undelivered FROM ads WHERE id=$1", [late])).rows[0];
+  assert.deepEqual([ended.status, ended.delivered, ended.undelivered], ["ended", 1, 1.5], "chegou a 1 de 4: sobram 1,50 Kz");
+  assert.ok((await pool.query("SELECT 1 FROM notifications WHERE user_id=$1 AND text LIKE '%chegou a 1 de 4 pessoas%'", [owner.id])).rowCount);
+});
+
 test("payments: each person sees their receipts and the team sees, filters and exports them all", { skip }, async () => {
   const stars = (await pool.query(
     "INSERT INTO star_purchases(user_id,stars,amount_kz,status,paid_at) VALUES($1,100,1500,'paid',NOW()) RETURNING id", [users.ana.id])).rows[0].id;

@@ -866,7 +866,8 @@ export function CreatorAds() {
       <div className="tc-head-text">
         <p className="tc-head-kicker">{liveCount ? <><i className="ads-live-dot" aria-hidden="true" /> {liveCount} {liveCount === 1 ? "promoção no ar" : "promoções no ar"}</> : "Anúncios"}</p>
         <h2 id="ads-full-title">Leva o teu trabalho a quem ainda não te conhece</h2>
-        <p>Pagas uma vez, em kwanzas, e o Tchilar mostra a tua promoção a pessoas novas no feed, nos Stories, nos Reels e na coluna «Patrocinado».</p>
+        <p>Pagas uma vez, em kwanzas, e o Tchilar mostra a tua promoção no feed, nos Stories, nos Reels e na coluna «Patrocinado»
+          até chegar ao número de pessoas que pagaste. Cada pessoa conta uma só vez.</p>
       </div>
       {!creating && <div className="tc-head-actions">
         <button className="btn" type="button" onClick={() => { update("kind", "boost"); openForm(); }}><Icon name="bolt" size={16} /> Impulsionar publicação</button>
@@ -878,7 +879,7 @@ export function CreatorAds() {
       <label htmlFor="ads-calc-range">Com <strong>{formatPrice(calcBudget)}</strong></label>
       <input id="ads-calc-range" type="range" min="1000" max="100000" step="1000" value={calcBudget}
         onChange={event => setCalcBudget(Number(event.target.value))} aria-valuetext={formatPrice(calcBudget)} />
-      <span>chegas a cerca de <strong className="ads-calc-reach">{formatCount(Math.floor(calcBudget / cost))}</strong> pessoas novas</span>
+      <span>chegas a <strong className="ads-calc-reach">{formatCount(Math.floor(calcBudget / cost))}</strong> pessoas diferentes</span>
       <button className="text-button" type="button" onClick={() => { update("budget", String(calcBudget)); setCustomBudget(BUDGET_PRESETS.includes(calcBudget) ? "" : String(calcBudget)); openForm(); }}>Usar este valor</button>
     </div>
 
@@ -1026,7 +1027,8 @@ export function CreatorAds() {
         <ul className="ad-list">
           {visibleAds.map(ad => {
             const [statusLabel, statusClass] = AD_STATUS[ad.status] || AD_STATUS.ended;
-            const spentRatio = Math.min(100, (ad.spent / ad.budget) * 100);
+            // Progresso em pessoas: quantas já viram de quantas foram pagas.
+            const spentRatio = ad.target_reach ? Math.min(100, (ad.delivered / ad.target_reach) * 100) : Math.min(100, (ad.spent / ad.budget) * 100);
             const daysLeft = Math.max(0, Math.ceil((new Date(ad.ends_at) - Date.now()) / 86400000));
             const art = ad.post_id
               ? ad.post_media_url && ad.post_media_type === "image" ? <img src={`${API_BASE}${ad.post_media_url}`} alt="" /> : <Icon name={ad.post_media_type === "video" ? "reels" : "bolt"} size={22} />
@@ -1044,9 +1046,9 @@ export function CreatorAds() {
               </div>
               <dl className="ad-metrics">
                 <div className="ad-ring-wrap">
-                  <span className="ad-ring" style={{ "--p": spentRatio }} role="progressbar" aria-label="Orçamento gasto"
+                  <span className="ad-ring" style={{ "--p": spentRatio }} role="progressbar" aria-label="Pessoas alcançadas"
                     aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(spentRatio)}><b>{Math.round(spentRatio)}%</b></span>
-                  <small>{formatPrice(ad.spent)}<br />de {formatPrice(ad.budget)}</small>
+                  <small>{formatCount(ad.delivered ?? ad.reach ?? 0)} de {formatCount(ad.target_reach || 0)}<br />pessoas</small>
                 </div>
                 <div><dt>Pessoas</dt><dd>{formatCount(ad.reach ?? ad.impressions)}</dd></div>
                 <div><dt>Cliques</dt><dd>{formatCount(ad.clicks)}</dd></div>
@@ -1054,6 +1056,7 @@ export function CreatorAds() {
               </dl>
               <div className="ad-actions">
                 {ad.status === "pending_payment" && <button className="btn" type="button" onClick={() => pay(ad)}>Pagar {formatPrice(ad.budget)}</button>}
+                {ad.undelivered_kz > 0 && <small className="review-note">Chegou a {formatCount(ad.delivered)} de {formatCount(ad.target_reach)} pessoas: os {formatPrice(ad.undelivered_kz)} não usados vão ser devolvidos.</small>}
                 {ad.status === "rejected" && ad.review_note && <small className="review-note">Motivo: {ad.review_note}{ad.refund_status === "refunded" ? " · valor devolvido" : ad.refund_status === "manual" || ad.refund_status === "failed" ? " · devolução em curso" : ""}</small>}
                 {ad.paid_at && ad.status !== "rejected" && ad.status !== "in_review" && <button className="btn secondary" type="button" aria-expanded={expanded} onClick={() => setOpenResults(expanded ? null : ad.id)}>
                   <Icon name="stats" size={15} /> {expanded ? "Fechar" : "Resultados"}</button>}
