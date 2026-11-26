@@ -316,6 +316,16 @@ async function removeUpload(mediaUrl) {
 
 async function initDb() {
   await runMigrations(pool);
+  await applyOfficialPageEmail();
+}
+
+// Email de quem gere a página oficial do Tchilar. Vem do .env (OFFICIAL_PAGE_EMAIL) para não ficar
+// no código público. A conta com esse email passa a dona da página quando o email estiver confirmado.
+async function applyOfficialPageEmail(email = String(process.env.OFFICIAL_PAGE_EMAIL || "").trim().toLowerCase()) {
+  if (!email) return;
+  await pool.query("UPDATE pages SET admin_email=$1 WHERE is_official AND lower(COALESCE(admin_email,'')) <> $1", [email]);
+  await pool.query(`UPDATE pages p SET owner_id=u.id FROM users u
+    WHERE p.is_official AND lower(u.email)=$1 AND u.email_verified AND p.owner_id IS DISTINCT FROM u.id`, [email]);
 }
 
 function isRecord(value) {

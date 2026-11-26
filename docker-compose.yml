@@ -94,6 +94,7 @@ services:
       # Dados da empresa nos recibos.
       COMPANY_NAME: ${COMPANY_NAME:-}
       COMPANY_NIF: ${COMPANY_NIF:-}
+      OFFICIAL_PAGE_EMAIL: ${OFFICIAL_PAGE_EMAIL:-}
       COMPANY_ADDRESS: ${COMPANY_ADDRESS:-}
       COMPANY_EMAIL: ${COMPANY_EMAIL:-}
     ports:

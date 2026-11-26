@@ -10,3 +10,11 @@ release
 expo-qr.png
 
 *.log
+
+# Documentos privados (orçamento, simulação, notas internas) e capturas com dados pessoais: ficam só no computador.
+relatorios/
+NOTA-*.md
+design/lojas/capturas/
+design/lojas/app-store/
+design/lojas/google-play/
+qr-*.png
